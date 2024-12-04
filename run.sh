@@ -1,1 +1,4 @@
-torchrun --standalone --nproc_per_node=8 train_gpt2.py
+torchrun --standalone --nproc_per_node=8 -m nanogpt.train 
+
+
+torchrun --standalone --nproc_per_node=4 -m nanogpt.train

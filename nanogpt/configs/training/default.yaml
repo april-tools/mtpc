@@ -1,0 +1,12 @@
+# Data hyperparams
+
+# Optimization hyperparams
+batch_size: 512
+device_batch_size: 64
+sequence_length: 1024
+num_iterations: 15000
+learning_rate: 0.0005
+
+# Evaluation and logging hyperparams
+val_loss_every: 1000
+val_tokens: 1048576 # 8*64*1024

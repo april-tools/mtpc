@@ -1,0 +1,26 @@
+defaults:
+  - _self_
+  - training: default
+  - model: default
+
+name: nanogpt
+compile: true
+
+data:
+  train_bin: '/home/ubuntu/pnawrot/gpt/fineweb10B/fineweb_train_*.bin'
+  val_bin: '/home/ubuntu/pnawrot/gpt/fineweb10B/fineweb_val_*.bin'
+
+hydra:
+  job:
+    chdir: true
+    name: ${name}
+    env_set:
+      OMP_NUM_THREADS: 1
+      CUDA_VISIBLE_DEVICES: 0,1,2,3
+  run:
+    dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
+
+  job_logging:
+    formatters:
+      simple:
+        format: '[%(asctime)s] - %(message)s'

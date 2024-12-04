@@ -2,3 +2,5 @@ torch
 datasets
 numpy
 tqdm
+hydra-core
+omegaconf

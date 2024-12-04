@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 Download data
 ```
-python data/cached_fineweb10B.py 10
+python nanogpt/data/cached_fineweb10B.py 10
 ```
 
 Change data paths in `nanogpt/configs/config.yaml` to your own paths.

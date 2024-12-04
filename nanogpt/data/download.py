@@ -5,7 +5,7 @@ from huggingface_hub import hf_hub_download
 # saves about an hour of startup time compared to regenerating them.
 import pdb; pdb.set_trace()
 def get(fname):
-    local_dir = os.path.join(os.path.dirname(__file__), 'fineweb10B')
+    local_dir = os.path.join(os.getcwd(), 'fineweb10B')
     if not os.path.exists(os.path.join(local_dir, fname)):
         hf_hub_download(repo_id="kjj0/fineweb10B-gpt2", filename=fname,
                         repo_type="dataset", local_dir=local_dir)

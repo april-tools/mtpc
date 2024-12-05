@@ -1,6 +1,9 @@
-torch
+torch~=2.3.0
+numpy>=1.23.0,<2.0.0
+einops~=0.8.0
+scipy~=1.14.0
 datasets
-numpy
 tqdm
 hydra-core
 omegaconf
+

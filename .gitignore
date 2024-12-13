@@ -2,3 +2,5 @@ fineweb10B/
 __pycache__/
 logs/
 .venv/
+venv/
+.idea/

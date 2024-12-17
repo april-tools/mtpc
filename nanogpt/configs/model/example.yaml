@@ -1,0 +1,32 @@
+vocab_size: &vocab_size 5000
+n_embd: &n_embd 768
+n_component: &n_component 5
+n_token: &n_token 3
+
+lm: &lm_encoder
+    $classname: GPT
+    $module: nanogpt.models.gpt
+    config:
+      vocab_size: *vocab_size
+      n_embd: *n_embd
+      n_layer: 12
+      n_head: 6
+      n_token: *n_token
+      n_component: *n_component
+head: &lm_head
+    $classname: LinearExpanderHead
+    $module: nanogpt.models.circuit
+    n_embd: *n_embd
+    n_component: *n_component
+circuit: &circuit
+    $classname: CircuitCP
+    $module: nanogpt.models.circuit
+    vocab_size: *vocab_size
+    n_token: *n_token
+    n_component: *n_component
+model:
+    $classname: MultiTokenLM
+    $module: nanogpt.models.mt
+    lm_encoder: *lm_encoder
+    lm_head: *lm_head
+    circuit: *circuit

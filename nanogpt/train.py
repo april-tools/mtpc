@@ -1,5 +1,6 @@
 import hydra
 import torch
+import mlconf
 import torch.distributed as dist
 from torch.amp import autocast
 from omegaconf import DictConfig
@@ -96,9 +97,14 @@ def main(cfg: DictConfig):
     # Calculate steps
     val_steps = cfg.training.val_tokens // (B * T * world_size)
     train_accumulation_steps = cfg.training.batch_size // (B * world_size)
-    
+
+    myconf = mlconf.Blueprint.from_file('/home/grv/Playground/multi-token/nanoGPT/nanogpt/configs/model/example.yaml')
+
     # Initialize model
-    model = GPT(GPTConfig(**cfg.model))
+    myconf = myconf.build()
+    model = myconf.model
+    
+    # model = GPT(GPTConfig(**cfg.model))
     model = wrap_model_distributed(model, local_rank, cfg.compile)
     raw_model = model.module
 

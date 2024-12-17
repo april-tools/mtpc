@@ -7,7 +7,10 @@ from cirkit.symbolic.circuit import Circuit
 from cirkit.symbolic.layers import SumLayer, CategoricalLayer
 from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.utils.scope import Scope
-from cirkit.pipeline import compile
+from cirkit.pipeline import PipelineContext
+from cirkit.symbolic.parameters import Parameter, TensorParameter, LogSoftmaxParameter
+from cirkit.symbolic.initializers import NormalInitializer
+from cirkit.templates import tensor_factorizations, utils
 
 from .mlp import Block
 
@@ -15,17 +18,17 @@ from .mlp import Block
 class TransformerExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, embed_dim, num_components, num_heads=4, num_layers=2):
+    def __init__(self, n_embd, n_component, num_heads=4, num_layers=2):
         super().__init__()
-        self.embed_dim = embed_dim            # D
-        self.num_components = num_components  # R
+        self.n_embd = n_embd            # D
+        self.n_component = n_component  # R
         self.num_heads = num_heads
         self.num_layers = num_layers
 
         # NOTE: Below need not be causal - since over "R" dimension
-        te = torch.nn.TransformerEncoderLayer(d_model=embed_dim, nhead=self.num_heads, batch_first=True)
+        te = torch.nn.TransformerEncoderLayer(d_model=n_embd, nhead=self.num_heads, batch_first=True)
         self.rf = torch.nn.TransformerEncoder(te, num_layers=self.num_layers)
-        self.rep_pos_embeds = torch.nn.Embedding(self.num_components, self.embed_dim)
+        self.rep_pos_embeds = torch.nn.Embedding(self.n_component, self.n_embd)
 
     def forward(self, xx):
         # Batch, Embed Dim
@@ -36,15 +39,15 @@ class TransformerExpanderHead(torch.nn.Module):
 class LinearExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, embed_dim, num_components):
+    def __init__(self, n_embd, n_component):
         super().__init__()
-        self.embed_dim = embed_dim            # D
-        self.num_components = num_components  # R
+        self.n_embd = n_embd            # D
+        self.n_component = n_component  # R
         self.gelu = torch.nn.GELU()
         # Below is equivalent to R square linear layers
-        self.Wr = torch.nn.Parameter(torch.zeros(self.num_components,
-                                                 self.embed_dim,
-                                                 self.embed_dim))
+        self.Wr = torch.nn.Parameter(torch.zeros(self.n_component,
+                                                 self.n_embd,
+                                                 self.n_embd))
         torch.nn.init.normal_(self.Wr, mean=0.0, std=0.02)
 
     def forward(self, xx):
@@ -69,13 +72,13 @@ class LinearExpanderHead(torch.nn.Module):
 class TransformerEncoderHead(torch.nn.Module):
     # Create custom parameterisation for each output token
 
-    def __init__(self, embed_dim, num_heads=6, num_layers=2):
+    def __init__(self, n_embd, num_heads=6, num_layers=2):
         super().__init__()
-        self.embed_dim = embed_dim
+        self.n_embd = n_embd
         self.num_heads = num_heads
         self.num_layers = num_layers
 
-        config = namedtuple('opts', ['n_embd', 'n_head'])(self.embed_dim, self.num_heads)
+        config = namedtuple('opts', ['n_embd', 'n_head'])(self.n_embd, self.num_heads)
         self.transformer = torch.nn.ModuleList([Block(config) for _ in range(self.num_layers)])
 
     def forward(self, xx):
@@ -111,24 +114,24 @@ class TokenHead(torch.nn.Module):
 
 class MultiTokenHead(torch.nn.Module):
 
-    def __init__(self, embed_dim, vocab_size, num_components=1, num_tokens=3):
+    def __init__(self, n_embd, vocab_size, n_component=1, num_tokens=3):
         super().__init__()
-        self.embed_dim = embed_dim             # D
+        self.n_embd = n_embd             # D
         self.vocab_size = vocab_size           # V
-        self.num_components = num_components   # R
+        self.n_component = n_component   # R
         self.num_tokens = num_tokens           # H
         self.token_heads = torch.nn.ModuleList([
-            TokenHead(encoder=TransformerEncoderHead(self.embed_dim),
-                      expander=LinearExpanderHead(self.embed_dim, self.num_components))
+            TokenHead(encoder=TransformerEncoderHead(self.n_embd),
+                      expander=LinearExpanderHead(self.n_embd, self.n_component))
             for i in range(self.num_tokens)
             ])
         # self.token_heads = torch.nn.ModuleList([
-        #     TokenHead(encoder=TransformerEncoderHead(self.embed_dim),
+        #     TokenHead(encoder=TransformerEncoderHead(self.n_embd),
         #               expander=None)
         #     for i in range(self.num_tokens)
         #     ])
         # Unembedding matrix
-        self.W = torch.nn.Linear(self.embed_dim, self.vocab_size, bias=False)
+        self.W = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
 
     def forward(self, xx):
 
@@ -151,6 +154,7 @@ def logit_mapper(circuit, logits):
     assert len(logits.shape) == 3
     # Add the channel dimension
     mapped = logits.unsqueeze(dim=2)
+    del circuit.layers[0].logits
     circuit.layers[0].logits = lambda: mapped
     return circuit
 
@@ -163,7 +167,16 @@ def multi_token_mixture(n, h=1, r=1):
     # n is the number of categories (vocabulary size)
     # h is the number of tokens in the future window we wish to predict
     # r is the number of mixture components (overparameterisation)
-    cats = [CategoricalLayer(scope=Scope([i]), num_output_units=r, num_channels=1, num_categories=n)
+    shape = (r, 1, n)
+    cats = [CategoricalLayer(scope=Scope([i]),
+                             num_output_units=r,
+                             num_channels=1,
+                             num_categories=n,
+                             probs=None,
+                             logits_factory = lambda shape: Parameter.from_input(
+                                TensorParameter(*shape, initializer=NormalInitializer()),
+                             )
+                             )
             for i in range(h)]
     out = SumLayer(num_input_units=r, num_output_units=1, arity=h)
     circ = Circuit(num_channels=1, layers=[*cats, out], in_layers={out: cats}, outputs=[out])
@@ -175,11 +188,39 @@ def multi_token_mixture(n, h=1, r=1):
     #                                 rank=r,
     #                                 factor_param=Parameterization(activation='none'),
     #                                 weight_param=Parameterization(activation='none'))
-    cc = compile(circ)
+    ctx = PipelineContext(
+    backend='torch',      # Use the PyTorch backend
+    # Specify the backend compilation flags next
+    # ---- Specify how to evaluate sum and product layers ---- #
+    semiring='lse-sum',   # In this case we use the numerically-stable 'lse-sum' semiring (R, +, *), i.e.,
+                          # where: + is the log-sum-exp operation, and * is the sum operation.
+    # -------------------------------------------------------- #
+    )
+    cc = ctx.compile(circ)
     # Remove default parameters
-    cc.layers[0].probs = None
-    cc.layers[0].logits = None
+    # cc.layers[0].probs = None
+    # cc.layers[0].logits = None
     return cc
+
+
+class CircuitCP(torch.nn.Module):
+    def __init__(self, vocab_size, n_token, n_component):
+        super().__init__()
+        self.vocab_size = vocab_size     # V
+        self.n_token = n_token           # H
+        self.n_component = n_component   # R
+        self.symb_circuit = tensor_factorizations.cp((self.vocab_size, self.n_token),
+                                                     rank=self.n_component,
+                                                     factor_param=utils.Parameterization(activation='none'),
+                                                     weight_param=utils.Parameterization(activation='none'))
+        self._ctx = self._setup_pipeline_context()
+        self.circuit = self._ctx.compile(self.symb_circuit)  # nn.Module
+
+    def _setup_pipeline_context(self):
+        ctx = PipelineContext(
+                backend='torch',
+                semiring='lse-sum')
+        return ctx
 
 
 class CircHead(torch.nn.Module):

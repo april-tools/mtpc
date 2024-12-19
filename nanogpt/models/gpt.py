@@ -5,7 +5,6 @@ import torch
 import torch.nn.functional as F
 
 from .mlp import Block
-from .circuit import MultiTokenHead, logit_mapper, multi_token_mixture
 
 @dataclass
 class GPTConfig:
@@ -101,7 +100,7 @@ class GPT(nn.Module):
     def forward(self, xx):
         # forward the GPT model itself
         xx = self.transformer.wte(xx)  # token embeddings of shape (b, t, n_embd)
-        xx = F.rms_norm(xx, (xx.size(-1),))
+        # xx = F.rms_norm(xx, (xx.size(-1),))
         for block in self.transformer.h:
             xx = block(xx)
         # xx = F.rms_norm(xx, (xx.size(-1),))

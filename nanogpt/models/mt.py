@@ -3,6 +3,11 @@ import torch
 from torch import Tensor
 
 
+class FakeModule(torch.nn.Module):
+    def forward():
+        pass
+
+
 class MultiTokenLM(torch.nn.Module):
     """ A MultiTokenLM comprises three parts:
 
@@ -24,26 +29,33 @@ class MultiTokenLM(torch.nn.Module):
 
         # self._layers_to_parameterize: Dict[str, TorchLayer]
         self._cat_layer = self.circuit.circuit.layers[0]
-        self._sum_layer = self.circuit.circuit.layers[2]
+        # self._sum_layer = self.circuit.circuit.layers[2]
+        self.fake = FakeModule()
 
-    def forward(self, xx: Tensor, yy: Tensor, return_logits=True):
+    def forward(self, xx: Tensor, yy: Tensor, return_logits=False):
 
+        H = self.lm_head.n_token
         # (B, S, D)
         xx = self.lm_encoder(xx)
 
-        circuit_params = self.lm_head(logits)
+        circuit_params = self.lm_head(xx)
 
-        cat_logits = circuit_params['categorical']  # (H, B * S', K, V)
-        sum_weight = circuit_params['sum_weight']  # (1, B * S', 1, K)
-
-        self._cat_layer.probs = lambda: torch.softmax(cat_logits, dim=-1)
-        self._sum_layer.weight = lambda: torch.softmax(sum_weight, dim=-1)
-
-        # Extract sliding windows? from yy: (B, S) to yy: (B * S', H)
-
-        # yy: (B * S', H)
-        # unsqueeze channel dimension -> (B * S', 1, H)
+        cat_logits = circuit_params['categoricals']  # (H, B * S', R, V)
+        self._cat_layer.probs = self.fake
+        self.fake.forward = lambda: torch.softmax(cat_logits, dim=-1)[:, [-1], :, :]
+        # sum_weight = circuit_params['sum_weight']  # (1, B * S', 1, R)
+        #
+        # self._sum_layer.weight = lambda: torch.softmax(sum_weight, dim=-1)
+        #
+        # # Extract sliding windows? from yy: (B, S) to yy: (B * S', H)
+        #
+        # # yy: (B * S', H)
+        # # unsqueeze channel dimension -> (B * S', 1, H)
+        # TODO: Deal with H
+        yy = yy.reshape(-1, H)
         yy = yy.unsqueeze(dim=1)
-        log_probs = self.circuit(yy)  # (B * S', 1)
+        # (B * S', 1, H)
+        log_probs = self.circuit(yy[[-1], :, :])
+        loss = - log_probs.mean()
 
-        return log_probs
+        return None, loss

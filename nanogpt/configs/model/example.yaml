@@ -4,7 +4,7 @@ n_component: &n_component 2
 n_token: &n_token 1
 
 lm: &lm_encoder
-    $classname: GPT
+    $classname: GPTEncoder
     $module: nanogpt.models.gpt
     config:
       vocab_size: *vocab_size

@@ -1,3 +1,4 @@
+import os
 import hydra
 import torch
 import mlconf
@@ -98,7 +99,7 @@ def main(cfg: DictConfig):
     val_steps = cfg.training.val_tokens // (B * T * world_size)
     train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
-    myconf = mlconf.Blueprint.from_file('/home/grv/Playground/multi-token/nanoGPT/nanogpt/configs/model/example.yaml')
+    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, '/model/example.yaml'))
 
     # Initialize model
     myconf = myconf.build()

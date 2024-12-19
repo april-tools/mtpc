@@ -3,16 +3,15 @@ import torch.nn.functional as F
 
 from collections import namedtuple
 
+from cirkit.backend.torch.circuits import TorchCircuit
+from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.circuit import Circuit
 from cirkit.symbolic.layers import SumLayer, CategoricalLayer
-from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.utils.scope import Scope
-from cirkit.pipeline import PipelineContext
-from cirkit.symbolic.parameters import Parameter, TensorParameter, LogSoftmaxParameter
-from cirkit.symbolic.initializers import NormalInitializer
 from cirkit.templates import tensor_factorizations, utils
 
 from .mlp import Block
+from .pipeline import setup_pipeline_context
 
 
 class TransformerExpanderHead(torch.nn.Module):
@@ -157,7 +156,7 @@ class CircuitCP(torch.nn.Module):
             self.symb_circuit = tensor_factorizations.cp((self.vocab_size,) * self.n_token,
                                                          rank=self.n_component,
                                                          factor_param=utils.Parameterization(activation='none'),
-                                                         weight_param=utils.Parameterization(activation='none'))
+                                                         weight_param=utils.Parameterization(activation='softmax'))
         else:
             cat = CategoricalLayer(scope=Scope([0]),
                                    num_output_units=self.n_component,
@@ -171,14 +170,12 @@ class CircuitCP(torch.nn.Module):
             out = SumLayer(num_input_units=self.n_component, num_output_units=1, arity=1)
             self.symb_circuit = Circuit(num_channels=1, layers=[cat, out], in_layers={out: [cat]}, outputs=[out])
 
-        self._ctx = self._setup_pipeline_context()
-        self.circuit = self._ctx.compile(self.symb_circuit)  # nn.Module
+        self._ctx: PipelineContext = setup_pipeline_context()
+        self._circuit: TorchCircuit = self._ctx.compile(self.symb_circuit)
+
+    @property
+    def circuit(self) -> TorchCircuit:
+        return self._circuit
 
     def forward(self, yy):
-        return self.circuit(yy)
-
-    def _setup_pipeline_context(self):
-        ctx = PipelineContext(
-                backend='torch',
-                semiring='lse-sum')
-        return ctx
+        return self._circuit(yy)

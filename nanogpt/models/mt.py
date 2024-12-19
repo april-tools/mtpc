@@ -1,11 +1,9 @@
 import torch
+from cirkit.templates.logic.sdd import sliding_window
 
 from torch import Tensor
 
-
-class FakeModule(torch.nn.Module):
-    def forward():
-        pass
+from nanogpt.models.layers import TorchBatchedCategoricalLayer
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -27,23 +25,11 @@ class MultiTokenLM(torch.nn.Module):
         self.lm_head = lm_head
         self.circuit = circuit
 
-        self.fake = FakeModule()
-
-        self._cat_layer = self.circuit.circuit.layers[0]
-        self._cat_layer.probs = self.fake
+        self._cat_layer: TorchBatchedCategoricalLayer = next(self.circuit.circuit.input_layers)
+        assert isinstance(self._cat_layer, TorchBatchedCategoricalLayer)
         # self._sum_layer = self.circuit.circuit.layers[2]
 
     def forward(self, xx: Tensor, yy: Tensor, return_logits=False):
-
-        H = self.lm_head.n_token
-        # TODO: Create sliding window so that H can be > 1.
-        # Extract sliding windows? from yy: (B, S) to yy: (B * S', H)
-        #
-        # yy: (B * S', H)
-        # unsqueeze channel dimension -> (B * S', 1, H)
-        yy = yy.reshape(-1, H)
-        yy = yy.unsqueeze(dim=1)
-
         # (B, S, D)
         xx = self.lm_encoder(xx)
 
@@ -52,15 +38,22 @@ class MultiTokenLM(torch.nn.Module):
 
         # (H, B * S', R, V)
         cat_logits = circuit_params['categoricals']
-        # NOTE: SLICING BELOW is for current BATCH=1 constraint - TODO: Remove
-        self.fake.forward = lambda: torch.softmax(cat_logits, dim=-1)[:, [-1], :, :]
+        self._cat_layer.probs = torch.softmax(cat_logits, dim=-1)
 
         # TODO: Parametrise the sum weights
         # sum_weight = circuit_params['sum_weight']  # (1, B * S', 1, R)
         # self._sum_layer.weight = lambda: torch.softmax(sum_weight, dim=-1)
 
-        # NOTE: SLICING BELOW is for current BATCH=1 constraint - TODO: Remove
-        log_probs = self.circuit(yy[[-1], :, :])
+        # Extract sliding windows
+        # from yy: (B, S) to yy: (B * S', H)
+        # S' = S - H + 1
+        # unsqueeze channel dimension -> (B * S', 1, H)
+        tokens_idx = torch.arange(yy.shape[0], device=yy.device)
+        sliding_window_idx = tokens_idx.unfold(0, self.lm_head.n_token, 1)
+        yy = yy[:, sliding_window_idx].view(-1, 1, self.lm_head.n_token)
+
+        # Compute the conditional log-likelihoods
+        log_probs = self.circuit(yy)  # (B * S', 1, 1)
         loss = -log_probs.mean()
 
         return None, loss

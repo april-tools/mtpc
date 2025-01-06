@@ -39,7 +39,7 @@ class MultiTokenLM(torch.nn.Module):
         sliding_window_idx = tokens_idx.unfold(0, self.lm_head.n_token, 1)       # (S', H)
         yy = yy[:, sliding_window_idx].view(-1, 1, sliding_window_idx.shape[1])  # (B * S', 1, H)
         # S' = S - H + 1
-        crop_sentence_len = -sliding_window_idx.shape[1] + 1
+        crop_sentence_len = tokens_idx.shape[0] - sliding_window_idx.shape[1] + 1
 
         # (B, S, D)
         xx = self.lm_encoder(xx)
@@ -49,14 +49,12 @@ class MultiTokenLM(torch.nn.Module):
 
         # Index the categorical logits and the sum weight accordingly
         # cat_logits: (H, B, S, R, V) -> (H, B * S', R, V)
-        cat_logits = circuit_params['cat_logits']
-        cat_logits = cat_logits[:, :, :-crop_sentence_len]
-        cat_logits = cat_logits.view(cat_logits.shape[0], -1, cat_logits.shape[3], cat_logits.shape[4])
-        # cat_log_probs: (H, B * S', R, V)
-        self._cat_layer.log_probs = torch.log_softmax(cat_logits, dim=-1)
-        # sum_weight: (B, S, 1, R) -> (B * S', 1, R)
+        cat_log_probs = circuit_params['cat_log_probs']
+        cat_log_probs = cat_log_probs[:, :, :crop_sentence_len]
+        self._cat_layer.log_probs = cat_log_probs.view(cat_log_probs.shape[0], -1, cat_log_probs.shape[3], cat_log_probs.shape[4])
+        # sum_weight: (B, S, 1, R) -> (1, B * S', 1, R)
         sum_weight = circuit_params['sum_weight']
-        sum_weight = sum_weight[:, :-crop_sentence_len].view(-1, 1, sum_weight.shape[3])
+        sum_weight = sum_weight[:, :crop_sentence_len].view(1, -1, 1, sum_weight.shape[3])
         self._sum_layer.weight = sum_weight
 
         # Compute the conditional log-likelihoods

@@ -3,9 +3,8 @@ This is based on the [KellerJordan/modded-nanogpt](https://github.com/KellerJord
 
 # TODOS
 
-* [ ] Set `FIND_UNUSED_PARAMS=False` in env.sh when we fix circuit parametrisation. AG monkeypatched layer.probs(), which means the old params of the circuit are not updated - and that makes training error unless we set `FIND_UNUSED_PARAMS=True` - so we do that for now.
-* [ ] Override Categorical and Sum layers to support batch of parameters
-* [ ] Implement multi-token prediction with sliding window
+* [x] Override Categorical and Sum layers to support batch of parameters
+* [x] Implement multi-token learning with sliding window
 
 # Setup:
 

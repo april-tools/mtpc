@@ -24,7 +24,4 @@ def wrap_model_distributed(model, local_rank, compile):
     model = model.cuda()
     if compile:
         model = torch.compile(model)
-    # NOTE: Set FIND_UNUSED_PARAMS if you want your model to run
-    # despite some of the parameters not receiving gradients
-    find_unused = os.getenv('FIND_UNUSED_PARAMS', 'False').lower() == 'true'
-    return DDP(model, device_ids=[local_rank], find_unused_parameters=find_unused)
+    return DDP(model, device_ids=[local_rank])

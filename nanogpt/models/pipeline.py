@@ -12,6 +12,7 @@ def setup_pipeline_context() -> PipelineContext:
     # as to allow parameters having an extra batch dimension
     ctx = PipelineContext(
         backend="torch",
+        semiring="lse-sum",
         fold=True,
         optimize=False,
     )

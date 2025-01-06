@@ -167,7 +167,7 @@ class TorchBatchedSumLayer(TorchInnerLayer):
                 or weight.shape[3] != self.arity * self.num_input_units
             ):
                 raise ValueError(
-                    f"Expected probs of shape ({self.num_folds}, -1, {self.num_output_units}, {self.arity * self.num_input_units}), "
+                    f"Expected probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.arity * self.num_input_units}), "
                     f"but found {weight.shape}"
                 )
         self._weight = weight

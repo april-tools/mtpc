@@ -11,8 +11,6 @@ lm: &lm_encoder
       n_embd: *n_embd
       n_layer: 12
       n_head: 6
-      n_token: *n_token
-      n_component: *n_component
 head: &lm_head
     $classname: MultiTokenHead
     $module: nanogpt.models.circuit

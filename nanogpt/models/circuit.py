@@ -119,31 +119,38 @@ class MultiTokenHead(torch.nn.Module):
         self.n_embd = n_embd                   # D
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
+
+        # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
-            TokenHead(encoder=TransformerEncoderHead(self.n_embd),
-                      expander=LinearExpanderHead(self.n_embd, self.n_component))
+            TokenHead(
+                encoder=TransformerEncoderHead(self.n_embd),
+                expander=LinearExpanderHead(self.n_embd, self.n_component)
+            )
             for i in range(self.n_token)
-            ])
-        # Unembedding matrix
-        self.W = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
+        ])
+        self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
+        
+        # Projection to the sum layer parameters
+        self.proj_sum_weight = torch.nn.ModuleList([
+            TransformerEncoderHead(self.n_embd),
+            torch.nn.Linear(self.n_embd, self.n_component, bias=False)
+        ])
 
     def forward(self, xx):
-
-        # xx is  B, S, D
+        # xx: (B, S, D)
         logits = []
-        # logits.append(self.W(xx))
-        # TODO: Can we avoid the for loop with torch vmap?
+        # TODO: Can we avoid the for loop?
         for token_head in self.token_heads:
-            # head_xx is B, S, R, D
+            # head_xx: (B, S, R, D)
             head_xx = token_head(xx)
-            # head_logits is  B, S, R, V
-            head_logits = self.W(head_xx)
+            # head_logits: (B, S, R, V)
+            head_logits = self.proj_cat_log_probs(head_xx)
             logits.append(head_logits)
-        categoricals = torch.stack(logits, dim=0)
-        H, B, S, R, V = categoricals.shape
-        # H, B * S, R, V
-        categoricals = categoricals.reshape(H, B*S, R, V)
-        return dict(categoricals=categoricals)
+        # cat_logits: (H, B, S, R, V)
+        cat_logits = torch.stack(logits, dim=0)
+        # sum_weight: (B, S, 1, R)
+        sum_weight = self.proj_cat_log_probs(xx).unsqueeze(dim=2)
+        return dict(cat_logits=cat_logits, sum_weight=sum_weight)
 
 
 class CircuitCP(torch.nn.Module):
@@ -153,20 +160,19 @@ class CircuitCP(torch.nn.Module):
         self.n_token = n_token           # H
         self.n_component = n_component   # R
         if self.n_token > 1:
-            self.symb_circuit = tensor_factorizations.cp((self.vocab_size,) * self.n_token,
-                                                         rank=self.n_component,
-                                                         factor_param=utils.Parameterization(activation='none'),
-                                                         weight_param=utils.Parameterization(activation='softmax'))
+            self.symb_circuit = tensor_factorizations.cp(
+                (self.vocab_size,) * self.n_token,
+                rank=self.n_component,
+                factor_param=utils.Parameterization(activation='none'),
+                weight_param=utils.Parameterization(activation='none')
+            )
         else:
-            cat = CategoricalLayer(scope=Scope([0]),
-                                   num_output_units=self.n_component,
-                                   num_channels=1,
-                                   num_categories=self.vocab_size,
-                                   # logits=None,
-                                   # probs_factory = lambda shape: Parameter.from_input(
-                                   #     TensorParameter(*shape, initializer=NormalInitializer()),
-                                   #     )
-                                   )
+            cat = CategoricalLayer(
+                scope=Scope([0]),
+                num_output_units=self.n_component,
+                num_channels=1,
+                num_categories=self.vocab_size
+            )
             out = SumLayer(num_input_units=self.n_component, num_output_units=1, arity=1)
             self.symb_circuit = Circuit(num_channels=1, layers=[cat, out], in_layers={out: [cat]}, outputs=[out])
 

@@ -1,9 +1,9 @@
 import torch
-from cirkit.templates.logic.sdd import sliding_window
 
 from torch import Tensor
 
-from nanogpt.models.layers import TorchBatchedCategoricalLayer
+from nanogpt.models.circuit import CircuitCP
+from nanogpt.models.layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -18,42 +18,53 @@ class MultiTokenLM(torch.nn.Module):
 
     3. A circuit which models the output tokens and encodes their dependencies.
     """
-    def __init__(self, lm_encoder, lm_head, circuit):
+    def __init__(self, lm_encoder: torch.nn.Module, lm_head: torch.nn.Module, circuit: CircuitCP):
         super().__init__()
-
         self.lm_encoder = lm_encoder
         self.lm_head = lm_head
         self.circuit = circuit
 
-        self._cat_layer: TorchBatchedCategoricalLayer = next(self.circuit.circuit.input_layers)
+        # Retrieve the circuit layers to parameterize
+        layers = list(self.circuit.circuit.topological_ordering())
+        self._cat_layer: TorchBatchedCategoricalLayer = layers[0]
         assert isinstance(self._cat_layer, TorchBatchedCategoricalLayer)
-        # self._sum_layer = self.circuit.circuit.layers[2]
+        self._sum_layer = layers[2]
+        assert isinstance(self._sum_layer, TorchBatchedSumLayer)
 
-    def forward(self, xx: Tensor, yy: Tensor, return_logits=False):
+    def forward(self, xx: Tensor, yy: Tensor, return_logits: bool = False):
+        # Compute sliding windows indices
+        # from yy: (B, S) to yy: (B * S', 1, H)
+        # unsqueeze channel dimension -> (B * S', 1, H)
+        tokens_idx = torch.arange(yy.shape[1], device=yy.device)                 # (S,)
+        sliding_window_idx = tokens_idx.unfold(0, self.lm_head.n_token, 1)       # (S', H)
+        yy = yy[:, sliding_window_idx].view(-1, 1, sliding_window_idx.shape[1])  # (B * S', 1, H)
+        # S' = S - H + 1
+        crop_sentence_len = -sliding_window_idx.shape[1] + 1
+
         # (B, S, D)
         xx = self.lm_encoder(xx)
 
-        # Obtain dict of params
+        # Obtain dict of circuit parameters
         circuit_params = self.lm_head(xx)
 
-        # (H, B * S', R, V)
-        cat_logits = circuit_params['categoricals']
-        self._cat_layer.probs = torch.softmax(cat_logits, dim=-1)
-
-        # TODO: Parametrise the sum weights
-        # sum_weight = circuit_params['sum_weight']  # (1, B * S', 1, R)
-        # self._sum_layer.weight = lambda: torch.softmax(sum_weight, dim=-1)
-
-        # Extract sliding windows
-        # from yy: (B, S) to yy: (B * S', H)
-        # S' = S - H + 1
-        # unsqueeze channel dimension -> (B * S', 1, H)
-        tokens_idx = torch.arange(yy.shape[0], device=yy.device)
-        sliding_window_idx = tokens_idx.unfold(0, self.lm_head.n_token, 1)
-        yy = yy[:, sliding_window_idx].view(-1, 1, self.lm_head.n_token)
+        # Index the categorical logits and the sum weight accordingly
+        # cat_logits: (H, B, S, R, V) -> (H, B * S', R, V)
+        cat_logits = circuit_params['cat_logits']
+        cat_logits = cat_logits[:, :, :-crop_sentence_len]
+        cat_logits = cat_logits.view(cat_logits.shape[0], -1, cat_logits.shape[3], cat_logits.shape[4])
+        # cat_log_probs: (H, B * S', R, V)
+        self._cat_layer.log_probs = torch.log_softmax(cat_logits, dim=-1)
+        # sum_weight: (B, S, 1, R) -> (B * S', 1, R)
+        sum_weight = circuit_params['sum_weight']
+        sum_weight = sum_weight[:, :-crop_sentence_len].view(-1, 1, sum_weight.shape[3])
+        self._sum_layer.weight = sum_weight
 
         # Compute the conditional log-likelihoods
-        log_probs = self.circuit(yy)  # (B * S', 1, 1)
+        # yy: (B * S', 1, H)
+        # log_probs: (B * S', 1, 1)
+        log_probs = self.circuit(yy)
+
+        # The loss is the negated average conditional log-likelihood
         loss = -log_probs.mean()
 
         return None, loss

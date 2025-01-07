@@ -7,8 +7,8 @@ name: nanogpt
 compile: true
 
 data:
-  train_bin: '/afs/inf.ed.ac.uk/group/project/s2457990/nanoGPT/fineweb10B/fineweb_train_*.bin'
-  val_bin: '/afs/inf.ed.ac.uk/group/project/s2457990/nanoGPT/fineweb10B/fineweb_val_*.bin'
+  train_bin: '<path-to-repository>/nanoGPT/fineweb10B/fineweb_train_*.bin'
+  val_bin: '<path-to-repository>/nanoGPT/fineweb10B/fineweb_val_*.bin'
 
 hydra:
   job:
@@ -16,7 +16,7 @@ hydra:
     name: ${name}
     env_set:
       OMP_NUM_THREADS: 1
-      CUDA_VISIBLE_DEVICES: 2
+      CUDA_VISIBLE_DEVICES: 0,1,2
   run:
     dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
 

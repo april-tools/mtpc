@@ -1,1 +1,1 @@
-export GPUS=1
+export GPUS=3

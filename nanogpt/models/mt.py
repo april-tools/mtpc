@@ -1,7 +1,6 @@
 import torch
 
 from torch import Tensor
-import torch.nn.functional as F
 
 from nanogpt.models.circuit import CircuitCP
 from nanogpt.models.layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
@@ -29,7 +28,7 @@ class MultiTokenLM(torch.nn.Module):
         layers = list(self.circuit.circuit.topological_ordering())
         self._cat_layer: TorchBatchedCategoricalLayer = layers[0]
         assert isinstance(self._cat_layer, TorchBatchedCategoricalLayer)
-        self._sum_layer = layers[2]
+        self._sum_layer: TorchBatchedSumLayer = layers[2]
         assert isinstance(self._sum_layer, TorchBatchedSumLayer)
 
     def forward(self, xx: Tensor, yy: Tensor, return_logits: bool = False):

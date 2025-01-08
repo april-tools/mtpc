@@ -1,6 +1,7 @@
 import torch
 
 from torch import Tensor
+import torch.nn.functional as F
 
 from nanogpt.models.circuit import CircuitCP
 from nanogpt.models.layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
@@ -33,28 +34,25 @@ class MultiTokenLM(torch.nn.Module):
 
     def forward(self, xx: Tensor, yy: Tensor, return_logits: bool = False):
         # Compute sliding windows indices
-        # from yy: (B, S) to yy: (B * S', 1, H)
-        # unsqueeze channel dimension -> (B * S', 1, H)
-        tokens_idx = torch.arange(yy.shape[1], device=yy.device)                 # (S,)
-        sliding_window_idx = tokens_idx.unfold(0, self.lm_head.n_token, 1)       # (S', H)
-        yy = yy[:, sliding_window_idx].view(-1, 1, sliding_window_idx.shape[1])  # (B * S', 1, H)
-        # S' = S - H + 1
-        crop_sentence_len = tokens_idx.shape[0] - sliding_window_idx.shape[1] + 1
+        # from yy: (B, S) to yy: (B, S', H)
+        # where S' = S - H + 1
+        yy = yy.unfold(dimension=1, size=self.lm_head.n_token, step=1)
+        # Note that we unsqueeze a channel dimension, as required by cirkit
+        # yy: (B, S', H) -> (B * S', 1, H)
+        yy = yy.reshape(-1, 1, yy.shape[2])
 
-        # (B, S, D)
+        # xx: (B, S, D)
         xx = self.lm_encoder(xx)
 
         # Obtain dict of circuit parameters
         circuit_params = self.lm_head(xx)
-
-        # Index the categorical logits and the sum weight accordingly
-        # cat_logits: (H, B, S, R, V) -> (H, B * S', R, V)
+        # cat_logits: (H, B, S', R, V) -> (H, B * S', R, V)
         cat_log_probs = circuit_params['cat_log_probs']
-        cat_log_probs = cat_log_probs[:, :, :crop_sentence_len]
-        self._cat_layer.log_probs = cat_log_probs.view(cat_log_probs.shape[0], -1, cat_log_probs.shape[3], cat_log_probs.shape[4])
-        # sum_weight: (B, S, 1, R) -> (1, B * S', 1, R)
+        cat_log_probs = cat_log_probs.view(cat_log_probs.shape[0], -1, cat_log_probs.shape[3], cat_log_probs.shape[4])
+        self._cat_layer.log_probs = cat_log_probs
+        # sum_weight: (B, S', 1, R) -> (1, B * S', 1, R)
         sum_weight = circuit_params['sum_weight']
-        sum_weight = sum_weight[:, :crop_sentence_len].view(1, -1, 1, sum_weight.shape[3])
+        sum_weight = sum_weight.view(1, -1, 1, sum_weight.shape[3])
         self._sum_layer.weight = sum_weight
 
         # Compute the conditional log-likelihoods

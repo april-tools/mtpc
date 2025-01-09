@@ -79,6 +79,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 
 @hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
+
     # Initialize distributed setup
     rank, local_rank, world_size, _ = setup_distributed()
     master_process = (rank == 0)

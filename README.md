@@ -22,6 +22,7 @@ python nanogpt/data/download.py 10
 ```
 
 Change data paths in `nanogpt/configs/config.yaml` to your own paths.
+Also specify the device IDs (comma separated) by setting `CUDA_VISIBLE_DEVICES`.
 
 Run the training
 ```

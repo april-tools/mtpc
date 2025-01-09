@@ -114,7 +114,10 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         samples = dist.sample((num_samples,))
         # samples: (F, K, num_samples, B) -> (F, K, num_samples * B)
         samples = samples.permute(1, 3, 0, 2)
-        return samples.flatten(start_dim=2)
+        samples = samples.flatten(start_dim=2)
+        # samples: (F, K, num_samples * B) -> (F, C, K, num_samples * B)
+        samples = samples.unsqueeze(1)
+        return samples
 
 
 class TorchBatchedSumLayer(TorchInnerLayer):
@@ -202,24 +205,27 @@ class TorchBatchedSumLayer(TorchInnerLayer):
             )
 
         # x: (F, H, C, Ki, num_samples * B, D) -> (F, C, H * Ki, num_samples * B, D)
-        x = x.permute(0, 2, 1, 3, 4, 5).flatten(2, 3)
-        num_samples = x.shape[3]
+        num_samples = x.shape[4] // weight.shape[1]
+        x = x.permute(0, 2, 1, 3, 4, 5)
+        x = x.flatten(2, 3)
 
         # mixing_distribution: (F, B, Ko, H * Ki)
         mixing_distribution = torch.distributions.Categorical(probs=weight)
 
-        # mixing_samples: (num_samples, B, F, Ko) -> (F, Ko, num_samples, B) -> (F, Ko, num_samples * B)
+        # mixing_samples: (num_samples, F, B, Ko) -> (F, Ko, num_samples, B) -> (F, Ko, num_samples * B)
         mixing_samples = mixing_distribution.sample((num_samples,))
-        mixing_samples = mixing_samples.permute(2, 3, 0, 1)
+        mixing_samples = mixing_samples.permute(1, 3, 0, 2)
         mixing_samples = mixing_samples.flatten(start_dim=2)
 
+        # Choose the sample that was chosen by the sum layer
+        # This is done by selecting the corresponding index using gather
         # mixing_indices: (F, 1, Ko, num_samples * B, 1) -> (F, C, Ko, num_samples * B, D)
         mixing_indices = mixing_samples.unsqueeze(dim=1).unsqueeze(dim=-1)
         mixing_indices = mixing_indices.broadcast_to(
             mixing_samples.shape[0],
             x.shape[1],
+            mixing_samples.shape[1],
             mixing_samples.shape[2],
-            mixing_samples.shape[3],
             x.shape[4],
         )
 

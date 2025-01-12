@@ -69,6 +69,14 @@ class GPT(nn.Module):
 
         return logits, loss
 
+    @torch.no_grad()
+    def generate(self, inputs: torch.Tensor):
+
+        logits, _ = self.forward(inputs, return_logits=True)
+
+        sample = torch.argmax(logits, dim=2)
+        return sample
+
 
 # For our experiments, we only need the encoder of nanoGPT
 class GPTEncoder(nn.Module):

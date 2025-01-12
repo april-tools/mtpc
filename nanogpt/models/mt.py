@@ -45,6 +45,11 @@ class MultiTokenLM(torch.nn.Module):
         # (B, S, D)
         xx = self.lm_encoder(xx)
 
+        if not training_mode:
+            # At generation time, we want to do future token prediction
+            # so we only condition on last output
+            xx = xx[:, [-1], :]
+
         # Obtain dict of circuit parameters
         circuit_params = self.lm_head(xx)
 
@@ -95,6 +100,7 @@ class MultiTokenLM(torch.nn.Module):
 
         self.forward(inputs)
 
-        sample, mix_samples = self.sampler(2)
-        print(sample.shape)
-        print(sample)
+        sample, mix_samples = self.sampler(1)
+        # Remove Extraneous Channel Dimension
+        sample = sample.squeeze(dim=1)
+        return sample

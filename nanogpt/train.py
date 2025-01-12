@@ -108,7 +108,7 @@ def main(cfg: DictConfig):
         'nanogpt',
         'configs'
     )
-    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', 'example.yaml'))
+    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', 'mtp.yaml'))
 
     # Initialize model
     myconf = myconf.build()

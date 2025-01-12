@@ -5,6 +5,7 @@ defaults:
 
 name: nanogpt
 compile: true
+device: cpu
 
 data:
   train_bin: '/home/grv/Playground/multi-token/nanoGPT/fineweb10B/fineweb_train_*.bin'

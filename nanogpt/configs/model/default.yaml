@@ -3,8 +3,8 @@ n_embd: &n_embd 768
 
 model:
     _target_: nanogpt.models.gpt.GPT
-    _convert_: object
     config:
+      _target_: nanogpt.utils.Config
       vocab_size: *vocab_size
       n_embd: *n_embd
       n_layer: 12

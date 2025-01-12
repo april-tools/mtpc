@@ -1,7 +1,6 @@
 import os
 import hydra
 import torch
-import mlconf
 import torch.distributed as dist
 from torch.amp import autocast
 from omegaconf import DictConfig
@@ -99,19 +98,8 @@ def main(cfg: DictConfig):
     val_steps = cfg.training.val_tokens // (B * T * world_size)
     train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
-    # The working directory is something like
-    # <project-root>/logs/2025-01-06/18-04-52
-    # So, compute the config path as follows
-    # as to get <project-root>/nanogpt/configs
-    config_path = os.path.join(
-        os.path.split(os.path.split(os.path.split(os.getcwd())[0])[0])[0],
-        'nanogpt',
-        'configs'
-    )
-    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', 'mtp.yaml'))
-
     # Initialize model
-    myconf = myconf.build()
+    myconf = hydra.utils.instantiate(cfg.model)
     model = myconf.model
     
     # model = GPT(GPTConfig(**cfg.model))

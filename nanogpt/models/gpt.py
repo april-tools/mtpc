@@ -6,16 +6,6 @@ import torch.nn.functional as F
 
 from .mlp import Block
 
-@dataclass
-class GPTConfig:
-    vocab_size: int = 50304
-    n_layer: int = 12
-    n_head: int = 6
-    n_embd: int = 768
-    n_token: int = 1
-    # Unique to circuits
-    n_component: int = 1
-
 
 class GPT(nn.Module):
     def __init__(self, config):

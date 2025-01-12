@@ -4,29 +4,26 @@ n_component: &n_component 1
 n_token: &n_token 5
 
 lm: &lm_encoder
-    $classname: GPTEncoder
-    $module: nanogpt.models.gpt
+    _target_: nanogpt.models.gpt.GPTEncoder
     config:
+      _target_: nanogpt.utils.Config
       vocab_size: *vocab_size
       n_embd: *n_embd
       n_layer: 12
       n_head: 6
 head: &lm_head
-    $classname: MultiTokenHead
-    $module: nanogpt.models.circuit
+    _target_: nanogpt.models.circuit.MultiTokenHead
     vocab_size: *vocab_size
     n_embd: *n_embd
     n_component: *n_component
     n_token: *n_token
 circuit: &circuit
-    $classname: CircuitCP
-    $module: nanogpt.models.circuit
+    _target_: nanogpt.models.circuit.CircuitCP
     vocab_size: *vocab_size
     n_token: *n_token
     n_component: *n_component
 model:
-    $classname: MultiTokenLM
-    $module: nanogpt.models.mt
+    _target_: nanogpt.models.mt.MultiTokenLM
     lm_encoder: *lm_encoder
     lm_head: *lm_head
     circuit: *circuit

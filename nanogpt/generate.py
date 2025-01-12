@@ -44,7 +44,7 @@ def main(cfg: DictConfig):
         'nanogpt',
         'configs'
     )
-    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', 'default.yaml'))
+    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', cfg.modelconf))
 
     # Initialize model
     myconf = myconf.build()

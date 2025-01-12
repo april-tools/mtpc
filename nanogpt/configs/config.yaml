@@ -10,6 +10,8 @@ data:
   train_bin: '/home/grv/Playground/multi-token/nanoGPT/fineweb10B/fineweb_train_*.bin'
   val_bin: '/home/grv/Playground/multi-token/nanoGPT/fineweb10B/fineweb_val_*.bin'
 
+modelconf: mtp.yaml
+
 hydra:
   job:
     chdir: true

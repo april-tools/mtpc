@@ -1,5 +1,6 @@
 # Overview:
-This is based on the [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
+This project contains our implementation of Multi-Token Prediction (MTP) with circuits.
+The code is based on the [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
 
 # TODOS
 
@@ -22,13 +23,32 @@ python nanogpt/data/download.py 10
 ```
 
 Change data paths in `nanogpt/configs/config.yaml` to your own paths.
-Also specify the device IDs (comma separated) by setting `CUDA_VISIBLE_DEVICES`.
+Also specify :
+
+1. The device IDs (comma separated) by setting `CUDA_VISIBLE_DEVICES`.
+2. The MTP_ROOT environment variable; set it to the root directory of the project, see example in `env.sh`.
+
 
 Run the training
 ```
 source env.sh
 torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train
 ```
+
+# Experiments
+
+## Throughput Evaluation
+
+A first question is what generation throughput we can get with MTP - we measure this in tokens per sec (tps) using a batch size of one.
+
+```bash
+source env.sh
+./bin/compute_throughput.sh
+```
+
+NOTE: tps will decrease as we increase the sequence length we are conditioning on: since the context increases.
+
+
 
 # Notes
 

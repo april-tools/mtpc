@@ -2,10 +2,16 @@
 This project contains our implementation of Multi-Token Prediction (MTP) with circuits.
 The code is based on the [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
 
+
 # TODOS
 
-* [x] Override Categorical and Sum layers to support batch of parameters
-* [x] Implement multi-token learning with sliding window
+* [ ] Check the circuit / sampling and parametrisation after latest changes.
+* [ ] Check the architecture we use for MTP / consider alternatives.
+* [ ] Train a default model and some MTP models.
+* [ ] Implement approximate argmax prediction for circuit (to check if speculative decoding works, we need a way of decoding without randomness by using the circuit).
+* [ ] Implement speculative decoding.
+* [ ] Evaluate how well speculative decoding works - i.e. how many hits does the MTP model have when compared to the non-MTP model?
+* [ ] Currently sum layers for all heads share the same params. Consider if we want to change this.
 
 # Setup:
 
@@ -61,3 +67,9 @@ Potential things to speed-up I haven't tried
 
 Things to keep in mind:
 - I lowered the number of eval tokens compared to original repo, therefore making it incomparable to the results from the original repo. One can increase it for the cost of longer execution.
+
+
+# Changes
+
+- Use Hydra everywhere (we can change the model via config using hydra.utils.instantiate).
+- Added Script to compute and plot throughput for MTP vs Default model as we change ntokens.

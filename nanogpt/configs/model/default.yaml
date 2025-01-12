@@ -2,8 +2,8 @@ vocab_size: &vocab_size 50304
 n_embd: &n_embd 768
 
 model:
-    $classname: GPT
-    $module: nanogpt.models.gpt
+    _target_: nanogpt.models.gpt.GPT
+    _convert_: object
     config:
       vocab_size: *vocab_size
       n_embd: *n_embd

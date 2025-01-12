@@ -39,15 +39,19 @@ def main(cfg: DictConfig):
     # <project-root>/logs/2025-01-06/18-04-52
     # So, compute the config path as follows
     # as to get <project-root>/nanogpt/configs
-    config_path = os.path.join(
-        os.path.split(os.path.split(os.path.split(os.getcwd())[0])[0])[0],
-        'nanogpt',
-        'configs'
-    )
-    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', cfg.modelconf))
+
+    # config_path = os.path.join(
+    #     os.path.split(os.path.split(os.path.split(os.getcwd())[0])[0])[0],
+    #     'nanogpt',
+    #     'configs'
+    # )
+    # myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', cfg.modelconf))
 
     # Initialize model
-    myconf = myconf.build()
+    # myconf = myconf.build()
+    myconf = hydra.utils.instantiate(cfg.model)
+    print(myconf)
+    print(myconf.model)
     model = myconf.model
     
     raw_model = model.cuda()

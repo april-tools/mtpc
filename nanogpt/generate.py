@@ -30,7 +30,7 @@ def main(cfg: DictConfig):
     # Initialize training context
     ctx = autocast(device_type='cuda', dtype=torch.bfloat16)
 
-    NUM_TOKENS = 5000
+    NUM_TOKENS = 1000
     # TODO: Make below BOS - unsure what it is for the encoded docs
     BOS = 1
     x = torch.ones(cfg.training.device_batch_size, 1, dtype=torch.int, device=cfg.device)

@@ -6,8 +6,8 @@
 for device in cpu cuda;
 do
     torchrun -m nanogpt.generate device=cpu model=default >> $MTP_ROOT/results/throughput.jsonl
-    # for n_token in 2 3 4 5 6;
-    # do
-    #    torchrun -m nanogpt.generate device=cpu model=default model.n_token=$n_token >> $MTP_ROOT/results/throughput.jsonl
-    # done
+    for n_token in 2 4 6 8 10;
+    do
+        torchrun -m nanogpt.generate device=cpu model=default model.n_token=$n_token >> $MTP_ROOT/results/throughput.jsonl
+    done
 done

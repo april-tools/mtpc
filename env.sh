@@ -1,2 +1,2 @@
 export GPUS=1
-export MTP_ROOT=/home/grv/Playground/mtpNanoGPT
+export MTP_ROOT=/set/me/to/root/dirfolder

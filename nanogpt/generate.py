@@ -30,11 +30,13 @@ def main(cfg: DictConfig):
     # Initialize training context
     ctx = autocast(device_type='cuda', dtype=torch.bfloat16)
 
-    NUM_TOKENS = 50
+    NUM_TOKENS = 5000
     # TODO: Make below BOS - unsure what it is for the encoded docs
     BOS = 1
     x = torch.ones(cfg.training.device_batch_size, 1, dtype=torch.int, device=cfg.device)
     x = x * BOS
+    # Init model - do not use this output
+    tokens = raw_model.generate(x)
 
     stats = dict()
     start_time = time.perf_counter()
@@ -49,7 +51,7 @@ def main(cfg: DictConfig):
     end_time = time.perf_counter()
 
     elapsed_time = end_time - start_time
-    tps = elapsed_time / NUM_TOKENS
+    tps = NUM_TOKENS / elapsed_time
 
     stats['model'] = cfg.model.model._target_
     stats['ntoken'] = getattr(cfg.model, 'n_token', 1)

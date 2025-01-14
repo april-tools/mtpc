@@ -50,7 +50,8 @@ A first question is what generation throughput we can get with MTP - we measure 
 ```bash
 source env.sh
 ./bin/compute_throughput.sh
-python -m plots.plot_throughput --results results/throughput.jsonl
+python -m plots.plot_throughput --device cuda --results results/throughput.jsonl
+python -m plots.plot_throughput --device cpu --results results/throughput.jsonl
 ```
 
 NOTE: tps will decrease as we increase the sequence length we are conditioning on: since the context increases.

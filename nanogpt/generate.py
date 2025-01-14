@@ -37,6 +37,8 @@ def main(cfg: DictConfig):
     x = x * BOS
     # Init model - do not use this output
     tokens = raw_model.generate(x)
+    n_token_mtp = getattr(cfg.model, 'n_token', 1)
+    assert(tokens.shape[1] == n_token_mtp)
 
     stats = dict()
     start_time = time.perf_counter()
@@ -54,7 +56,7 @@ def main(cfg: DictConfig):
     tps = NUM_TOKENS / elapsed_time
 
     stats['model'] = cfg.model.model._target_
-    stats['ntoken'] = getattr(cfg.model, 'n_token', 1)
+    stats['ntoken'] = n_token_mtp
     stats['ncomponent'] = getattr(cfg.model, 'n_component', 1)
     stats['device'] = cfg.device
     stats['batch_size'] = cfg.training.device_batch_size

@@ -1,27 +1,27 @@
-vocab_size: &vocab_size 50304
-n_embd: &n_embd 768
-n_component: &n_component 1
-n_token: &n_token 5
+vocab_size: 50304
+n_embd: 768
+n_component: 1
+n_token: 4
 
 lm: &lm_encoder
     _target_: nanogpt.models.gpt.GPTEncoder
     config:
       _target_: nanogpt.utils.Config
-      vocab_size: *vocab_size
-      n_embd: *n_embd
+      vocab_size: ${model.vocab_size}
+      n_embd: ${model.n_embd}
       n_layer: 12
       n_head: 6
 head: &lm_head
     _target_: nanogpt.models.circuit.MultiTokenHead
-    vocab_size: *vocab_size
-    n_embd: *n_embd
-    n_component: *n_component
-    n_token: *n_token
+    vocab_size: ${model.vocab_size}
+    n_embd: ${model.n_embd}
+    n_component: ${model.n_component}
+    n_token: ${model.n_token}
 circuit: &circuit
     _target_: nanogpt.models.circuit.CircuitCP
-    vocab_size: *vocab_size
-    n_token: *n_token
-    n_component: *n_component
+    vocab_size: ${model.vocab_size}
+    n_token: ${model.n_token}
+    n_component: ${model.n_component}
 model:
     _target_: nanogpt.models.mt.MultiTokenLM
     lm_encoder: *lm_encoder

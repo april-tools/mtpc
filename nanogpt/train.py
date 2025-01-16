@@ -3,7 +3,7 @@ import hydra
 import torch
 import torch.distributed as dist
 from torch.amp import autocast
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import time
 
 from nanogpt.data.dataloader import DistributedDataLoader
@@ -80,6 +80,12 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 def main(cfg: DictConfig):
 
     try:
+        # Below Points to hydra.run.dir (not directly accessible)
+        output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+        # Save current config
+        with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
+            OmegaConf.save(cfg, f)
+
         if cfg.ddp:
             # Initialize distributed setup
             rank, local_rank, world_size, _ = setup_distributed()
@@ -115,7 +121,7 @@ def main(cfg: DictConfig):
             raw_model = model.module
         else:
             raw_model = model
-            model = model.to(cfg.device)
+            raw_model = raw_model.to(cfg.device)
 
         # Initialize optimizers and schedulers
         optimizer, scheduler = create_optimizers(raw_model, cfg)
@@ -145,6 +151,10 @@ def main(cfg: DictConfig):
             if last_step or (cfg.training.val_loss_every > 0 and step % cfg.training.val_loss_every == 0):
                 val_loss = validation_step(model, val_loader, val_steps, ctx)
                 logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
+                if master_process:
+                    # TODO: save best / do not overwrite best
+                    filename = os.path.join(output_dir, 'model@%d.pth' % step)
+                    torch.save(raw_model, filename)
 
             current_lr = optimizer.param_groups[0]['lr']
             logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")

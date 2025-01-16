@@ -81,3 +81,5 @@ Things to keep in mind:
 
 - Use Hydra everywhere (we can change the model via config using hydra.utils.instantiate).
 - Added Script to compute and plot throughput for MTP vs Default model as we change ntokens.
+- Adapted Scripts to train a character level model for sanity check
+- Serialised config to logs output dir and the model every eval iterations

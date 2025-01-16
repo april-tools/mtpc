@@ -13,6 +13,10 @@ The code is based on the [KellerJordan/modded-nanogpt](https://github.com/Keller
 * [ ] Evaluate how well speculative decoding works - i.e. how many hits does the MTP model have when compared to the non-MTP model?
 * [ ] Currently sum layers for all heads share the same params. Consider if we want to change this.
 
+## TODOS Coding (lower priority)
+* [ ] Remove Shakespeare Char dataset from git and include a downloader
+* [ ] Refactor timing into a timer class that works for both CUDA and CPU
+
 # Setup:
 
 Download packages

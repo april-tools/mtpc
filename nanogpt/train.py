@@ -56,7 +56,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
             _, loss = model(x, y, return_logits=False)
             train_loss = loss.detach()
         
-        if i < train_accumulation_steps:
+        if i < train_accumulation_steps and torch.cuda.is_available():
             with model.no_sync():
                 loss.backward()
         else:
@@ -79,17 +79,23 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 @hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
 
-    # Initialize distributed setup
-    rank, local_rank, world_size, _ = setup_distributed()
-    master_process = (rank == 0)
+    if cfg.ddp:
+        # Initialize distributed setup
+        rank, local_rank, world_size, _ = setup_distributed()
+        master_process = (rank == 0)
+    else:
+        master_process = True
+        rank = 0
+        local_rank = 0
+        world_size = 1
 
     # Setup logging
     logger = Logger(master_process)
 
     # Initialize data loaders
     B, T = cfg.training.device_batch_size, cfg.training.sequence_length
-    train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size)
-    val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size)
+    train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
+    val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
     
     logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
     logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
@@ -102,15 +108,19 @@ def main(cfg: DictConfig):
     myconf = hydra.utils.instantiate(cfg.model)
     model = myconf.model
     
-    # model = GPT(GPTConfig(**cfg.model))
-    model = wrap_model_distributed(model, local_rank, cfg.compile)
-    raw_model = model.module
+    # If distributed data parallel
+    if cfg.ddp:
+        model = wrap_model_distributed(model, local_rank, cfg.compile)
+        raw_model = model.module
+    else:
+        raw_model = model
+        model = model.to(cfg.device)
 
     # Initialize optimizers and schedulers
     optimizer, scheduler = create_optimizers(raw_model, cfg)
     
     # Initialize training context
-    ctx = autocast(device_type='cuda', dtype=torch.bfloat16)
+    ctx = autocast(device_type=cfg.device, dtype=torch.bfloat16)
     
     # Training loop
     train_loader.reset()
@@ -118,14 +128,17 @@ def main(cfg: DictConfig):
         last_step = (step == cfg.training.num_iterations)
         
         t0 = time.time()
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
         # Training step
         train_loss = training_step(
             model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx
         )
+        print(train_loss)
 
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         dt = time.time() - t0
 
         # Validation
@@ -136,7 +149,8 @@ def main(cfg: DictConfig):
         current_lr = optimizer.param_groups[0]['lr']
         logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
 
-    dist.destroy_process_group()
+    if cfg.ddp:
+        dist.destroy_process_group()
 
 if __name__ == "__main__":
     main()

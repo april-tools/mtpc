@@ -2,18 +2,12 @@ defaults:
   - _self_
   - training: default
   - model: default
+  - data: shakespeare_char
 
 name: nanogpt
 compile: true
 ddp: true
 device: cuda   # can be cpu only if ddp is False
-
-# data:
-#  train_bin: '/home/grv/Playground/multi-token/nanoGPT/fineweb10B/fineweb_train_*.bin'
-#  val_bin: '/home/grv/Playground/multi-token/nanoGPT/fineweb10B/fineweb_val_*.bin'
-data:
-  train_bin: '/home/grv/Playground/mtpNanoGPT/data/shakespeare_char/train.bin'
-  val_bin: '/home/grv/Playground/mtpNanoGPT/data/shakespeare_char/val.bin'
 
 hydra:
   job:

@@ -42,7 +42,10 @@ Also specify :
 Run the training
 ```
 source env.sh
-torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train
+# Train the default nanogpt model on shakespeare_char (see nanogpt/config/model/default.yaml)
+torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespare_char model=default model.n_embd=384
+# Train the mtp model on shakespeare_char (see nanogpt/config/model/mtp.yaml)
+torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespare_char model=mtp model.n_embd=384
 ```
 
 # Experiments

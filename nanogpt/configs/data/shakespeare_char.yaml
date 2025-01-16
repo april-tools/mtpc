@@ -1,0 +1,4 @@
+vocab_size: 65
+
+train_bin: '${oc.env:MTP_ROOT}/data/shakespeare_char/train.bin'
+val_bin: '${oc.env:MTP_ROOT}/data/shakespeare_char/val.bin'

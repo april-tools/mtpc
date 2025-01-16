@@ -41,7 +41,14 @@ def main(cfg: DictConfig):
     assert(tokens.shape[1] == n_token_mtp)
 
     stats = dict()
-    start_time = time.perf_counter()
+    if cfg.device == 'cpu':
+        start_time = time.perf_counter()
+    elif cfg.device == 'cuda':
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record(torch.cuda.current_stream(cfg.device))
+    else:
+        raise ValueError('Unexpected device %s' % cfg.device)
 
     with tqdm.tqdm(total=NUM_TOKENS) as pbar:
         # Keep track of total number of tokens generated
@@ -50,9 +57,16 @@ def main(cfg: DictConfig):
             x = torch.concat([x, tokens], dim=1)
             pbar.update(tokens.shape[0] * tokens.shape[1])
 
-    end_time = time.perf_counter()
+    if cfg.device == 'cpu':
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+    elif cfg.device == 'cuda':
+        end.record(torch.cuda.current_stream(cfg.device))
+        torch.cuda.synchronize(cfg.device)  # Synchronize CUDA Kernels before measuring time
+        elapsed_time = start.elapsed_time(end) * 1e-3   # CUDA returns ms
+    else:
+        raise ValueError('Unexpected device %s' % cfg.device)
 
-    elapsed_time = end_time - start_time
     tps = NUM_TOKENS / elapsed_time
 
     stats['model'] = cfg.model.model._target_

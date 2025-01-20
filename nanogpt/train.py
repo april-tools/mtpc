@@ -7,7 +7,6 @@ from torch.amp import autocast
 from omegaconf import DictConfig
 import time
 
-from nanogpt.models.gpt import GPT, GPTConfig
 from nanogpt.data.dataloader import DistributedDataLoader
 from nanogpt.utils.distributed import setup_distributed, wrap_model_distributed
 from nanogpt.utils.logger import Logger
@@ -78,7 +77,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
     return train_loss
 
 
-@hydra.main(version_base=None, config_path="./configs/", config_name="config")
+@hydra.main(version_base=None, config_path="./configs", config_name="config")
 def main(cfg: DictConfig):
     # Initialize distributed setup
     rank, local_rank, world_size, _ = setup_distributed()
@@ -99,7 +98,16 @@ def main(cfg: DictConfig):
     val_steps = cfg.training.val_tokens // (B * T * world_size)
     train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
-    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, '/model/example.yaml'))
+    # The working directory is something like
+    # <project-root>/logs/2025-01-06/18-04-52
+    # So, compute the config path as follows
+    # as to get <project-root>/nanogpt/configs
+    config_path = os.path.join(
+        os.path.split(os.path.split(os.path.split(os.getcwd())[0])[0])[0],
+        'nanogpt',
+        'configs'
+    )
+    myconf = mlconf.Blueprint.from_file(os.path.join(config_path, 'model', 'example.yaml'))
 
     # Initialize model
     myconf = myconf.build()

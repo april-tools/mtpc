@@ -5,7 +5,7 @@ import torch
 from torch import Tensor, distributions
 
 from cirkit.backend.torch.layers import TorchExpFamilyLayer, TorchInnerLayer
-from cirkit.backend.torch.semiring import Semiring, SumProductSemiring
+from cirkit.backend.torch.semiring import Semiring, LSESumSemiring
 
 
 class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
@@ -56,28 +56,28 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
             semiring=semiring,
         )
         self.num_categories = num_categories
-        self._probs: Tensor | None = None
+        self._log_probs: Tensor | None = None
 
     @property
-    def probs(self) -> Tensor:
-        if self._probs is None:
-            raise ValueError("No probs have been set")
-        return self._probs
+    def log_probs(self) -> Tensor:
+        if self._log_probs is None:
+            raise ValueError("No log probs have been set")
+        return self._log_probs
 
-    @probs.setter
-    def probs(self, probs: Tensor | None):
-        if probs is not None:
+    @log_probs.setter
+    def log_probs(self, log_probs: Tensor | None):
+        if log_probs is not None:
             if (
-                len(probs.shape) != 4
-                or probs.shape[0] != self.num_folds
-                or probs.shape[2] != self.num_output_units
-                or probs.shape[3] != self.num_categories
+                len(log_probs.shape) != 4
+                or log_probs.shape[0] != self.num_folds
+                or log_probs.shape[2] != self.num_output_units
+                or log_probs.shape[3] != self.num_categories
             ):
                 raise ValueError(
-                    f"Expected probs of shape ({self.num_folds}, -1, {self.num_output_units}, {self.num_categories}), "
-                    f"but found {probs.shape}"
+                    f"Expected probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.num_categories}), "
+                    f"but found {log_probs.shape}"
                 )
-        self._probs = probs
+        self._log_probs = log_probs
 
     @property
     def config(self) -> Mapping[str, Any]:
@@ -92,13 +92,13 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
             x = x.long()  # The input to Categorical should be discrete
         # x: (F, C, B, 1) -> (F, B)
         x = x.squeeze(dim=3).squeeze(dim=1)
-        # probs: (F, B, K, N)
-        probs = self.probs
-        idx_fold = torch.arange(self.num_folds, device=probs.device)
-        idx_batch = torch.arange(x.shape[1], device=probs.device)
+        # log_probs: (F, B, K, N)
+        log_probs = self.log_probs
+        idx_fold = torch.arange(self.num_folds, device=log_probs.device)
+        idx_batch = torch.arange(x.shape[1], device=log_probs.device)
         # y: (F, B, K)
-        y = probs[idx_fold[:, None], idx_batch[None, :], :, x]
-        return self.semiring.map_from(y, SumProductSemiring)
+        y = log_probs[idx_fold[:, None], idx_batch[None, :], :, x]
+        return self.semiring.map_from(y, LSESumSemiring)
 
     def log_partition_function(self) -> Tensor:
         return torch.zeros(
@@ -106,8 +106,9 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         )
 
     def sample(self, num_samples: int = 1) -> Tensor:
-        # probs: (F, B, K, N)
-        probs = self.probs
+        # log_probs: (F, B, K, N)
+        log_probs = self.log_probs
+        probs = torch.exp(log_probs)
         dist = distributions.Categorical(probs=probs)
         # samples: (num_samples, F, B, K)
         samples = dist.sample((num_samples,))
@@ -166,7 +167,7 @@ class TorchBatchedSumLayer(TorchInnerLayer):
                 or weight.shape[3] != self.arity * self.num_input_units
             ):
                 raise ValueError(
-                    f"Expected probs of shape ({self.num_folds}, -1, {self.num_output_units}, {self.arity * self.num_input_units}), "
+                    f"Expected probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.arity * self.num_input_units}), "
                     f"but found {weight.shape}"
                 )
         self._weight = weight

@@ -6,9 +6,8 @@ from collections import namedtuple
 from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.circuit import Circuit
-from cirkit.symbolic.layers import SumLayer, CategoricalLayer
+from cirkit.symbolic.layers import HadamardLayer, SumLayer, CategoricalLayer
 from cirkit.utils.scope import Scope
-from cirkit.templates import tensor_factorizations, utils
 
 from .mlp import Block
 from .pipeline import setup_pipeline_context
@@ -82,7 +81,7 @@ class TransformerEncoderHead(torch.nn.Module):
 
     def forward(self, xx):
         # Batch, Sentence Length, Embed Dim
-        B, S, D = xx.shape
+        # B, S, D = xx.shape
 
         xx = F.rms_norm(xx, (xx.size(-1),))
         for block in self.transformer:
@@ -119,31 +118,41 @@ class MultiTokenHead(torch.nn.Module):
         self.n_embd = n_embd                   # D
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
+
+        # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
-            TokenHead(encoder=TransformerEncoderHead(self.n_embd),
-                      expander=LinearExpanderHead(self.n_embd, self.n_component))
-            for i in range(self.n_token)
-            ])
-        # Unembedding matrix
-        self.W = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
+            TokenHead(
+                encoder=TransformerEncoderHead(self.n_embd),
+                expander=LinearExpanderHead(self.n_embd, self.n_component)
+            )
+            for _ in range(self.n_token)
+        ])
+        self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
+        
+        # Projection to the sum layer parameters
+        self.sum_weight_head = TransformerEncoderHead(self.n_embd)
+        self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
     def forward(self, xx):
-
-        # xx is  B, S, D
+        # xx: (B, S, D)
         logits = []
-        # logits.append(self.W(xx))
-        # TODO: Can we avoid the for loop with torch vmap?
+        # TODO: Can we avoid the for loop?
         for token_head in self.token_heads:
-            # head_xx is B, S, R, D
+            # head_xx: (B, S, R, D)
             head_xx = token_head(xx)
-            # head_logits is  B, S, R, V
-            head_logits = self.W(head_xx)
+            # head_logits: (B, S, R, V)
+            head_logits = self.proj_cat_logits(head_xx)
             logits.append(head_logits)
-        categoricals = torch.stack(logits, dim=0)
-        H, B, S, R, V = categoricals.shape
-        # H, B * S, R, V
-        categoricals = categoricals.reshape(H, B*S, R, V)
-        return dict(categoricals=categoricals)
+        # cat_logits: (H, B, S, R, V)
+        cat_logits = torch.stack(logits, dim=0)
+        # cat_log_probs: (H, B, S, R, V)
+        cat_log_probs = torch.log_softmax(cat_logits, dim=-1)
+        # sum_weight: (B, S, 1, R)
+        sum_weight = self.proj_sum_weight(
+            self.sum_weight_head(xx)
+        ).unsqueeze(dim=2)
+        sum_weight = torch.softmax(sum_weight, dim=-1)
+        return dict(cat_log_probs=cat_log_probs, sum_weight=sum_weight)
 
 
 class CircuitCP(torch.nn.Module):
@@ -153,22 +162,42 @@ class CircuitCP(torch.nn.Module):
         self.n_token = n_token           # H
         self.n_component = n_component   # R
         if self.n_token > 1:
-            self.symb_circuit = tensor_factorizations.cp((self.vocab_size,) * self.n_token,
-                                                         rank=self.n_component,
-                                                         factor_param=utils.Parameterization(activation='none'),
-                                                         weight_param=utils.Parameterization(activation='softmax'))
-        else:
-            cat = CategoricalLayer(scope=Scope([0]),
-                                   num_output_units=self.n_component,
-                                   num_channels=1,
-                                   num_categories=self.vocab_size,
-                                   # logits=None,
-                                   # probs_factory = lambda shape: Parameter.from_input(
-                                   #     TensorParameter(*shape, initializer=NormalInitializer()),
-                                   #     )
-                                   )
+            # TODO: when we will be able to set custom input layers (e.g., CategoricalLayer) in tensor factorizations
+            #  (which is very soon)
+            # self.symb_circuit = tensor_factorizations.cp(
+            #     (self.vocab_size,) * self.n_token,
+            #     rank=self.n_component,
+            #     factor_param=utils.Parameterization(activation='none'),
+            #     weight_param=utils.Parameterization(activation='none')
+            # )
+            cats = [CategoricalLayer(
+                scope=Scope([i]),
+                num_output_units=self.n_component,
+                num_channels=1,
+                num_categories=self.vocab_size
+            ) for i in range(self.n_token)]
+            hadamard = HadamardLayer(self.n_component, arity=self.n_token)
             out = SumLayer(num_input_units=self.n_component, num_output_units=1, arity=1)
-            self.symb_circuit = Circuit(num_channels=1, layers=[cat, out], in_layers={out: [cat]}, outputs=[out])
+            self.symb_circuit = Circuit(
+                num_channels=1,
+                layers=cats + [hadamard, out],
+                in_layers={out: [hadamard], hadamard: cats},
+                outputs=[out]
+            )
+        else:
+            cat = CategoricalLayer(
+                scope=Scope([0]),
+                num_output_units=self.n_component,
+                num_channels=1,
+                num_categories=self.vocab_size
+            )
+            out = SumLayer(num_input_units=self.n_component, num_output_units=1, arity=1)
+            self.symb_circuit = Circuit(
+                num_channels=1,
+                layers=[cat, out],
+                in_layers={out: [cat]},
+                outputs=[out]
+            )
 
         self._ctx: PipelineContext = setup_pipeline_context()
         self._circuit: TorchCircuit = self._ctx.compile(self.symb_circuit)
@@ -177,5 +206,6 @@ class CircuitCP(torch.nn.Module):
     def circuit(self) -> TorchCircuit:
         return self._circuit
 
+    @torch._dynamo.disable
     def forward(self, yy):
         return self._circuit(yy)

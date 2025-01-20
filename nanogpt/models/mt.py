@@ -16,7 +16,7 @@ class MultiTokenLM(torch.nn.Module):
     of any pretrained LLM. The encoder provides contextual embeddings for
     tokens.
 
-    2. A lm_head, which expands the contextual embeddings into parameters
+    2. A mt_head, which expands the contextual embeddings into parameters
     for the (circuit) output layer.
 
     3. A circuit which models the output tokens and encodes their dependencies.
@@ -228,7 +228,7 @@ class MultiTokenLM(torch.nn.Module):
             mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
             # mtp_last_log_probs: (B, V)
             mtp_last_log_probs = mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens]
-            adj_last_probs = torch.relu(gpt_last_probs - torch.exp(mtp_last_log_probs)) + 1e-12
+            adj_last_probs = torch.relu(gpt_last_probs - torch.exp(mtp_last_log_probs)) + 1e-15
             adj_last_probs = adj_last_probs / (torch.sum(adj_last_probs, dim=1, keepdim=True))
             # Sample the last token
             last_token = torch.multinomial(adj_last_probs, num_samples=1)

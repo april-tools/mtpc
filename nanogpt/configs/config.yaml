@@ -5,10 +5,11 @@ defaults:
 
 name: nanogpt
 compile: true
+device: cpu
 
 data:
-  train_bin: '/afs/inf.ed.ac.uk/group/project/s2457990/nanoGPT/fineweb10B/fineweb_train_*.bin'
-  val_bin: '/afs/inf.ed.ac.uk/group/project/s2457990/nanoGPT/fineweb10B/fineweb_val_*.bin'
+  train_bin: '/home/grv/Playground/multi-token/nanoGPT/fineweb10B/fineweb_train_*.bin'
+  val_bin: '/home/grv/Playground/multi-token/nanoGPT/fineweb10B/fineweb_val_*.bin'
 
 hydra:
   job:
@@ -16,7 +17,7 @@ hydra:
     name: ${name}
     env_set:
       OMP_NUM_THREADS: 1
-      CUDA_VISIBLE_DEVICES: 0,1,2
+      CUDA_VISIBLE_DEVICES: 0
   run:
     dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
 

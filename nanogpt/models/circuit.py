@@ -111,7 +111,6 @@ class TokenHead(torch.nn.Module):
 
 
 class MultiTokenHead(torch.nn.Module):
-
     def __init__(self, vocab_size, n_embd, n_component=1, n_token=3):
         super().__init__()
         self.vocab_size = vocab_size           # V
@@ -134,24 +133,21 @@ class MultiTokenHead(torch.nn.Module):
         self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
     def forward(self, xx):
-        # xx: (B, S, D) -> xx: (B, S', D)
-        # where S' = S - H + 1
-        xx = xx[:, :-self.n_token + 1]
-
+        # xx: (B, S, D)
         logits = []
         # TODO: Can we avoid the for loop?
         for token_head in self.token_heads:
-            # head_xx: (B, S', R, D)
+            # head_xx: (B, S, R, D)
             head_xx = token_head(xx)
-            # head_logits: (B, S', R, V)
+            # head_logits: (B, S, R, V)
             head_logits = self.proj_cat_logits(head_xx)
             logits.append(head_logits)
-        # cat_logits: (H, B, S', R, V)
+        # cat_logits: (H, B, S, R, V)
         cat_logits = torch.stack(logits, dim=0)
-        # cat_log_probs: (H, B, S', R, V)
+        # cat_log_probs: (H, B, S, R, V)
         cat_log_probs = torch.log_softmax(cat_logits, dim=-1)
 
-        # sum_weight: (B, S', 1, R)
+        # sum_weight: (B, S, 1, R)
         sum_weight = self.proj_sum_weight(
             self.sum_weight_head(xx)
         ).unsqueeze(dim=2)

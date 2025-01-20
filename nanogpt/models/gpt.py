@@ -6,16 +6,6 @@ import torch.nn.functional as F
 
 from .mlp import Block
 
-@dataclass
-class GPTConfig:
-    vocab_size: int = 50304
-    n_layer: int = 12
-    n_head: int = 6
-    n_embd: int = 768
-    n_token: int = 1
-    # Unique to circuits
-    n_component: int = 1
-
 
 class GPT(nn.Module):
     def __init__(self, config):
@@ -68,6 +58,14 @@ class GPT(nn.Module):
             logits = None
 
         return logits, loss
+
+    @torch.no_grad()
+    def generate(self, inputs: torch.Tensor):
+
+        logits, _ = self.forward(inputs, return_logits=True)
+
+        sample = torch.argmax(logits, dim=2)
+        return sample
 
 
 # For our experiments, we only need the encoder of nanoGPT

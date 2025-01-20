@@ -131,7 +131,7 @@ class MultiTokenHead(torch.nn.Module):
         self.sum_weight_head = TransformerEncoderHead(self.n_embd)
         self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
-    def forward(self, xx):
+    def forward(self, xx: Tensor) -> dict[str, Tensor]:
         # xx: (B, S, D)
         logits = []
         # TODO: Can we avoid the for loop?

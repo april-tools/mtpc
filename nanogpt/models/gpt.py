@@ -1,4 +1,4 @@
-from torch import nn
+from torch import nn, Tensor
 
 import torch
 import torch.nn.functional as F
@@ -6,66 +6,34 @@ import torch.nn.functional as F
 from .mlp import Block
 
 
-class GPT(nn.Module):
-    def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 12, n_head: int = 6):
+def _init_weights(module: nn.Module):
+    from .attention import CausalSelfAttention
+    from .mlp import MLP
+
+    if isinstance(module, CausalSelfAttention):
+        nn.init.zeros_(module.c_proj.weight)
+    elif isinstance(module, MLP):
+        nn.init.zeros_(module.c_proj.weight)
+    elif isinstance(module, nn.Embedding):
+        nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    elif isinstance(module, nn.Linear):
+        nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+
+class GPTHead(nn.Module):
+    def __init__(self, n_embd: int, vocab_size: int):
         super().__init__()
-        self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(vocab_size, n_embd),
-            h = nn.ModuleList([Block(n_head, n_embd) for _ in range(n_layer)]),
-        ))
         self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
-        self.apply(self._init_weights)
 
-    def _init_weights(self, module):
-        from .attention import CausalSelfAttention
-        from .mlp import MLP
-
-        if isinstance(module, CausalSelfAttention):
-            nn.init.zeros_(module.c_proj.weight)
-        elif isinstance(module, MLP):
-            nn.init.zeros_(module.c_proj.weight)
-        elif isinstance(module, nn.Embedding):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.Linear):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
-
-    def forward(self, idx, targets=None, return_logits=True):
-        # forward the GPT model itself
-        x = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
-        x = F.rms_norm(x, (x.size(-1),))
-        for block in self.transformer.h:
-            x = block(x)
-        x = F.rms_norm(x, (x.size(-1),))
-
-        if targets is not None:
-            # if we are given some desired targets also calculate the loss
-            logits = self.lm_head(x)
-            logits = 30 * torch.tanh(logits / 30)
+    def forward(self, x: Tensor, use_fp32: bool = True) -> Tensor:
+        # Compute the logits
+        logits = self.lm_head(x)
+        logits = 30 * torch.tanh(logits / 30)
+        if use_fp32:
             logits = logits.float()  # use tf32/fp32 for logits
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
-        else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
-            logits = 30 * torch.tanh(logits / 30)
-            logits = logits.float()  # use tf32/fp32 for logits
-            loss = None
-
-        # there are performance reasons why not returning logits is prudent, if not needed
-        if not return_logits:
-            logits = None
-
-        return logits, loss
-
-    @torch.no_grad()
-    def generate(self, inputs: torch.Tensor):
-
-        logits, _ = self.forward(inputs, return_logits=True)
-
-        sample = torch.argmax(logits, dim=2)
-        return sample
+        return logits
 
 
-# For our experiments, we only need the encoder of nanoGPT
 class GPTEncoder(nn.Module):
     def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 12, n_head: int = 6):
         super().__init__()
@@ -77,23 +45,9 @@ class GPTEncoder(nn.Module):
             wte = nn.Embedding(vocab_size, n_embd),
             h = nn.ModuleList([Block(n_head, n_embd) for _ in range(n_layer)]),
         ))
+        self.apply(_init_weights)
 
-        self.apply(self._init_weights)
-    
-    def _init_weights(self, module):
-        from .attention import CausalSelfAttention
-        from .mlp import MLP
-
-        if isinstance(module, CausalSelfAttention):
-            nn.init.zeros_(module.c_proj.weight)
-        elif isinstance(module, MLP):
-            nn.init.zeros_(module.c_proj.weight)
-        elif isinstance(module, nn.Embedding):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.Linear):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
-
-    def forward(self, xx):
+    def forward(self, xx: Tensor) -> Tensor:
         xx = self.transformer.wte(xx)  # token embeddings of shape (B, S, n_embd)
         # TODO: Decide RMS_NORM positioning
         xx = F.rms_norm(xx, (xx.size(-1),))
@@ -101,3 +55,40 @@ class GPTEncoder(nn.Module):
             xx = block(xx)
         xx = F.rms_norm(xx, (xx.size(-1),))
         return xx
+
+
+class GPT(nn.Module):
+    def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 12, n_head: int = 6):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.n_embd = n_embd
+        self.n_layer = n_layer
+        self.n_head = n_head
+        self.encoder = GPTEncoder(vocab_size, n_embd, n_layer, n_head)
+        self.head = GPTHead(n_embd, vocab_size)
+        self.apply(_init_weights)
+
+    def forward(self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True):
+        # forward the GPT model itself
+        x = self.encoder(idx)  # token embeddings of shape (b, t, n_embd)
+
+        if targets is not None:
+            # if we are given some desired targets also calculate the loss
+            logits = self.head(x)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+        else:
+            # inference-time mini-optimization: only forward the lm_head on the very last position
+            logits = self.head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
+            loss = None
+
+        # there are performance reasons why not returning logits is prudent, if not needed
+        if not return_logits:
+            logits = None
+
+        return logits, loss
+
+    @torch.no_grad()
+    def generate(self, inputs: torch.Tensor) -> Tensor:
+        logits, _ = self.forward(inputs, return_logits=True)
+        sample = torch.argmax(logits, dim=2)
+        return sample

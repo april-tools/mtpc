@@ -215,7 +215,7 @@ class MultiTokenLM(torch.nn.Module):
                 .flatten(start_dim=0, end_dim=1)
                 .unsqueeze(dim=1)
             )
-            if mtp_jp1th_tokens.shape[1] == tokens.shape[1]:
+            if mtp_jp1th_tokens.shape[2] == tokens.shape[1]:
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                 mtp_jp1th_token_log_probs = self.circuit(mtp_jp1th_tokens)
             else:

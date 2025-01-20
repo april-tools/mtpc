@@ -13,7 +13,7 @@ def mtp_cp(
     n_layer: int = 3,
     n_head: int = 2,
     n_component: int = 2,
-    n_token: int = 4
+    n_token: int = 3
 ) -> MultiTokenLM:
     gpt = GPT(vocab_size, n_embd, n_layer, n_head)
     mt_head = MultiTokenHead(vocab_size, n_embd, n_component, n_token)

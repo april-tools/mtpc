@@ -1,5 +1,4 @@
 import torch
-from cirkit.templates.logic.sdd import sliding_window
 
 from torch import Tensor
 

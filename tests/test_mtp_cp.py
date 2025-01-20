@@ -36,7 +36,7 @@ def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     # TODO: which value is the "beginning of sentence"?
     BOS = 1
     seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
-    n_steps = 5
+    n_steps = 10
     for _ in range(n_steps):
         toks = mtp_cp.generate(seq)
         seq = torch.concat([seq, toks], dim=1)
@@ -48,8 +48,10 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     # TODO: which value is the "beginning of sentence"?
     BOS = 1
     seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
-    max_gen_tokens = 9
-    seq, accepted_toks = mtp_cp.self_speculative_generate(seq, max_gen_tokens=max_gen_tokens)
-    assert seq.shape[0] == 1 and seq.shape[1] == max_gen_tokens
+    n_steps = 10
+    for _ in range(n_steps):
+        toks = mtp_cp.self_speculative_generate(seq)
+        seq = torch.concat([seq, toks], dim=1)
+        assert 0 <= len(toks) <= mtp_cp.mt_head.n_token + 1
+    assert seq.shape[0] == 1 and seq.shape[1] <= 1 + n_steps * (mtp_cp.mt_head.n_token + 1)
     assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.gpt.vocab_size)))))
-    assert all(0 <= a <= mtp_cp.mt_head.n_token for a in accepted_toks)

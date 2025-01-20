@@ -111,7 +111,6 @@ class MultiTokenLM(torch.nn.Module):
         # seq: (B, S), with B = 1 and also possibly S = 1
 
         # Generate while we have more tokens to generate
-        gen_tokens = 0
         gen_num_accepted_tokens = []
         while seq.shape[1] <= max_gen_tokens:
             # Compute the embeddings
@@ -242,7 +241,6 @@ class MultiTokenLM(torch.nn.Module):
 
             # Allocate the new context to use, where we accept H' tokens and concatenate one more
             seq = torch.cat([gen_seq[:, : seq.shape[1] + num_accepted_tokens], last_token], dim=1)
-            gen_tokens += num_accepted_tokens + 1
             gen_num_accepted_tokens.append(num_accepted_tokens)
 
         # Crop as to satisfy the maximum number of tokens

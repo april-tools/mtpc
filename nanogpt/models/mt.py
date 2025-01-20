@@ -45,7 +45,7 @@ class MultiTokenLM(torch.nn.Module):
         if training_mode:
             # At training time, we want to learn to predict the next H tokens
             # xx: (B, S', D), where S' = S - H + 1
-            xx: xx[:, :-self.lm_head.n_token + 1]
+            xx = xx[:, :-self.lm_head.n_token + 1]
         else:
             # At generation time, we want to do future token prediction
             # so we only condition on last output
@@ -90,10 +90,11 @@ class MultiTokenLM(torch.nn.Module):
 
     @torch.no_grad()
     def generate(self, inputs: torch.Tensor):
-
+        # Calling forward with no targets simply sets the parameters to the circuit
         self.forward(inputs)
 
-        sample, mix_samples = self.sampler(1)
+        # Sample the next tokens
+        sample, _ = self.sampler(num_samples=1)
         # Remove extraneous channel dimension
         sample = sample.squeeze(dim=1)
         return sample

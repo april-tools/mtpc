@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from torch import nn
 
 import torch
@@ -8,15 +7,13 @@ from .mlp import Block
 
 
 class GPT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 12, n_head: int = 6):
         super().__init__()
-        self.config = config
-
         self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(config.vocab_size, config.n_embd),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            wte = nn.Embedding(vocab_size, n_embd),
+            h = nn.ModuleList([Block(n_head, n_embd) for _ in range(n_layer)]),
         ))
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -70,13 +67,15 @@ class GPT(nn.Module):
 
 # For our experiments, we only need the encoder of nanoGPT
 class GPTEncoder(nn.Module):
-    def __init__(self, config):
+    def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 12, n_head: int = 6):
         super().__init__()
-        self.config = config
-
+        self.vocab_size = vocab_size
+        self.n_embd = n_embd
+        self.n_layer = n_layer
+        self.n_head = n_head
         self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(config.vocab_size, config.n_embd),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            wte = nn.Embedding(vocab_size, n_embd),
+            h = nn.ModuleList([Block(n_head, n_embd) for _ in range(n_layer)]),
         ))
 
         self.apply(self._init_weights)
@@ -101,5 +100,4 @@ class GPTEncoder(nn.Module):
         for block in self.transformer.h:
             xx = block(xx)
         xx = F.rms_norm(xx, (xx.size(-1),))
-
         return xx

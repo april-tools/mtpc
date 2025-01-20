@@ -8,6 +8,7 @@ from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.circuit import Circuit
 from cirkit.symbolic.layers import HadamardLayer, SumLayer, CategoricalLayer
 from cirkit.utils.scope import Scope
+from torch import Tensor
 
 from .mlp import Block
 from .pipeline import setup_pipeline_context
@@ -37,7 +38,7 @@ class TransformerExpanderHead(torch.nn.Module):
 class LinearExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, n_embd, n_component):
+    def __init__(self, n_embd: int, n_component: int):
         super().__init__()
         self.n_embd = n_embd            # D
         self.n_component = n_component  # R
@@ -48,7 +49,7 @@ class LinearExpanderHead(torch.nn.Module):
                                                  self.n_embd))
         torch.nn.init.normal_(self.Wr, mean=0.0, std=0.02)
 
-    def forward(self, xx):
+    def forward(self, xx: Tensor) -> Tensor:
         # Batch, Sentence Length, Embed Dim
         B, S, D = xx.shape
 
@@ -70,14 +71,12 @@ class LinearExpanderHead(torch.nn.Module):
 class TransformerEncoderHead(torch.nn.Module):
     # Create custom parameterisation for each output token
 
-    def __init__(self, n_embd, num_heads=6, num_layers=2):
+    def __init__(self, n_embd: int, n_head: int = 6, num_layers: int = 2):
         super().__init__()
         self.n_embd = n_embd
-        self.num_heads = num_heads
+        self.n_head = n_head
         self.num_layers = num_layers
-
-        config = namedtuple('opts', ['n_embd', 'n_head'])(self.n_embd, self.num_heads)
-        self.transformer = torch.nn.ModuleList([Block(config) for _ in range(self.num_layers)])
+        self.transformer = torch.nn.ModuleList([Block(n_head, n_embd) for _ in range(self.num_layers)])
 
     def forward(self, xx):
         # Batch, Sentence Length, Embed Dim
@@ -111,7 +110,7 @@ class TokenHead(torch.nn.Module):
 
 
 class MultiTokenHead(torch.nn.Module):
-    def __init__(self, vocab_size, n_embd, n_component=1, n_token=3):
+    def __init__(self, vocab_size: int, n_embd: int, n_component: int = 1, n_token=3):
         super().__init__()
         self.vocab_size = vocab_size           # V
         self.n_embd = n_embd                   # D

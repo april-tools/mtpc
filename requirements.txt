@@ -4,3 +4,4 @@ datasets
 tqdm
 hydra-core
 omegaconf
+pytest

@@ -6,11 +6,10 @@ n_token: &n_token 3
 lm: &lm_encoder
     $classname: GPTEncoder
     $module: nanogpt.models.gpt
-    config:
-      vocab_size: *vocab_size
-      n_embd: *n_embd
-      n_layer: 12
-      n_head: 6
+    vocab_size: *vocab_size
+    n_embd: *n_embd
+    n_layer: 12
+    n_head: 6
 head: &lm_head
     $classname: MultiTokenHead
     $module: nanogpt.models.circuit

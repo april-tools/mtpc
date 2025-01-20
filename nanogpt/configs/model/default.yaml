@@ -1,11 +1,10 @@
-vocab_size: 50304
-n_embd: 768
+vocab_size: &vocab_size 50304
+n_embd: &n_embd 768
 
 model:
-    _target_: nanogpt.models.gpt.GPT
-    config:
-      _target_: nanogpt.utils.Config
-      vocab_size: ${model.vocab_size}
-      n_embd: ${model.n_embd}
-      n_layer: 12
-      n_head: 6
+    $classname: GPT
+    $module: nanogpt.models.gpt
+    vocab_size: *vocab_size
+    n_embd: *n_embd
+    n_layer: 12
+    n_head: 6

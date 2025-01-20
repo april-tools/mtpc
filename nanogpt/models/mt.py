@@ -147,7 +147,7 @@ class MultiTokenLM(torch.nn.Module):
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
         log_marginal_probs = self.marginalizer(
             tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1),
-            integrate_vars=[Scope(range(tokens.shape[1] - i, 0, -1)) for i in range(tokens.shape[1], 0, -1)],
+            integrate_vars=list(reversed([Scope(tokens.shape[1] - i - 1 for i in range(t)) for t in range(tokens.shape[1])])),
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
@@ -227,7 +227,7 @@ class MultiTokenLM(torch.nn.Module):
             # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
             mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
             # mtp_last_log_probs: (B, V)
-            mtp_last_log_probs = mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens]
+            mtp_last_log_probs = mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1]
             adj_last_probs = torch.relu(gpt_last_probs - torch.exp(mtp_last_log_probs)) + 1e-15
             adj_last_probs = adj_last_probs / (torch.sum(adj_last_probs, dim=1, keepdim=True))
             # Sample the last token

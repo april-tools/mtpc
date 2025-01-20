@@ -62,7 +62,7 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
 def test_mtp_cp_self_speculative_generate_correctness(mtp_cp: MultiTokenLM):
     # TODO: which value is the "beginning of sentence"?
     BOS = 1
-    num_seqs, max_seq_length = 10_000, 3
+    num_seqs, max_seq_length = 25_000, 4
     seqs = torch.zeros(size=(num_seqs, max_seq_length), dtype=torch.int64)
     for i in range(num_seqs):
         seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)

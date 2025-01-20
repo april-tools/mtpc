@@ -10,7 +10,7 @@ from nanogpt.models.layers import TorchBatchedCategoricalLayer, TorchBatchedSumL
 
 
 class MultiTokenLM(torch.nn.Module):
-    """ A MultiTokenLM comprises three parts:
+    """A MultiTokenLM comprises three parts:
 
     1. A LM encoder, which can be the encoder (i.e. arch without lm_head)
     of any pretrained LLM. The encoder provides contextual embeddings for
@@ -21,6 +21,7 @@ class MultiTokenLM(torch.nn.Module):
 
     3. A circuit which models the output tokens and encodes their dependencies.
     """
+
     def __init__(self, gpt: GPT, mt_head: MultiTokenHead, circuit: CircuitCP):
         super().__init__()
         self.gpt = gpt
@@ -44,7 +45,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # At training time, we want to learn to predict the next H tokens
         # xx: (B, S', D), where S' = S - H + 1
-        xx = xx[:, :xx.shape[1] - self.mt_head.n_token + 1]
+        xx = xx[:, : xx.shape[1] - self.mt_head.n_token + 1]
 
         # Parameterize the circuit
         self.parameterize_circuit(xx)
@@ -70,9 +71,9 @@ class MultiTokenLM(torch.nn.Module):
         # Obtain dictionary of circuit parameters
         circuit_params = self.mt_head(xx)
         # cat_logits: (H, B, S', R, V)
-        cat_log_probs = circuit_params['cat_log_probs']
+        cat_log_probs = circuit_params["cat_log_probs"]
         # sum_weight: (B, S', 1, R)
-        sum_weight = circuit_params['sum_weight']
+        sum_weight = circuit_params["sum_weight"]
 
         # cat_log_probs: (H, B * S', R, V)
         cat_log_probs = cat_log_probs.view(cat_log_probs.shape[0], -1, cat_log_probs.shape[3], cat_log_probs.shape[4])
@@ -104,11 +105,7 @@ class MultiTokenLM(torch.nn.Module):
         return tokens
 
     @torch.no_grad()
-    def self_speculative_generate(
-        self,
-        seq: Tensor,
-        max_gen_tokens: int
-    ) -> Tensor | list[int]:
+    def self_speculative_generate(self, seq: Tensor, max_gen_tokens: int) -> Tensor | list[int]:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
             raise NotImplementedError("Multi-batch self-speculative decoding not implemented yet")
         # seq: (B, S), with B = 1 and also possibly S = 1
@@ -139,7 +136,7 @@ class MultiTokenLM(torch.nn.Module):
             # Compute the next-token probabilities in parallel
             # zz: (B, CUR_S + H, D) -> (B, H + 1, D)
             zz = self.gpt.encoder(gen_seq)
-            zz = zz[:, -tokens.shape[1] - 1:]
+            zz = zz[:, -tokens.shape[1] - 1 :]
             # logits: (B, H + 1, V)
             logits = self.gpt.head(zz)
 
@@ -155,19 +152,19 @@ class MultiTokenLM(torch.nn.Module):
             # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
             log_marginal_probs = self.marginalizer(
                 tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1),
-                integrate_vars=[
-                    Scope(range(tokens.shape[1] - i, 0, -1)) for i in range(tokens.shape[1], 0, -1)
-                ]
+                integrate_vars=[Scope(range(tokens.shape[1] - i, 0, -1)) for i in range(tokens.shape[1], 0, -1)],
             )
             log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
             #
             # Sample H uniform noise values in [0,1), and take their log
             # log_noise: (B, H)
-            log_noise = torch.log(torch.rand(
-                size=(tokens.shape[0], tokens.shape[1]),
-                device=log_marginal_probs.device,
-                dtype=log_marginal_probs.dtype
-            ))
+            log_noise = torch.log(
+                torch.rand(
+                    size=(tokens.shape[0], tokens.shape[1]),
+                    device=log_marginal_probs.device,
+                    dtype=log_marginal_probs.dtype,
+                )
+            )
             #
             # Compute the number of tokens to accept
             num_accepted_tokens = 0
@@ -211,13 +208,20 @@ class MultiTokenLM(torch.nn.Module):
                 # under the consideration that
                 # q(x_{t+j+1}\mid x_{\leq t+j}) = \
                 #     q(x_{t+1}, ..., x_{t+j+1}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t})
-                expanded_tokens = tokens[:, :num_accepted_tokens].unsqueeze(dim=1).expand(-1, self.mt_head.vocab_size, -1)
-                jp1th_token_assignments = torch.arange(self.mt_head.vocab_size, device=tokens.device, dtype=tokens.dtype).unsqueeze(dim=1).unsqueeze(dim=0)
+                expanded_tokens = (
+                    tokens[:, :num_accepted_tokens].unsqueeze(dim=1).expand(-1, self.mt_head.vocab_size, -1)
+                )
+                jp1th_token_assignments = (
+                    torch.arange(self.mt_head.vocab_size, device=tokens.device, dtype=tokens.dtype)
+                    .unsqueeze(dim=1)
+                    .unsqueeze(dim=0)
+                )
                 # mtp_jp1th_tokens: (B, V, H' + 1) -> (B * V, 1, H' + 1)
-                mtp_jp1th_tokens = torch.cat([
-                    expanded_tokens,
-                    jp1th_token_assignments
-                ], dim=2).flatten(start_dim=0, end_dim=1).unsqueeze(dim=1)
+                mtp_jp1th_tokens = (
+                    torch.cat([expanded_tokens, jp1th_token_assignments], dim=2)
+                    .flatten(start_dim=0, end_dim=1)
+                    .unsqueeze(dim=1)
+                )
                 if mtp_jp1th_tokens.shape[1] == tokens.shape[1]:
                     # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                     mtp_jp1th_token_log_probs = self.circuit(mtp_jp1th_tokens)
@@ -225,7 +229,7 @@ class MultiTokenLM(torch.nn.Module):
                     # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                     mtp_jp1th_token_log_probs = self.marginalizer(
                         torch.nn.functional.pad(mtp_jp1th_tokens, pad=(0, tokens.shape[1] - num_accepted_tokens - 1)),
-                        integrate_vars=Scope(range(num_accepted_tokens + 1, tokens.shape[1]))
+                        integrate_vars=Scope(range(num_accepted_tokens + 1, tokens.shape[1])),
                     )
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
                 mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
@@ -237,10 +241,7 @@ class MultiTokenLM(torch.nn.Module):
                 last_token = torch.multinomial(adj_last_probs, num_samples=1)
 
             # Allocate the new context to use, where we accept H' tokens and concatenate one more
-            seq = torch.cat([
-                gen_seq[:, :seq.shape[1] + num_accepted_tokens],
-                last_token
-            ], dim=1)
+            seq = torch.cat([gen_seq[:, : seq.shape[1] + num_accepted_tokens], last_token], dim=1)
             gen_tokens += num_accepted_tokens + 1
             gen_num_accepted_tokens.append(num_accepted_tokens)
 

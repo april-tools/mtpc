@@ -39,7 +39,7 @@ def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     BOS = 1
     # Sample a bunch of short sentences
     # We will use tehse samples to get empirical estimates of the sentences distribution
-    num_seqs, max_seq_length = 2 ** 15, mtp_cp.mt_head.n_token * 2 + 1
+    num_seqs, max_seq_length = 2 ** 16, mtp_cp.mt_head.n_token * 2 + 1
     seqs = torch.full(size=(num_seqs, 1), fill_value=BOS, dtype=torch.int64)
     while seqs.shape[1] < max_seq_length:
         toks = mtp_cp.generate(seqs)
@@ -73,7 +73,7 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     BOS = 1
     # Sample a bunch of short sentences
     # We will use these samples to get empirical estimates of the sentences distribution
-    num_seqs, max_seq_length = 2 ** 15, 4
+    num_seqs, max_seq_length = 2 ** 16, 4
     seqs = torch.zeros(size=(num_seqs, max_seq_length), dtype=torch.int64)
     for i in range(num_seqs):
         seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)

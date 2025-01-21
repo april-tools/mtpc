@@ -21,8 +21,8 @@ def test_gpt_forward(gpt: GPT):
     batch_size, seq_length = 8, 12
     seq = torch.randint(high=2, size=(batch_size, seq_length + 1))
     xx = seq[:, :seq_length]
-    yy = seq[:, 1:]
-    loss = gpt(xx, yy)
+    yy = seq[:, 1:].contiguous()
+    _, loss = gpt(xx, yy, return_logits=False)
     assert torch.isfinite(loss)
     assert loss >= 0.0
 

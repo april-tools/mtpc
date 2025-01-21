@@ -30,10 +30,8 @@ class MultiTokenLM(torch.nn.Module):
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())
-        self._cat_layer: TorchBatchedCategoricalLayer = layers[0]
-        assert isinstance(self._cat_layer, TorchBatchedCategoricalLayer)
-        self._sum_layer: TorchBatchedSumLayer = layers[2]
-        assert isinstance(self._sum_layer, TorchBatchedSumLayer)
+        self._cat_layer = next(l for l in layers if isinstance(l, TorchBatchedCategoricalLayer))
+        self._sum_layer = next(l for l in layers if isinstance(l, TorchBatchedSumLayer))
         self.sampler = SamplingQuery(self.circuit.circuit)
         self.marginalizer = IntegrateQuery(self.circuit.circuit)
 

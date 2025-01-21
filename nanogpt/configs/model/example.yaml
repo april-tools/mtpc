@@ -1,5 +1,6 @@
 vocab_size: 50304
 n_embd: 768
+n_head: 6
 n_component: 2
 n_token: 3
 
@@ -7,12 +8,13 @@ gpt: &gpt
     _target_: nanogpt.models.gpt.GPT
     vocab_size: ${model.vocab_size}
     n_embd: ${model.n_embd}
+    n_head: ${model.n_head}
     n_layer: 12
-    n_head: 6
 mt_head: &mt_head
     _target_: nanogpt.models.circuit.MultiTokenHead
     vocab_size: ${model.vocab_size}
     n_embd: ${model.n_embd}
+    n_head: ${model.n_head}
     n_component: ${model.n_component}
     n_token: ${model.n_token}
 circuit: &circuit

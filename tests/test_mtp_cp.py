@@ -13,12 +13,12 @@ def mtp_cp(
     vocab_size: int = 2,
     n_embd = 12,
     n_layer: int = 2,
-    n_head: int = 2,
+    n_head: int = 6,
     n_component: int = 2,
     n_token: int = 3
 ) -> MultiTokenLM:
     gpt = GPT(vocab_size, n_embd, n_layer, n_head)
-    mt_head = MultiTokenHead(vocab_size, n_embd, n_component, n_token)
+    mt_head = MultiTokenHead(vocab_size, n_embd, n_head, n_component, n_token)
     circuit = CircuitCP(vocab_size, n_token, n_component)
     mtp = MultiTokenLM(gpt, mt_head, circuit)
     return mtp
@@ -73,7 +73,7 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     BOS = 1
     # Sample a bunch of short sentences
     # We will use these samples to get empirical estimates of the sentences distribution
-    num_seqs, max_seq_length = 2 ** 12, 4
+    num_seqs, max_seq_length = 2 ** 15, 4
     seqs = torch.zeros(size=(num_seqs, max_seq_length), dtype=torch.int64)
     for i in range(num_seqs):
         seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)

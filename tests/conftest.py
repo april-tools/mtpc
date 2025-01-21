@@ -17,7 +17,7 @@ def _setup_global_state() -> None:
     torch.use_deterministic_algorithms(True, warn_only=True)
     torch.backends.cudnn.benchmark = False
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-    # Set float32 as default precision
-    torch.set_default_dtype(torch.float32)  # type: ignore[no-untyped-call]
+    # Set float64 as default precision
+    torch.set_default_dtype(torch.float64)  # type: ignore[no-untyped-call]
     # Disable autograd because we do not need it in most cases.
     torch.set_grad_enabled(False)

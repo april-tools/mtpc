@@ -1,8 +1,6 @@
 import torch
 import torch.nn.functional as F
 
-from collections import namedtuple
-
 from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.circuit import Circuit
@@ -17,7 +15,7 @@ from .pipeline import setup_pipeline_context
 class TransformerExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, n_embd, n_component, num_heads=4, num_layers=2):
+    def __init__(self, n_embd: int, n_component: int, num_heads: int = 4, num_layers: int = 2):
         super().__init__()
         self.n_embd = n_embd            # D
         self.n_component = n_component  # R
@@ -110,17 +108,18 @@ class TokenHead(torch.nn.Module):
 
 
 class MultiTokenHead(torch.nn.Module):
-    def __init__(self, vocab_size: int, n_embd: int, n_component: int = 1, n_token=3):
+    def __init__(self, vocab_size: int, n_embd: int, n_head: int = 2, n_component: int = 1, n_token: int = 3):
         super().__init__()
         self.vocab_size = vocab_size           # V
         self.n_embd = n_embd                   # D
+        self.n_head = n_head
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
 
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
             TokenHead(
-                encoder=TransformerEncoderHead(self.n_embd),
+                encoder=TransformerEncoderHead(self.n_embd, self.n_head, num_layers=2),
                 expander=LinearExpanderHead(self.n_embd, self.n_component)
             )
             for _ in range(self.n_token)
@@ -128,7 +127,7 @@ class MultiTokenHead(torch.nn.Module):
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
         
         # Projection to the sum layer parameters
-        self.sum_weight_head = TransformerEncoderHead(self.n_embd)
+        self.sum_weight_head = TransformerEncoderHead(self.n_embd, self.n_head, num_layers=2)
         self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
     def forward(self, xx: Tensor) -> dict[str, Tensor]:

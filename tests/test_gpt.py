@@ -11,7 +11,7 @@ def gpt(
     vocab_size: int = 2,
     n_embd = 12,
     n_layer: int = 2,
-    n_head: int = 2
+    n_head: int = 6
 ) -> GPT:
     gpt = GPT(vocab_size, n_embd, n_layer, n_head)
     return gpt

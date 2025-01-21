@@ -24,13 +24,15 @@ class GPTHead(nn.Module):
     def __init__(self, n_embd: int, vocab_size: int):
         super().__init__()
         self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
+        self._default_dtype = torch.get_default_dtype()
 
-    def forward(self, x: Tensor, use_fp32: bool = True) -> Tensor:
+    def forward(self, x: Tensor, cast_default_dtype: bool = True) -> Tensor:
         # Compute the logits
         logits = self.lm_head(x)
         logits = 30 * torch.tanh(logits / 30)
-        if use_fp32:
-            logits = logits.float()  # use tf32/fp32 for logits
+        if cast_default_dtype:
+            # e.g., use fp32 for logits
+            logits = logits.to(self._default_dtype)
         return logits
 
 

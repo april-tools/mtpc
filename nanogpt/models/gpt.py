@@ -88,7 +88,11 @@ class GPT(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, inputs: torch.Tensor) -> Tensor:
+    def generate(self, inputs: torch.Tensor, use_argmax: bool = True) -> Tensor:
         logits, _ = self.forward(inputs, return_logits=True)
-        sample = torch.argmax(logits, dim=2)
-        return sample
+        if use_argmax:
+            toks = torch.argmax(logits, dim=2)
+        else:
+            probs = torch.softmax(logits, dim=2)
+            toks = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
+        return toks

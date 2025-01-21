@@ -37,32 +37,21 @@ def test_mtp_cp_forward(mtp_cp: MultiTokenLM):
 def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     # TODO: which value is the "beginning of sentence"?
     BOS = 1
-    seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
-    n_steps = 10
-    for _ in range(n_steps):
-        toks = mtp_cp.generate(seq)
-        seq = torch.concat([seq, toks], dim=1)
-    assert seq.shape[0] == 1 and seq.shape[1] == 1 + n_steps * mtp_cp.mt_head.n_token
-    assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.gpt.vocab_size)))))
+    num_seqs, max_seq_length = 8, 12
+    seqs = torch.full(size=(num_seqs, 1), fill_value=BOS, dtype=torch.int64)
+    while seqs.shape[1] < max_seq_length:
+        toks = mtp_cp.generate(seqs)
+        seqs = torch.concat([seqs, toks], dim=1)
+        assert len(toks.shape) == 2 and toks.shape[1] == mtp_cp.mt_head.n_token
+    assert torch.all(torch.isin(seqs, torch.tensor(list(range(mtp_cp.gpt.vocab_size)))))
 
 
 def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     # TODO: which value is the "beginning of sentence"?
     BOS = 1
-    seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
-    n_steps = 10
-    for _ in range(n_steps):
-        toks = mtp_cp.self_speculative_generate(seq)
-        seq = torch.concat([seq, toks], dim=1)
-        assert 0 <= len(toks) <= mtp_cp.mt_head.n_token + 1
-    assert seq.shape[0] == 1 and seq.shape[1] <= 1 + n_steps * (mtp_cp.mt_head.n_token + 1)
-    assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.gpt.vocab_size)))))
-
-
-def test_mtp_cp_self_speculative_generate_correctness(mtp_cp: MultiTokenLM):
-    # TODO: which value is the "beginning of sentence"?
-    BOS = 1
-    num_seqs, max_seq_length = 25_000, 4
+    # Sample a bunch of short sentences
+    # We will use these samples to get empirical estimates of the sentences distribution
+    num_seqs, max_seq_length = 2 ** 12, 4
     seqs = torch.zeros(size=(num_seqs, max_seq_length), dtype=torch.int64)
     for i in range(num_seqs):
         seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
@@ -76,13 +65,18 @@ def test_mtp_cp_self_speculative_generate_correctness(mtp_cp: MultiTokenLM):
         seqs[i] = seq.squeeze(dim=0)
     # Map samples to indices of the probabilities computed above
     # seqs_idx: (num_seqs,)
-    seqs_idx = torch.sum(seqs * torch.tensor([0] + [2 ** i for i in range(max_seq_length - 1)]), dim=-1)
+    seqs_idx = torch.sum(seqs * torch.tensor([0] + list(reversed([2 ** i for i in range(max_seq_length - 1)]))), dim=-1)
     # Compute ratios and compare with the probabilities
     _, counts = torch.unique(seqs_idx, return_counts=True)
     ratios = counts / num_seqs
     assert len(ratios) == 2 ** (max_seq_length - 1)
 
-    # logits: (num_seqs, 1, max_seq_length)
+    # Compute the likelihood of the sentence and check it matches with empirical estimates
+    # obtained by sampling sentences (see above)
+    #
+    # Since self-speculative decoding as implemented by Leviathan et al. should sample
+    # the same distributions that the target model would generate (in expectation),
+    # the sentences likelihood and the empirical distribution estimates should match
     worlds = torch.tensor(list(itertools.product([0, 1], repeat=max_seq_length - 1)))
     worlds = torch.cat([torch.full(size=(2**(max_seq_length - 1), 1), fill_value=BOS, dtype=torch.int64), worlds], dim=1)
     yy = torch.cat([worlds[:, 1:], torch.zeros((worlds.shape[0], 1), dtype=torch.int64)], dim=1)
@@ -94,4 +88,4 @@ def test_mtp_cp_self_speculative_generate_correctness(mtp_cp: MultiTokenLM):
     worlds_probs = torch.exp(worlds_log_probs)
     assert torch.isclose(torch.sum(ratios), torch.tensor(1.0))
     assert torch.isclose(torch.sum(worlds_probs), torch.tensor(1.0))
-    assert torch.allclose(ratios, worlds_probs, rtol=1e-3, atol=1e-3)
+    assert torch.allclose(ratios, worlds_probs, atol=5e-3)

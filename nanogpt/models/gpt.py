@@ -41,10 +41,12 @@ class GPTEncoder(nn.Module):
         self.n_embd = n_embd
         self.n_layer = n_layer
         self.n_head = n_head
-        self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(vocab_size, n_embd),
-            h = nn.ModuleList([Block(n_head, n_embd) for _ in range(n_layer)]),
-        ))
+        self.transformer = nn.ModuleDict(
+            dict(
+                wte=nn.Embedding(vocab_size, n_embd),
+                h=nn.ModuleList([Block(n_head, n_embd) for _ in range(n_layer)]),
+            )
+        )
         self.apply(_init_weights)
 
     def forward(self, xx: Tensor) -> Tensor:
@@ -68,7 +70,9 @@ class GPT(nn.Module):
         self.head = GPTHead(n_embd, vocab_size)
         self.apply(_init_weights)
 
-    def forward(self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True):
+    def forward(
+        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True
+    ) -> tuple[Tensor | None, None]:
         # forward the GPT model itself
         x = self.encoder(idx)  # token embeddings of shape (b, t, n_embd)
 

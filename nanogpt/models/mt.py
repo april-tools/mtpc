@@ -37,7 +37,7 @@ class MultiTokenLM(torch.nn.Module):
         self.sampler = SamplingQuery(self.circuit.circuit)
         self.marginalizer = IntegrateQuery(self.circuit.circuit)
 
-    def forward(self, xx: Tensor, yy: Tensor) -> Tensor:
+    def forward(self, xx: Tensor, yy: Tensor, return_log_probs: bool = False) -> tuple[Tensor | None, Tensor]:
         # Compute the loss, i.e., the multi-token average negated log-likelihood
 
         # xx: (B, S, D)
@@ -65,7 +65,9 @@ class MultiTokenLM(torch.nn.Module):
 
         # The loss is the negated average conditional log-likelihood
         loss = -log_probs.mean()
-        return loss
+        if not return_log_probs:
+            log_probs = False
+        return log_probs, loss
 
     def parameterize_circuit(self, xx: Tensor):
         # Obtain dictionary of circuit parameters
@@ -119,7 +121,7 @@ class MultiTokenLM(torch.nn.Module):
         self.parameterize_circuit(xx)
 
         # Sample the next H tokens
-        # tokens: (B, 1, H) -> (B, H)
+        # tokens: (B=1, 1, H) -> (B=1, H)
         tokens, _ = self.sampler(num_samples=1)
         tokens = tokens.squeeze(dim=1)
 
@@ -147,12 +149,14 @@ class MultiTokenLM(torch.nn.Module):
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
         log_marginal_probs = self.marginalizer(
             tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1),
-            integrate_vars=list(reversed([Scope(tokens.shape[1] - i - 1 for i in range(t)) for t in range(tokens.shape[1])])),
+            integrate_vars=list(
+                reversed([Scope(tokens.shape[1] - i - 1 for i in range(t)) for t in range(tokens.shape[1])])
+            ),
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
         # Sample H uniform noise values in [0,1), and take their log
-        # log_noise: (B, H)
+        # log_noise: (B=1, H)
         log_noise = torch.log(
             torch.rand(
                 size=(tokens.shape[0], tokens.shape[1]),
@@ -229,7 +233,7 @@ class MultiTokenLM(torch.nn.Module):
             # mtp_last_log_probs: (B, V)
             mtp_last_log_probs = mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1]
             adj_last_probs = torch.relu(gpt_last_probs - torch.exp(mtp_last_log_probs)) + 1e-15
-            adj_last_probs = adj_last_probs / (torch.sum(adj_last_probs, dim=1, keepdim=True))
+            adj_last_probs = adj_last_probs / torch.sum(adj_last_probs, dim=1, keepdim=True)
             # Sample the last token
             last_token = torch.multinomial(adj_last_probs, num_samples=1)
 

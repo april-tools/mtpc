@@ -29,7 +29,7 @@ def test_mtp_cp_forward(mtp_cp: MultiTokenLM):
     seq = torch.randint(high=2, size=(batch_size, seq_length + 1))
     xx = seq[:, :seq_length]
     yy = seq[:, 1:]
-    loss = mtp_cp(xx, yy)
+    _, loss = mtp_cp(xx, yy)
     assert torch.isfinite(loss)
     assert loss >= 0.0
 
@@ -37,13 +37,35 @@ def test_mtp_cp_forward(mtp_cp: MultiTokenLM):
 def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     # TODO: which value is the "beginning of sentence"?
     BOS = 1
-    num_seqs, max_seq_length = 8, 12
+    # Sample a bunch of short sentences
+    # We will use tehse samples to get empirical estimates of the sentences distribution
+    num_seqs, max_seq_length = 2 ** 15, mtp_cp.mt_head.n_token * 2 + 1
     seqs = torch.full(size=(num_seqs, 1), fill_value=BOS, dtype=torch.int64)
     while seqs.shape[1] < max_seq_length:
         toks = mtp_cp.generate(seqs)
+        assert toks.shape == (num_seqs, mtp_cp.mt_head.n_token)
         seqs = torch.concat([seqs, toks], dim=1)
-        assert len(toks.shape) == 2 and toks.shape[1] == mtp_cp.mt_head.n_token
     assert torch.all(torch.isin(seqs, torch.tensor(list(range(mtp_cp.gpt.vocab_size)))))
+    # Map samples to indices of the probabilities computed above
+    # seqs_idx: (num_seqs,)
+    seqs_idx = torch.sum(seqs * torch.tensor([0] + list(reversed([2 ** i for i in range(max_seq_length - 1)]))), dim=-1)
+    # Compute ratios and compare with the probabilities
+    _, counts = torch.unique(seqs_idx, return_counts=True)
+    ratios = counts / num_seqs
+    assert len(ratios) == 2 ** (max_seq_length - 1)
+
+    # Compute the likelihood of the sentence and check it matches with empirical estimates
+    # obtained by sampling sentences (see above)
+    worlds = torch.tensor(list(itertools.product([0, 1], repeat=max_seq_length - 1)))
+    worlds = torch.cat([torch.full(size=(2**(max_seq_length - 1), 1), fill_value=BOS, dtype=torch.int64), worlds], dim=1)
+    yy = torch.cat([worlds[:, 1:], torch.zeros((worlds.shape[0], 1), dtype=torch.int64)], dim=1)
+    log_probs, _ = mtp_cp(worlds, yy, return_log_probs=True)
+    log_probs = log_probs.view(2**(max_seq_length - 1), -1)
+    worlds_log_probs = log_probs[:, 0] + log_probs[:, mtp_cp.mt_head.n_token]
+    worlds_probs = torch.exp(worlds_log_probs)
+    assert torch.isclose(torch.sum(ratios), torch.tensor(1.0))
+    assert torch.isclose(torch.sum(worlds_probs), torch.tensor(1.0))
+    assert torch.allclose(ratios, worlds_probs, atol=5e-3)
 
 
 def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
@@ -57,8 +79,9 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
         seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
         while seq.shape[1] < max_seq_length:
             toks = mtp_cp.self_speculative_generate(seq)
+            assert len(toks.shape) == 2 and toks.shape[0] == 1
+            assert 1 <= toks.shape[1] <= mtp_cp.mt_head.n_token + 1
             seq = torch.concat([seq, toks], dim=1)
-            assert 0 <= len(toks) <= mtp_cp.mt_head.n_token + 1
         seq = seq[:, :max_seq_length]
         assert seq.shape == (1, max_seq_length)
         assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.gpt.vocab_size)))))

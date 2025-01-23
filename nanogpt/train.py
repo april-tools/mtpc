@@ -151,9 +151,11 @@ def main(cfg: DictConfig):
             if last_step or (cfg.training.val_loss_every > 0 and step % cfg.training.val_loss_every == 0):
                 val_loss = validation_step(model, val_loader, val_steps, ctx)
                 logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
+            if last_step or (step % cfg.training.save_model_every == 0):
                 if master_process:
                     # TODO: save best / do not overwrite best
                     filename = os.path.join(output_dir, 'model@%d.pth' % step)
+                    logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % filename)
                     torch.save(raw_model, filename)
 
             current_lr = optimizer.param_groups[0]['lr']

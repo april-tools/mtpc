@@ -8,6 +8,8 @@ name: nanogpt
 compile: true
 ddp: true
 device: cuda   # can be cpu only if ddp is False
+# checkpoint: logs/2025-01-16/15-59-39/model@250.pth
+checkpoint: null
 
 hydra:
   job:

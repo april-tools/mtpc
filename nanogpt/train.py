@@ -1,4 +1,5 @@
 import os
+import wandb
 import hydra
 import torch
 import torch.distributed as dist
@@ -80,8 +81,15 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 def main(cfg: DictConfig):
 
     try:
+
+        # Setup Wandb
+        wandb.init(project='mtp',
+                   config=OmegaConf.to_container(cfg))
+        wandb.define_metric("*", step_metric="global_step")
+
         # Below Points to hydra.run.dir (not directly accessible)
         output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+
         # Save current config
         with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
             OmegaConf.save(cfg, f)
@@ -124,6 +132,7 @@ def main(cfg: DictConfig):
             raw_model = raw_model.to(cfg.device)
 
         # Initialize optimizers and schedulers
+        logger("Setting up/compiling model...")
         optimizer, scheduler = create_optimizers(raw_model, cfg)
         
         # Initialize training context
@@ -150,6 +159,7 @@ def main(cfg: DictConfig):
             # Validation
             if last_step or (cfg.training.val_loss_every > 0 and step % cfg.training.val_loss_every == 0):
                 val_loss = validation_step(model, val_loader, val_steps, ctx)
+                wandb.log({'valid/loss': val_loss, 'global_step': step})
                 logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
             if last_step or (step % cfg.training.save_model_every == 0):
                 if master_process:
@@ -160,6 +170,7 @@ def main(cfg: DictConfig):
 
             current_lr = optimizer.param_groups[0]['lr']
             logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
+            wandb.log({'train/loss': train_loss, 'global_step': step})
     finally:
         if cfg.ddp:
             dist.destroy_process_group()

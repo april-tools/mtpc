@@ -1,3 +1,4 @@
+import math
 import torch
 
 from torch import Tensor
@@ -64,7 +65,7 @@ class MultiTokenLM(torch.nn.Module):
         # The loss is the negated average conditional log-likelihood
         loss = -log_probs.mean()
         if not return_log_probs:
-            log_probs = False
+            log_probs = None
         return log_probs, loss
 
     def parameterize_circuit(self, xx: Tensor):
@@ -229,7 +230,10 @@ class MultiTokenLM(torch.nn.Module):
             # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
             mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
             # mtp_last_log_probs: (B, V)
-            mtp_last_log_probs = mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1]
+            if num_accepted_tokens == 0:
+                mtp_last_log_probs = mtp_jp1th_token_log_probs
+            else:
+                mtp_last_log_probs = mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1]
             adj_last_probs = torch.relu(gpt_last_probs - torch.exp(mtp_last_log_probs)) + 1e-15
             adj_last_probs = adj_last_probs / torch.sum(adj_last_probs, dim=1, keepdim=True)
             # Sample the last token

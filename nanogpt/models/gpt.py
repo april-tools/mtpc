@@ -60,7 +60,10 @@ class GPT(nn.Module):
         return dict(logits=logits, loss=loss, stp_loss=loss)
 
     @torch.no_grad()
-    def generate(self, inputs: torch.Tensor):
+    def generate(self, inputs: torch.Tensor, mode='stp'):
+
+        if mode != 'stp':
+            raise ValueError('Only single token generation supported')
 
         results = self.forward(inputs, return_logits=True)
 

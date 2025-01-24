@@ -5,9 +5,10 @@ import tqdm
 import hydra
 import torch
 import pickle
+import argparse
 import torch.distributed as dist
 from torch.amp import autocast
-from omegaconf import DictConfig
+from omegaconf import OmegaConf
 
 from nanogpt.data.dataloader import DistributedDataLoader
 from nanogpt.utils.distributed import setup_distributed, wrap_model_distributed
@@ -20,75 +21,100 @@ def load_vocabs(path):
                 decode=lambda x: ''.join([vocabs['itos'][i] for i in x]))
 
 
-@hydra.main(version_base=None, config_path="./configs", config_name="config")
-def main(cfg: DictConfig):
 
-    if cfg.checkpoint is None:
-        myconf = hydra.utils.instantiate(cfg.model)
-        model = myconf.model
-    else:
-        model = torch.load(cfg.checkpoint)
+if __name__ == "__main__":
 
-    raw_model = model.to(cfg.device)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--checkpoint', required=True,
+                        help='The checkpointed model (.pth file) to use for generation.')
+    parser.add_argument('--num-tokens', default=1000, type=int,
+                        help='Number of tokens to generate.')
+    parser.add_argument('--device', default='cuda',
+                        help='The device to use for generation.')
+    parser.add_argument('--prompt', default=None,
+                        help='Prompt to use for generation.')
+    parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
+                        help='Single Token Prediction (stp) is available both for MTP and autoregressive models. '
+                        'MTP is available only for MTP models')
+    args = parser.parse_args()
+
+    # TODO: Do we care about changing this?
+    BATCH_SIZE = 1
+
+    model = torch.load(args.checkpoint)
+    model = model.to(args.device)
+    model.eval()
+
+    # Load config used to train the model
+    config_folder = os.path.dirname(args.checkpoint)
+    config_path = os.path.join(config_folder, 'config.yaml')
+    cfg = OmegaConf.load(config_path)
 
     vocabs = load_vocabs(cfg.data.vocabs)
 
-    # Initialize training context
-    ctx = autocast(device_type='cuda', dtype=torch.bfloat16)
-
-    NUM_TOKENS = 1000
     # TODO: Make below BOS - unsure what it is for the encoded docs
-    BOS = 1
-    x = torch.ones(cfg.training.device_batch_size, 1, dtype=torch.int, device=cfg.device)
-    x = x * BOS
-    # Init model - do not use this output
-    tokens = raw_model.generate(x)
-    n_token_mtp = getattr(raw_model.lm_head, 'n_token', 1)
-    assert(tokens.shape[1] == n_token_mtp)
+    if args.prompt == None:
+        BOS = 1
+        x = torch.ones((BATCH_SIZE, 1), dtype=torch.int, device=args.device)
+        x = x * BOS
+    else:
+        # TODO: Need tokenizer here for token models
+        x = torch.tensor(vocabs['encode'](args.prompt), dtype=torch.int, device=args.device)
+        x = x.unsqueeze(0)
+
+    # Init model in case loading takes additional time - do not use this output
+    tokens = model.generate(x, mode=args.mode)
+
+
+    if args.mode == 'mtp':
+        n_token_mtp = getattr(model.lm_head, 'n_token', 1)
+        assert(tokens.shape[1] == n_token_mtp)
+    else:
+        n_token_mtp = 1
+        assert(tokens.shape[1] == 1)
 
     stats = dict()
-    if cfg.device == 'cpu':
+    if args.device == 'cpu':
         start_time = time.perf_counter()
-    elif cfg.device == 'cuda':
+    elif args.device == 'cuda':
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
-        start.record(torch.cuda.current_stream(cfg.device))
+        start.record(torch.cuda.current_stream(args.device))
     else:
-        raise ValueError('Unexpected device %s' % cfg.device)
+        raise ValueError('Unexpected device %s' % args.device)
 
-    with tqdm.tqdm(total=NUM_TOKENS) as pbar:
+    init_length = x.shape[1] * x.shape[0]
+
+    with tqdm.tqdm(total=args.num_tokens) as pbar:
         # Keep track of total number of tokens generated
-        while (x.shape[1] * x.shape[0]) < NUM_TOKENS:
-            tokens = raw_model.generate(x)
+        while (x.shape[1] * x.shape[0] - init_length) < args.num_tokens:
+            tokens = model.generate(x, mode=args.mode)
             x = torch.concat([x, tokens], dim=1)
             pbar.update(tokens.shape[0] * tokens.shape[1])
 
-    if cfg.device == 'cpu':
+    if args.device == 'cpu':
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
-    elif cfg.device == 'cuda':
-        end.record(torch.cuda.current_stream(cfg.device))
-        torch.cuda.synchronize(cfg.device)  # Synchronize CUDA Kernels before measuring time
+    elif args.device == 'cuda':
+        end.record(torch.cuda.current_stream(args.device))
+        torch.cuda.synchronize(args.device)  # Synchronize CUDA Kernels before measuring time
         elapsed_time = start.elapsed_time(end) * 1e-3   # CUDA returns ms
     else:
-        raise ValueError('Unexpected device %s' % cfg.device)
+        raise ValueError('Unexpected device %s' % args.device)
 
-    print('Generation:\n', vocabs['decode'](x.ravel().tolist()))
+    print('Generation:\n\n', vocabs['decode'](x.ravel().tolist()))
 
-    tps = NUM_TOKENS / elapsed_time
+    tps = args.num_tokens / elapsed_time
 
     stats['model'] = cfg.model.model._target_
     stats['ntoken'] = n_token_mtp
-    stats['ncomponent'] = getattr(raw_model.lm_head, 'n_component', 1)
-    stats['device'] = cfg.device
-    stats['batch_size'] = cfg.training.device_batch_size
+    stats['ncomponent'] = getattr(model.lm_head, 'n_component', 1)
+    stats['device'] = args.device
+    stats['batch_size'] = BATCH_SIZE
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
+    stats['mode'] = args.mode
     
     result = json.dumps(stats)
 
     print(result)
-
-
-if __name__ == "__main__":
-    main()

@@ -57,14 +57,14 @@ class GPT(nn.Module):
         if not return_logits:
             logits = None
 
-        return logits, loss
+        return dict(logits=logits, loss=loss, stp_loss=loss)
 
     @torch.no_grad()
     def generate(self, inputs: torch.Tensor):
 
-        logits, _ = self.forward(inputs, return_logits=True)
+        results = self.forward(inputs, return_logits=True)
 
-        sample = torch.argmax(logits, dim=2)
+        sample = torch.argmax(results['logits'], dim=2)
         return sample
 
 

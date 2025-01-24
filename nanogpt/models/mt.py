@@ -73,7 +73,7 @@ class MultiTokenLM(torch.nn.Module):
         self._cat_layer.log_probs = cat_log_probs
         self._sum_layer.weight = sum_weight
 
-        loss = None
+        mtp_loss = None
 
         if training_mode:
 
@@ -91,9 +91,22 @@ class MultiTokenLM(torch.nn.Module):
             log_probs = self.circuit(yy)
 
             # The loss is the negated average conditional log-likelihood
-            loss = -log_probs.mean()
+            mtp_loss = -log_probs.mean()
 
-        return None, loss
+            # Next token prediction - equivalent to marginalising out future tokens
+            # See https://arxiv.org/pdf/2410.17765, eq. 11
+            # (1, B * S', 1, V)
+            next_token_cats = torch.exp(self._cat_layer.log_probs[0, :, :, :])
+            # (B * S', V)
+            next_token_probs = (self._sum_layer.weight @ next_token_cats).squeeze()
+
+            # We keep track of next token prediction loss too, in order to discern
+            # how good the model would be for just next token prediction
+            bs_idxs = torch.arange(yy.shape[0], device=yy.device)
+            stp_probs = next_token_probs[bs_idxs, yy[:, :, 0].ravel()]
+            stp_loss = -torch.log(stp_probs).mean()
+
+        return dict(loss=mtp_loss, stp_loss=stp_loss, mtp_loss=mtp_loss)
 
     @torch.no_grad()
     def generate(self, inputs: torch.Tensor):

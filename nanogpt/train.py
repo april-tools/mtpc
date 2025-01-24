@@ -39,7 +39,7 @@ def validation_step(model, val_loader, val_steps, ctx):
     for _ in range(val_steps):
         x_val, y_val = val_loader.next_batch()
         with ctx:
-            results = model(x_val, y_val, return_logits=False)
+            results = model(x_val, y_val)
             val_loss += results['loss'].detach()
             val_stp_loss += results['stp_loss'].detach()
             if 'mtp_loss' in results:
@@ -66,7 +66,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
         x, y = train_loader.next_batch()
 
         with ctx:
-            results = model(x, y, return_logits=False)
+            results = model(x, y)
             loss = results['loss']
             train_loss = loss.detach()
             train_stp_loss = results['stp_loss'].detach()

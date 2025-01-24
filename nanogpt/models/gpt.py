@@ -32,7 +32,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None, return_logits=True):
+    def forward(self, idx, targets=None, return_logits=False):
         # forward the GPT model itself
         x = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
         x = F.rms_norm(x, (x.size(-1),))

@@ -7,6 +7,7 @@ from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.circuit import Circuit
 from cirkit.symbolic.layers import HadamardLayer, SumLayer, CategoricalLayer
+# from cirkit.templates import tensor_factorizations, utils
 from cirkit.utils.scope import Scope
 
 from .mlp import Block
@@ -164,11 +165,12 @@ class CircuitCP(torch.nn.Module):
         if self.n_token > 1:
             # TODO: when we will be able to set custom input layers (e.g., CategoricalLayer) in tensor factorizations
             #  (which is very soon)
+            # NOTE: Below will not work for case n_token=1, because an arity check fails.
             # self.symb_circuit = tensor_factorizations.cp(
             #     (self.vocab_size,) * self.n_token,
             #     rank=self.n_component,
-            #     factor_param=utils.Parameterization(activation='none'),
-            #     weight_param=utils.Parameterization(activation='none')
+            #     factor_param=utils.Parameterization(initialization='normal', activation='none'),
+            #     weight_param=utils.Parameterization(initialization='normal', activation='none')
             # )
             cats = [CategoricalLayer(
                 scope=Scope([i]),
@@ -184,7 +186,9 @@ class CircuitCP(torch.nn.Module):
                 in_layers={out: [hadamard], hadamard: cats},
                 outputs=[out]
             )
-        else:
+            self.cat_layer_idx = 0
+            self.sum_layer_idx = 2
+        elif self.n_token == 1:
             cat = CategoricalLayer(
                 scope=Scope([0]),
                 num_output_units=self.n_component,
@@ -198,6 +202,11 @@ class CircuitCP(torch.nn.Module):
                 in_layers={out: [cat]},
                 outputs=[out]
             )
+            # We have no HadamardLayer in between
+            self.cat_layer_idx = 0
+            self.sum_layer_idx = 1
+        else:
+            raise ValueError('n_token must be > 0, got %d' % self.n_token)
 
         self._ctx: PipelineContext = setup_pipeline_context()
         self._circuit: TorchCircuit = self._ctx.compile(self.symb_circuit)

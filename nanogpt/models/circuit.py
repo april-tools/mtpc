@@ -89,15 +89,18 @@ class TransformerEncoderHead(torch.nn.Module):
 
 class TokenHead(torch.nn.Module):
 
-    def __init__(self, encoder, expander):
+    def __init__(self, encoder: TransformerEncoderHead, expander: LinearExpanderHead | None = None):
         super().__init__()
         self.encoder = encoder
         # Expands parametrisation for mixture model
         self.expander = expander
 
-    def forward(self, xx):
+    def forward(self, xx: Tensor, generate: bool = False) -> Tensor:
         # xx is B, S, D
         xx = self.encoder(xx)
+        if generate:
+            xx = xx[:, [-1]]
+
         # xx is B, S, D
         if self.expander is not None:
             xx = self.expander(xx)
@@ -130,26 +133,27 @@ class MultiTokenHead(torch.nn.Module):
         self.sum_weight_head = TransformerEncoderHead(self.n_embd, self.n_head, num_layers=2)
         self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
-    def forward(self, xx: Tensor) -> dict[str, Tensor]:
+    def forward(self, xx: Tensor, generate: bool = False) -> dict[str, Tensor]:
         # xx: (B, S, D)
         logits = []
         # TODO: Can we avoid the for loop?
         for token_head in self.token_heads:
             # head_xx: (B, S, R, D)
-            head_xx = token_head(xx)
+            head_xx = token_head(xx, generate=generate)
             # head_logits: (B, S, R, V)
             head_logits = self.proj_cat_logits(head_xx)
             logits.append(head_logits)
-        # cat_logits: (H, B, S, R, V)
-        cat_logits = torch.stack(logits, dim=0)
         # cat_log_probs: (H, B, S, R, V)
-        cat_log_probs = torch.log_softmax(cat_logits, dim=-1)
+        cat_log_probs = torch.log_softmax(torch.stack(logits, dim=0), dim=-1)
 
         # sum_weight: (B, S, 1, R)
-        sum_weight = self.proj_sum_weight(
-            self.sum_weight_head(xx)
-        ).unsqueeze(dim=2)
-        sum_weight = torch.softmax(sum_weight, dim=-1)
+        sum_weight = self.sum_weight_head(xx)
+        if generate:
+            sum_weight = sum_weight[:, [-1]]
+        sum_weight = torch.softmax(
+            self.proj_sum_weight(sum_weight).unsqueeze(dim=2),
+            dim=-1
+        )
 
         return dict(cat_log_probs=cat_log_probs, sum_weight=sum_weight)
 

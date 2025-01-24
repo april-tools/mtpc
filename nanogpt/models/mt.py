@@ -68,9 +68,10 @@ class MultiTokenLM(torch.nn.Module):
             log_probs = None
         return log_probs, loss
 
-    def parameterize_circuit(self, xx: Tensor):
+    def parameterize_circuit(self, xx: Tensor, generate: bool = False):
         # Obtain dictionary of circuit parameters
-        circuit_params = self.mt_head(xx)
+        circuit_params = self.mt_head(xx, generate=generate)
+
         # cat_logits: (H, B, S', R, V)
         cat_log_probs = circuit_params["cat_log_probs"]
         # sum_weight: (B, S', 1, R)
@@ -91,13 +92,8 @@ class MultiTokenLM(torch.nn.Module):
         # xx: (B, S, D)
         xx = self.gpt.encoder(inputs)
 
-        # At generation time, we want to do future token prediction
-        # so we only condition on last output
-        # xx: (B, S', D), where S' = 1
-        xx = xx[:, [-1]]
-
         # Parameterize the circuit
-        self.parameterize_circuit(xx)
+        self.parameterize_circuit(xx, generate=True)
 
         # Sample the next tokens
         tokens, _ = self.sampler(num_samples=1)
@@ -112,12 +108,11 @@ class MultiTokenLM(torch.nn.Module):
             # seq: (B, S), with B = 1 and also possibly S = 1
 
         # Compute the embeddings
-        # xx: (B, S, D) -> (B, 1, D)
+        # xx: (B, S, D)
         xx = self.gpt.encoder(seq)
-        xx = xx[:, [-1]]
 
         # Set the circuit parameters, based on the last embeddings
-        self.parameterize_circuit(xx)
+        self.parameterize_circuit(xx, generate=True)
 
         # Sample the next H tokens
         # tokens: (B=1, 1, H) -> (B=1, H)

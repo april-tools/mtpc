@@ -68,7 +68,7 @@ def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     worlds_probs = torch.exp(worlds_log_probs)
     assert torch.isclose(torch.sum(ratios), torch.tensor(1.0))
     assert torch.isclose(torch.sum(worlds_probs), torch.tensor(1.0))
-    assert torch.allclose(ratios, worlds_probs, rtol=5e-2), \
+    assert torch.allclose(ratios, worlds_probs, rtol=3e-2), \
         torch.max(torch.abs(worlds_probs / ratios - 1.0))
 
 
@@ -119,6 +119,5 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     worlds_probs = torch.exp(worlds_log_probs)
     assert torch.isclose(torch.sum(ratios), torch.tensor(1.0))
     assert torch.isclose(torch.sum(worlds_probs), torch.tensor(1.0))
-    assert torch.allclose(ratios, worlds_probs, rtol=5e-2), \
+    assert torch.allclose(ratios, worlds_probs, rtol=3e-2), \
         torch.max(torch.abs(worlds_probs / ratios - 1.0))
-

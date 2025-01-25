@@ -3,8 +3,8 @@ import torch
 from torch import Tensor
 from cirkit.backend.torch.queries import SamplingQuery
 
-from nanogpt.models.circuit import CircuitCP
-from nanogpt.models.layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
+from .circuits import CircuitCP
+from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 
 
 class MultiTokenLM(torch.nn.Module):

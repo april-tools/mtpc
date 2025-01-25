@@ -3,7 +3,6 @@ import wandb
 import hydra
 import torch
 import torch.distributed as dist
-from collections import defaultdict
 from torch.amp import autocast
 from omegaconf import DictConfig, OmegaConf, open_dict
 import time
@@ -27,7 +26,7 @@ def create_optimizers(raw_model, cfg):
         T_max=cfg.training.num_iterations,
         eta_min=cfg.training.learning_rate / 10
     )
-    
+
     return optimizer, scheduler
 
 
@@ -74,24 +73,24 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
                 train_mtp_loss = results['mtp_loss'].detach()
             else:
                 train_mtp_loss = None
-        
+
         if i < train_accumulation_steps and torch.cuda.is_available():
             with model.no_sync():
                 loss.backward()
         else:
             loss.backward()
-    
+
     for p in model.parameters():
         p.grad /= train_accumulation_steps
-    
+
     # Add gradient clipping
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        
+
     optimizer.step()
     scheduler.step()
-        
+
     model.zero_grad(set_to_none=True)
-    
+
     return train_loss, train_stp_loss, train_mtp_loss
 
 
@@ -142,10 +141,10 @@ def main(cfg: DictConfig):
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
         train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
         val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
-        
+
         logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
         logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
-        
+
         # Calculate steps
         val_steps = cfg.training.val_tokens // (B * T * world_size)
         train_accumulation_steps = cfg.training.batch_size // (B * world_size)
@@ -153,7 +152,7 @@ def main(cfg: DictConfig):
         # Initialize model
         myconf = hydra.utils.instantiate(cfg.model)
         model = myconf.model
-        
+
         # If distributed data parallel
         if cfg.ddp:
             model = wrap_model_distributed(model, local_rank, cfg.compile)
@@ -165,15 +164,15 @@ def main(cfg: DictConfig):
         # Initialize optimizers and schedulers
         logger("Setting up/compiling model...")
         optimizer, scheduler = create_optimizers(raw_model, cfg)
-        
+
         # Initialize training context
         ctx = autocast(device_type=cfg.device, dtype=torch.bfloat16)
-        
+
         # Training loop
         train_loader.reset()
         for step in range(1, cfg.training.num_iterations + 1):
             last_step = (step == cfg.training.num_iterations)
-            
+
             t0 = time.time()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()

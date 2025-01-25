@@ -1,5 +1,6 @@
+name: mtp
 n_embd: 768
-n_component: 1
+n_component: 5
 n_token: 3
 
 lm: &lm_encoder

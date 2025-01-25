@@ -1,3 +1,4 @@
+name: fineweb10B
 vocab_size: 50304
 train_bin: '${oc.env:MTP_ROOT}/data/fineweb10B/fineweb_train_*.bin'
 val_bin: '${oc.env:MTP_ROOT}/data/fineweb10B/fineweb_val_*.bin'

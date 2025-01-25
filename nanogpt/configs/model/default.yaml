@@ -1,3 +1,4 @@
+name: autoregressive
 n_embd: 768
 
 model:

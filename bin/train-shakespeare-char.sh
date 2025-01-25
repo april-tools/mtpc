@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Run the autoregressive model
+
+torchrun --standalone --nproc_per_node=1 -m nanogpt.train data=shakespeare_char model=default model.n_embd=384
+
+# Run the multi-token prediction model
+# Note that the multi-token-prediction model with r > 1 is a Mixture of Softmaxes
+
+for r in 1 3 5 8;
+do
+	for s in 1 2 3 4 5;
+	do
+		torchrun --standalone --nproc_per_node=1 -m nanogpt.train data=shakespeare_char model=mtp model.n_embd=384 model.n_token=$s model.n_component=$r
+	done
+done

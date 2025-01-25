@@ -38,13 +38,13 @@ Also specify :
 2. The MTP_ROOT environment variable; set it to the root directory of the project, see example in `env.sh`.
 
 
-Run the training
+How to Train Models
 ```
 source env.sh
 # Train the default nanogpt model on shakespeare_char (see nanogpt/config/model/default.yaml)
-torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespare_char model=default model.n_embd=384
+torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespeare_char model=default model.n_embd=384
 # Train the mtp model on shakespeare_char (see nanogpt/config/model/mtp.yaml)
-torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespare_char model=mtp model.n_embd=384
+torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespeare_char model=mtp model.n_embd=384 model.n_token=3 model.n_component=5
 ```
 
 # Experiments

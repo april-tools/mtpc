@@ -17,6 +17,8 @@ head: &lm_head
     n_embd: ${model.n_embd}
     n_component: ${model.n_component}
     n_token: ${model.n_token}
+    n_head: 6
+    n_layer: 2
 circuit: &circuit
     _target_: nanogpt.models.circuit.CircuitCP
     vocab_size: ${data.vocab_size}

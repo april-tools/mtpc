@@ -17,16 +17,16 @@ from .pipeline import setup_pipeline_context
 class TransformerExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, n_embd, n_component, num_heads=4, num_layers=2):
+    def __init__(self, n_embd, n_component, n_head=4, n_layer=2):
         super().__init__()
         self.n_embd = n_embd            # D
         self.n_component = n_component  # R
-        self.num_heads = num_heads
-        self.num_layers = num_layers
+        self.n_head = n_head
+        self.n_layer = n_layer
 
         # NOTE: Below need not be causal - since over "R" dimension
-        te = torch.nn.TransformerEncoderLayer(d_model=n_embd, nhead=self.num_heads, batch_first=True)
-        self.rf = torch.nn.TransformerEncoder(te, num_layers=self.num_layers)
+        te = torch.nn.TransformerEncoderLayer(d_model=n_embd, nhead=self.n_head, batch_first=True)
+        self.rf = torch.nn.TransformerEncoder(te, n_layer=self.n_layer)
         self.rep_pos_embeds = torch.nn.Embedding(self.n_component, self.n_embd)
 
     def forward(self, xx):
@@ -71,14 +71,14 @@ class LinearExpanderHead(torch.nn.Module):
 class TransformerEncoderHead(torch.nn.Module):
     # Create custom parameterisation for each output token
 
-    def __init__(self, n_embd, num_heads=6, num_layers=2):
+    def __init__(self, n_embd, n_head=6, n_layer=2):
         super().__init__()
         self.n_embd = n_embd
-        self.num_heads = num_heads
-        self.num_layers = num_layers
+        self.n_head = n_head
+        self.n_layer = n_layer
 
-        config = namedtuple('opts', ['n_embd', 'n_head'])(self.n_embd, self.num_heads)
-        self.transformer = torch.nn.ModuleList([Block(config) for _ in range(self.num_layers)])
+        config = namedtuple('opts', ['n_embd', 'n_head'])(self.n_embd, self.n_head)
+        self.transformer = torch.nn.ModuleList([Block(config) for _ in range(self.n_layer)])
 
     def forward(self, xx):
         # Batch, Sentence Length, Embed Dim
@@ -113,19 +113,31 @@ class TokenHead(torch.nn.Module):
 
 class MultiTokenHead(torch.nn.Module):
 
-    def __init__(self, vocab_size, n_embd, n_component=1, n_token=3):
+    def __init__(self,
+                 vocab_size,
+                 n_embd,
+                 n_layer=2,
+                 n_head=6,
+                 n_component=3,
+                 n_token=3):
         super().__init__()
         self.vocab_size = vocab_size           # V
         self.n_embd = n_embd                   # D
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
 
+        # number of heads and layers in the multi-token transformer
+        self.n_head = n_head
+        self.n_layer = n_layer
+
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
             TokenHead(
-                encoder=TransformerEncoderHead(self.n_embd),
+                encoder=TransformerEncoderHead(self.n_embd,
+                                               n_head=self.n_head,
+                                               n_layer=self.n_layer),
                 expander=LinearExpanderHead(self.n_embd, self.n_component)
-            )
+                )
             for _ in range(self.n_token)
         ])
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)

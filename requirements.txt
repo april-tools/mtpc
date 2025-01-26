@@ -5,3 +5,6 @@ tqdm
 hydra-core
 omegaconf
 pytest
+matplotlib
+seaborn
+tueplots

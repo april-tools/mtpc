@@ -1,0 +1,31 @@
+#!/usr/bin/env python
+import os
+import tqdm
+import shutil
+import argparse
+
+from omegaconf import OmegaConf
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser('Save experiment to models.')
+    parser.add_argument('--experiments', required=True, nargs='+',
+                        help='Path to experiment folder')
+    parser.add_argument('--overwrite', action='store_true',
+                        help='Whether to overwrite exp folder if it exists.')
+    args = parser.parse_args()
+
+    for exp in tqdm.tqdm(args.experiments):
+        conf = os.path.join(exp, 'config.yaml')
+        print('Loading config from %s...' % conf)
+        loaded = OmegaConf.load(conf)
+
+        dataset = loaded['data']['name']
+        expname = loaded['expname'].replace('=', '-')
+
+        root_dir = os.environ['MTP_ROOT']
+        model_dir = os.path.join(root_dir, 'outputs', 'models', dataset, expname)
+        if os.path.exists(model_dir) and not args.overwrite:
+            raise RuntimeError('Experiment already exists.')
+        else:
+            print('Copying experiment files to %s...' % model_dir)
+            shutil.copytree(exp, model_dir, dirs_exist_ok=True)

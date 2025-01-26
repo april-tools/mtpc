@@ -41,6 +41,15 @@ source env.sh
 torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train
 ```
 
+# Run Unit Tests
+
+Running the tests can take up to one hour depending on the hardware.
+
+```bash
+export PYTHONPATH=.
+pytest
+```
+
 # Experiments
 
 ## Throughput Evaluation

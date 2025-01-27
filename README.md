@@ -70,6 +70,14 @@ If you want to keep the model (i.e. move it to `outputs/models/<dataset>/expname
 ./bin/save_experiment --experiments logs/date/time/*
 ```
 
+## Visualise Metrics
+
+Assuming you have access to wandb, you can use the `plots.plot_metric` script to filter by dataset and `expname` (models) and plot the metrics locally:
+
+```bash
+python -m plots.plot_metric --models autoregressive mtp-s=3-r=5 --metric valid/stp_loss --dataset shakespeare_char
+```
+
 ## Generate from Models:
 
 You can specify `--mode stp` to force single token prediction (even for mtp models).
@@ -88,10 +96,21 @@ torchrun -m nanogpt.generate --device cuda --checkpoint /path/to/stp/model@xxx.p
 
 ## Shakespeare Char-Level Model
 
+
+### Train the models
+
 As a sanity check, we train models on the `shakespeare_char` dataset.
 ```bash
 ./bin/train-shakespeare-char
 ```
+
+### Plot the metrics
+
+```bash
+python -m plots.plot_metric --models autoregressive mtp-s=1-r=3 mtp-s=2-r=3 mtp-s=3-r=3 mtp-s=4-r=3 mtp-s=5-r=3 --metric valid/stp_loss --dataset shakespeare_char
+```
+
+### Download the models
 
 The trained models can be downloaded via:
 

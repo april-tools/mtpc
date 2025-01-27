@@ -25,7 +25,8 @@ if __name__ == "__main__":
         root_dir = os.environ['MTP_ROOT']
         model_dir = os.path.join(root_dir, 'outputs', 'models', dataset, expname)
         if os.path.exists(model_dir) and not args.overwrite:
-            raise RuntimeError('Experiment already exists.')
+            raise RuntimeError('Experiment already exists, use --overwrite '
+                               'if you want to ignore and overwrite anyway.')
         else:
             print('Copying experiment files to %s...' % model_dir)
             shutil.copytree(exp, model_dir, dirs_exist_ok=True)

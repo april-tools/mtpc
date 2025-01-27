@@ -2,16 +2,10 @@ import os
 import json
 import time
 import tqdm
-import hydra
 import torch
 import pickle
 import argparse
-import torch.distributed as dist
-from torch.amp import autocast
 from omegaconf import OmegaConf
-
-from nanogpt.data.dataloader import DistributedDataLoader
-from nanogpt.utils.distributed import setup_distributed, wrap_model_distributed
 
 
 def load_vocabs(path):
@@ -19,7 +13,6 @@ def load_vocabs(path):
         vocabs = pickle.load(f)
     return dict(encode=lambda x: [vocabs['stoi'][s] for s in x],
                 decode=lambda x: ''.join([vocabs['itos'][i] for i in x]))
-
 
 
 if __name__ == "__main__":
@@ -114,7 +107,7 @@ if __name__ == "__main__":
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
     stats['mode'] = args.mode
-    
+
     result = json.dumps(stats)
 
     print(result)

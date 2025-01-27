@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# In this script we evaluate generation throughput
+# I.e. how many tokens we can generate per second (with a batch size of one)
+
+mkdir -p $MTP_ROOT/outputs/results
+
+for device in cuda cpu;
+do
+	torchrun -m nanogpt.generate --device=$device --num-tokens 1000 --checkpoint=$MTP_ROOT/outputs/models/shakespeare_char/autoregressive/model@200.pth --mode stp | tail -n 1 >> $MTP_ROOT/outputs/results/throughput.jsonl
+
+	torchrun -m nanogpt.generate --device=$device --num-tokens 1000 --checkpoint=$MTP_ROOT/outputs/models/shakespeare_char/mtp-s-1-r-3/model@200.pth --mode mtp | tail -n 1 >> $MTP_ROOT/outputs/results/throughput.jsonl
+	torchrun -m nanogpt.generate --device=$device --num-tokens 1000 --checkpoint=$MTP_ROOT/outputs/models/shakespeare_char/mtp-s-2-r-3/model@200.pth --mode mtp | tail -n 1 >> $MTP_ROOT/outputs/results/throughput.jsonl
+	torchrun -m nanogpt.generate --device=$device --num-tokens 1000 --checkpoint=$MTP_ROOT/outputs/models/shakespeare_char/mtp-s-3-r-3/model@200.pth --mode mtp | tail -n 1 >> $MTP_ROOT/outputs/results/throughput.jsonl
+	torchrun -m nanogpt.generate --device=$device --num-tokens 1000 --checkpoint=$MTP_ROOT/outputs/models/shakespeare_char/mtp-s-4-r-3/model@200.pth --mode mtp | tail -n 1 >> $MTP_ROOT/outputs/results/throughput.jsonl
+	torchrun -m nanogpt.generate --device=$device --num-tokens 1000 --checkpoint=$MTP_ROOT/outputs/models/shakespeare_char/mtp-s-5-r-3/model@200.pth --mode mtp | tail -n 1 >> $MTP_ROOT/outputs/results/throughput.jsonl
+done

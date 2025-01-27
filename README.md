@@ -27,6 +27,8 @@ You can set the above as env variables in `env.sh` and do:
 source env.sh
 ```
 
+All commands should work from the root folder, `$MTP_ROOT`.
+
 ## Download data
 ```
 # Download first 10 chunks of fineweb train dataset
@@ -40,8 +42,6 @@ You will need to create an account to track metrics remotely.
 
 
 # Running things
-
-All commands should work from the root folder, `$MTP_ROOT`.
 
 
 ## Train Models:

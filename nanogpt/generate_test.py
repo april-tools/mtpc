@@ -84,3 +84,7 @@ def main(cfg: DictConfig):
 
     result = json.dumps(stats, indent=4)
     print(result)
+
+
+if __name__ == "__main__":
+    main()

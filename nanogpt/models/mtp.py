@@ -75,10 +75,15 @@ class MultiTokenLM(torch.nn.Module):
         log_probs = self.circuit(yy)
 
         # The loss is the negated average conditional log-likelihood
-        loss = -log_probs.mean()
+        mtp_loss = -log_probs.mean()
         if not return_log_probs:
             log_probs = None
-        return dict(log_probs=log_probs, loss=loss, mtp_loss=loss)
+
+        # TODO: do not compute single token loss, if we do not need it
+        # Compute also the single token loss
+        stp_loss = self.compute_next_token_loss(yy)
+
+        return dict(log_probs=log_probs, loss=mtp_loss, mtp_loss=mtp_loss, stp_loss=stp_loss)
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
         # Obtain dictionary of circuit parameters
@@ -98,7 +103,18 @@ class MultiTokenLM(torch.nn.Module):
         self._cat_layer.log_probs = cat_log_probs
         self._sum_layer.weight = sum_weight
 
-    def compute_next_token_log_probs(self, xx: Tensor) -> Tensor:
+    def compute_next_token_loss(self, yy: Tensor) -> Tensor:
+        ########## TODO: to be refactored #########
+        # We keep track of next token prediction loss too, in order to discern
+        # how good the model would be for just next token prediction
+        next_token_probs = self.compute_next_token_log_probs()
+        bs_idxs = torch.arange(yy.shape[0], device=yy.device)
+        stp_probs = next_token_probs[bs_idxs, yy[:, :, 0].ravel()]
+        stp_loss = -torch.log(stp_probs).mean()
+        ############################################
+        return stp_loss
+
+    def compute_next_token_log_probs(self) -> Tensor:
         ########## TODO: to be refactored #########
         # Next token prediction - equivalent to marginalising out future tokens
         # See https://arxiv.org/pdf/2410.17765, eq. 11
@@ -106,11 +122,6 @@ class MultiTokenLM(torch.nn.Module):
         next_token_cats = torch.exp(self._cat_layer.log_probs[0, :, :, :])
         # (B * S', V)
         next_token_probs = (self._sum_layer.weight @ next_token_cats).squeeze(0, 2)
-        # We keep track of next token prediction loss too, in order to discern
-        # how good the model would be for just next token prediction
-        #bs_idxs = torch.arange(yy.shape[0], device=yy.device)
-        #stp_probs = next_token_probs[bs_idxs, yy[:, :, 0].ravel()]
-        # stp_loss = -torch.log(stp_probs).mean()
         ############################################
         return next_token_probs
 
@@ -137,7 +148,7 @@ class MultiTokenLM(torch.nn.Module):
             next_token_probs = self.compute_next_token_log_probs()
             if use_argmax:
                 tokens = torch.argmax(next_token_probs, dim=1)
-                tokens = tokens.unsqueeze(dim=2)
+                tokens = tokens.unsqueeze(dim=1)
             else:
                 tokens = torch.multinomial(next_token_probs, num_samples=1)
         return tokens

@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# In this script we evaluate generation throughput
+# I.e. how many tokens we can generate per second (with a batch size of one)
+
+mkdir -p $MTP_ROOT/outputs/results
+
+for device in cuda;
+do
+    torchrun -m nanogpt.generate_test device=$device \
+		data=shakespeare_char \
+		model=gpt \
+		generate=default \
+		>> $MTP_ROOT/outputs/results/throughput.jsonl
+    for n_token in 4 6 8;
+	do
+		for n_component in 1 8;
+		do
+			python -m nanogpt.generate_test device=$device \
+				data=shakespeare_char \
+				model=mtp model.n_component=$n_component model.n_token=$n_token \
+				generate=default \
+				>> $MTP_ROOT/outputs/results/throughput.jsonl
+			python -m nanogpt.generate_test device=$device \
+				data=shakespeare_char \
+				model=mtp model.n_component=$n_component model.n_token=$n_token \
+				generate=speculative \
+				>> $MTP_ROOT/outputs/results/throughput.jsonl
+		done
+    done
+done

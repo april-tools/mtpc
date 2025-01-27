@@ -5,7 +5,7 @@ import torch
 from torch import Tensor, distributions
 
 from cirkit.backend.torch.layers import TorchExpFamilyLayer, TorchInnerLayer
-from cirkit.backend.torch.semiring import Semiring, SumProductSemiring
+from cirkit.backend.torch.semiring import Semiring, LSESumSemiring
 
 
 class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
@@ -56,28 +56,28 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
             semiring=semiring,
         )
         self.num_categories = num_categories
-        self._probs: Tensor | None = None
+        self._log_probs: Tensor | None = None
 
     @property
-    def probs(self) -> Tensor:
-        if self._probs is None:
-            raise ValueError("No probs have been set")
-        return self._probs
+    def log_probs(self) -> Tensor:
+        if self._log_probs is None:
+            raise ValueError("No log probs have been set")
+        return self._log_probs
 
-    @probs.setter
-    def probs(self, probs: Tensor | None):
-        if probs is not None:
+    @log_probs.setter
+    def log_probs(self, log_probs: Tensor | None):
+        if log_probs is not None:
             if (
-                len(probs.shape) != 4
-                or probs.shape[0] != self.num_folds
-                or probs.shape[2] != self.num_output_units
-                or probs.shape[3] != self.num_categories
+                len(log_probs.shape) != 4
+                or log_probs.shape[0] != self.num_folds
+                or log_probs.shape[2] != self.num_output_units
+                or log_probs.shape[3] != self.num_categories
             ):
                 raise ValueError(
-                    f"Expected probs of shape ({self.num_folds}, -1, {self.num_output_units}, {self.num_categories}), "
-                    f"but found {probs.shape}"
+                    f"Expected probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.num_categories}), "
+                    f"but found {log_probs.shape}"
                 )
-        self._probs = probs
+        self._log_probs = log_probs
 
     @property
     def config(self) -> Mapping[str, Any]:
@@ -92,13 +92,13 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
             x = x.long()  # The input to Categorical should be discrete
         # x: (F, C, B, 1) -> (F, B)
         x = x.squeeze(dim=3).squeeze(dim=1)
-        # probs: (F, B, K, N)
-        probs = self.probs
-        idx_fold = torch.arange(self.num_folds, device=probs.device)
-        idx_batch = torch.arange(x.shape[1], device=probs.device)
+        # log_probs: (F, B, K, N)
+        log_probs = self.log_probs
+        idx_fold = torch.arange(self.num_folds, device=log_probs.device)
+        idx_batch = torch.arange(x.shape[1], device=log_probs.device)
         # y: (F, B, K)
-        y = probs[idx_fold[:, None], idx_batch[None, :], :, x]
-        return self.semiring.map_from(y, SumProductSemiring)
+        y = log_probs[idx_fold[:, None], idx_batch[None, :], :, x]
+        return self.semiring.map_from(y, LSESumSemiring)
 
     def log_partition_function(self) -> Tensor:
         return torch.zeros(
@@ -106,14 +106,18 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         )
 
     def sample(self, num_samples: int = 1) -> Tensor:
-        # probs: (F, B, K, N)
-        probs = self.probs
+        # log_probs: (F, B, K, N)
+        log_probs = self.log_probs
+        probs = torch.exp(log_probs)
         dist = distributions.Categorical(probs=probs)
         # samples: (num_samples, F, B, K)
         samples = dist.sample((num_samples,))
         # samples: (F, K, num_samples, B) -> (F, K, num_samples * B)
         samples = samples.permute(1, 3, 0, 2)
-        return samples.flatten(start_dim=2)
+        samples = samples.flatten(start_dim=2)
+        # samples: (F, K, num_samples * B) -> (F, C, K, num_samples * B)
+        samples = samples.unsqueeze(1)
+        return samples
 
 
 class TorchBatchedSumLayer(TorchInnerLayer):
@@ -166,7 +170,7 @@ class TorchBatchedSumLayer(TorchInnerLayer):
                 or weight.shape[3] != self.arity * self.num_input_units
             ):
                 raise ValueError(
-                    f"Expected probs of shape ({self.num_folds}, -1, {self.num_output_units}, {self.arity * self.num_input_units}), "
+                    f"Expected probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.arity * self.num_input_units}), "
                     f"but found {weight.shape}"
                 )
         self._weight = weight
@@ -201,24 +205,27 @@ class TorchBatchedSumLayer(TorchInnerLayer):
             )
 
         # x: (F, H, C, Ki, num_samples * B, D) -> (F, C, H * Ki, num_samples * B, D)
-        x = x.permute(0, 2, 1, 3, 4, 5).flatten(2, 3)
-        num_samples = x.shape[3]
+        num_samples = x.shape[4] // weight.shape[1]
+        x = x.permute(0, 2, 1, 3, 4, 5)
+        x = x.flatten(2, 3)
 
         # mixing_distribution: (F, B, Ko, H * Ki)
         mixing_distribution = torch.distributions.Categorical(probs=weight)
 
-        # mixing_samples: (num_samples, B, F, Ko) -> (F, Ko, num_samples, B) -> (F, Ko, num_samples * B)
+        # mixing_samples: (num_samples, F, B, Ko) -> (F, Ko, num_samples, B) -> (F, Ko, num_samples * B)
         mixing_samples = mixing_distribution.sample((num_samples,))
-        mixing_samples = mixing_samples.permute(2, 3, 0, 1)
+        mixing_samples = mixing_samples.permute(1, 3, 0, 2)
         mixing_samples = mixing_samples.flatten(start_dim=2)
 
+        # Choose the sample that was chosen by the sum layer
+        # This is done by selecting the corresponding index using gather
         # mixing_indices: (F, 1, Ko, num_samples * B, 1) -> (F, C, Ko, num_samples * B, D)
         mixing_indices = mixing_samples.unsqueeze(dim=1).unsqueeze(dim=-1)
         mixing_indices = mixing_indices.broadcast_to(
             mixing_samples.shape[0],
             x.shape[1],
+            mixing_samples.shape[1],
             mixing_samples.shape[2],
-            mixing_samples.shape[3],
             x.shape[4],
         )
 

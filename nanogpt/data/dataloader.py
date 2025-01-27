@@ -30,11 +30,12 @@ def _load_data_shard(filename):
     return tokens
 
 class DistributedDataLoader:
-    def __init__(self, filename_pattern, B, T, process_rank, num_processes):
+    def __init__(self, filename_pattern, B, T, process_rank, num_processes, device):
         self.process_rank = process_rank
         self.num_processes = num_processes
         self.B = B
         self.T = T
+        self.device = device
 
         # glob files that match the pattern
         self.files = sorted(glob.glob(filename_pattern))
@@ -72,4 +73,7 @@ class DistributedDataLoader:
         self.current_position += B * T * self.num_processes
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
             self.advance()
-        return x.cuda(), y.cuda()
+        if self.device == 'cuda':
+            return x.cuda(), y.cuda()
+        else:
+            return x, y

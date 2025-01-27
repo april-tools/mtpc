@@ -2,13 +2,14 @@ defaults:
   - _self_
   - training: default
   - model: default
+  - data: shakespeare_char
 
 name: nanogpt
 compile: true
-
-data:
-  train_bin: '/home/ubuntu/pnawrot/gpt/fineweb10B/fineweb_train_*.bin'
-  val_bin: '/home/ubuntu/pnawrot/gpt/fineweb10B/fineweb_val_*.bin'
+ddp: true
+device: cuda   # can be cpu only if ddp is False
+# checkpoint: logs/2025-01-16/15-59-39/model@250.pth
+checkpoint: null
 
 hydra:
   job:
@@ -16,7 +17,7 @@ hydra:
     name: ${name}
     env_set:
       OMP_NUM_THREADS: 1
-      CUDA_VISIBLE_DEVICES: 0,1,2,3
+      CUDA_VISIBLE_DEVICES: 0
   run:
     dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
 

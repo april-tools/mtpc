@@ -1,6 +1,8 @@
 torch~=2.4.0
-libcirkit@git+https://github.com/april-tools/cirkit@c5879db76979ca5b6a9cd93eb6c06c0b5cf429de
+libcirkit@git+https://github.com/april-tools/cirkit@1b39231c3cdfda042ef0e5f7e70c080700cfb6f0
 datasets
 tqdm
 hydra-core
 omegaconf
+wandb
+matplotlib

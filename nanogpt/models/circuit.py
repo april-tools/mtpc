@@ -69,7 +69,7 @@ class LinearExpanderHead(torch.nn.Module):
 class TransformerEncoderHead(torch.nn.Module):
     # Create custom parameterisation for each output token
 
-    def __init__(self, n_embd: int, n_head: int = 6, num_layers: int = 2):
+    def __init__(self, n_embd: int, n_head: int = 6, num_layers: int = 1):
         super().__init__()
         self.n_embd = n_embd
         self.n_head = n_head
@@ -122,7 +122,7 @@ class MultiTokenHead(torch.nn.Module):
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
             TokenHead(
-                encoder=TransformerEncoderHead(self.n_embd, self.n_head, num_layers=2),
+                encoder=TransformerEncoderHead(self.n_embd, self.n_head),
                 expander=LinearExpanderHead(self.n_embd, self.n_component)
             )
             for _ in range(self.n_token)
@@ -130,7 +130,7 @@ class MultiTokenHead(torch.nn.Module):
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
         
         # Projection to the sum layer parameters
-        self.sum_weight_head = TransformerEncoderHead(self.n_embd, self.n_head, num_layers=2)
+        self.sum_weight_head = TransformerEncoderHead(self.n_embd, self.n_head)
         self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
     def forward(self, xx: Tensor, generate: bool = False) -> dict[str, Tensor]:

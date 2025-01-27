@@ -3,14 +3,24 @@
 # In this script we evaluate generation throughput
 # I.e. how many tokens we can generate per second (with a batch size of one)
 
-for device in cuda cpu;
+for device in cuda;
 do
-    torchrun -m nanogpt.generate device=$device model=default >> $MTP_ROOT/results/throughput.jsonl
-    for n_token in 2 4 6 8 10;
+    torchrun -m nanogpt.generate device=$device \
+		model=default \
+		generate=default \
+		>> $MTP_ROOT/results/throughput.jsonl
+    for n_token in 4 6 8 10;
 	do
-		for n_component in 1 3 5;
+		for n_component in 1 4 8;
 		do
-			torchrun -m nanogpt.generate device=$device model=mtp model.n_component=$n_component model.n_token=$n_token >> $MTP_ROOT/results/throughput.jsonl
+			torchrun -m nanogpt.generate device=$device \
+				model=mtp model.n_component=$n_component model.n_token=$n_token \
+				generate=default \
+				>> $MTP_ROOT/results/throughput.jsonl
+			torchrun -m nanogpt.generate device=$device \
+				model=mtp model.n_component=$n_component model.n_token=$n_token \
+				generate=speculative \
+				>> $MTP_ROOT/results/throughput.jsonl
 		done
     done
 done

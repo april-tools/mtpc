@@ -77,7 +77,7 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     BOS = 1
     # Sample a bunch of short sentences
     # We will use these samples to get empirical estimates of the sentences distribution
-    num_seqs, max_seq_length = 2 ** 17, mtp_cp.mt_head.n_token * 2 + 1
+    num_seqs, max_seq_length = 2 ** 18, mtp_cp.mt_head.n_token * 2 + 1
     seqs = torch.zeros(size=(num_seqs, max_seq_length), dtype=torch.int64)
     num_accepted_tokens = []
     for i in range(num_seqs):

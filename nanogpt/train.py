@@ -1,8 +1,7 @@
-import os
 import hydra
 import torch
 import torch.distributed as dist
-from torch.amp import autocast
+from torch import autocast
 from omegaconf import DictConfig
 import time
 

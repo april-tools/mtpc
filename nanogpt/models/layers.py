@@ -97,7 +97,8 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         idx_fold = torch.arange(x.shape[0], device=log_probs.device)
         idx_batch = torch.arange(x.shape[1], device=log_probs.device)
         # y: (F, B, K)
-        log_probs = log_probs.broadcast_to(x.shape[0], x.shape[1], -1, -1)
+        if log_probs.shape[1] != x.shape[1]:
+            log_probs = log_probs.broadcast_to(-1, x.shape[1], -1, -1)
         y = log_probs[idx_fold[:, None], idx_batch[None, :], :, x]
         return self.semiring.map_from(y, LSESumSemiring)
 

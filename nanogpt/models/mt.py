@@ -1,4 +1,3 @@
-import math
 import torch
 
 from torch import Tensor
@@ -35,6 +34,14 @@ class MultiTokenLM(torch.nn.Module):
         self._sum_layer = next(l for l in layers if isinstance(l, TorchBatchedSumLayer))
         self.sampler = SamplingQuery(self.circuit.circuit)
         self.marginalizer = IntegrateQuery(self.circuit.circuit)
+
+        # Cache some constants used in self-speculative decoding
+        mar_scopes = list(
+            reversed([Scope(self.mt_head.n_token - i - 1 for i in range(t)) for t in range(self.mt_head.n_token)])
+        )
+        self.register_buffer(
+            "_autoregressive_mar_mask", IntegrateQuery.scopes_to_mask(self.circuit.circuit, mar_scopes)
+        )
 
     def forward(self, xx: Tensor, yy: Tensor, return_log_probs: bool = False) -> tuple[Tensor | None, Tensor]:
         # Compute the loss, i.e., the multi-token average negated log-likelihood
@@ -142,22 +149,13 @@ class MultiTokenLM(torch.nn.Module):
         #
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
         log_marginal_probs = self.marginalizer(
-            tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1),
-            integrate_vars=list(
-                reversed([Scope(tokens.shape[1] - i - 1 for i in range(t)) for t in range(tokens.shape[1])])
-            ),
+            tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1), integrate_vars=self._autoregressive_mar_mask
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
         # Sample H uniform noise values in [0,1), and take their log
         # log_noise: (B=1, H)
-        log_noise = torch.log(
-            torch.rand(
-                size=(tokens.shape[0], tokens.shape[1]),
-                device=log_marginal_probs.device,
-                dtype=log_marginal_probs.dtype,
-            )
-        )
+        log_noise = torch.log(torch.rand(size=(tokens.shape[0], tokens.shape[1])))
         #
         # Compute the number of tokens to accept
         num_accepted_tokens = 0
@@ -168,17 +166,17 @@ class MultiTokenLM(torch.nn.Module):
             # which avoids many floating point divisions and is more numerically stable
             gpt_next_token_log_probs = torch.log_softmax(logits[:, j], dim=1)
             # gpt_jth_token_log_prob: (B, 1)
-            gpt_jth_token_log_prob = torch.gather(gpt_next_token_log_probs, dim=1, index=tokens[:, [j]])
+            gpt_jth_token_log_prob = torch.gather(gpt_next_token_log_probs, dim=1, index=tokens[:, [j]]).cpu()
             # Compute log conditional probabilities, conditioned on the context
             if j == 0:
                 # q(x_{t+1}\mid x_{\leq t})
                 # mtp_jth_token_log_prob: (B, 1)
-                mtp_jth_token_log_prob = log_marginal_probs[:, 0]
+                mtp_jth_token_log_prob = log_marginal_probs[:, 0].cpu()
             else:
                 # q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) = \
                 #     q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j-1}\mid x_{\leq t})
                 # mtp_jth_token_log_prob: (B, 1)
-                mtp_jth_token_log_prob = log_marginal_probs[:, j] - log_marginal_probs[:, j - 1]
+                mtp_jth_token_log_prob = log_marginal_probs[:, j].cpu() - log_marginal_probs[:, j - 1].cpu()
             # Check noise > \
             #     (p(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) / q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}))
             if log_noise[:, j] > (gpt_jth_token_log_prob - mtp_jth_token_log_prob):
@@ -194,42 +192,40 @@ class MultiTokenLM(torch.nn.Module):
         else:  # num_accepted_tokens < tokens.shape[1]
             # We accepted H' < H tokens
             # Let's adjust the probabilities to sample the H'+1-th one
-            # gpt_last_logits: (B, V)
+            # gpt_last_probs: (B, V)
             gpt_last_probs = torch.softmax(logits[:, num_accepted_tokens], dim=1)
             # Let j be the number of accepted tokens, then
             # max(0, p(x_{t+j+1}\mid x_{\leq t+j}) - q(x_{t+j+1}\mid x_{\leq t+j}))
             # under the consideration that
             # q(x_{t+j+1}\mid x_{\leq t+j}) = \
             #     q(x_{t+1}, ..., x_{t+j+1}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t})
-            expanded_tokens = tokens[:, :num_accepted_tokens].unsqueeze(dim=1).expand(-1, self.mt_head.vocab_size, -1)
-            jp1th_token_assignments = (
-                torch.arange(self.mt_head.vocab_size, device=tokens.device, dtype=tokens.dtype)
-                .unsqueeze(dim=1)
-                .unsqueeze(dim=0)
+            mtp_jp1th_tokens = torch.zeros(
+                tokens.shape[0], self.mt_head.vocab_size, tokens.shape[1], device=tokens.device, dtype=tokens.dtype
             )
-            # mtp_jp1th_tokens: (B, V, H' + 1) -> (B * V, 1, H' + 1)
-            mtp_jp1th_tokens = (
-                torch.cat([expanded_tokens, jp1th_token_assignments], dim=2)
-                .flatten(start_dim=0, end_dim=1)
-                .unsqueeze(dim=1)
+            mtp_jp1th_tokens[:, :, :num_accepted_tokens] = tokens[:, :num_accepted_tokens]
+            mtp_jp1th_tokens[:, :, num_accepted_tokens] = torch.arange(
+                self.mt_head.vocab_size, device=tokens.device, dtype=tokens.dtype
+            ).unsqueeze(dim=0)
+            mtp_jp1th_tokens = mtp_jp1th_tokens.view(
+                mtp_jp1th_tokens.shape[0] * mtp_jp1th_tokens.shape[1], 1, tokens.shape[1]
             )
-            if mtp_jp1th_tokens.shape[2] == tokens.shape[1]:
+            if num_accepted_tokens + 1 == tokens.shape[1]:
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                 mtp_jp1th_token_log_probs = self.circuit(mtp_jp1th_tokens)
             else:
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                 mtp_jp1th_token_log_probs = self.marginalizer(
-                    torch.nn.functional.pad(mtp_jp1th_tokens, pad=(0, tokens.shape[1] - num_accepted_tokens - 1)),
-                    integrate_vars=Scope(range(num_accepted_tokens + 1, tokens.shape[1])),
+                    mtp_jp1th_tokens,
+                    integrate_vars=self._autoregressive_mar_mask[num_accepted_tokens],
                 )
             # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
             mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
-            # mtp_last_log_probs: (B, V)
+            # mtp_last_probs: (B, V)
             if num_accepted_tokens == 0:
-                mtp_last_log_probs = mtp_jp1th_token_log_probs
+                mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs)
             else:
-                mtp_last_log_probs = mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1]
-            adj_last_probs = torch.relu(gpt_last_probs - torch.exp(mtp_last_log_probs)) + 1e-15
+                mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1])
+            adj_last_probs = torch.clamp_min(gpt_last_probs - mtp_last_probs, min=1e-15)
             adj_last_probs = adj_last_probs / torch.sum(adj_last_probs, dim=1, keepdim=True)
             # Sample the last token
             last_token = torch.multinomial(adj_last_probs, num_samples=1)

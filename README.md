@@ -93,6 +93,12 @@ As a sanity check, we train models on the `shakespeare_char` dataset.
 ./bin/train-shakespeare-char
 ```
 
+The trained models can be downloaded via:
+
+```bash
+./bin/download_models
+```
+
 ### Throughput Evaluation
 
 A first question is what generation throughput we can get with MTP - we measure this in tokens per sec (tps) using a batch size of one.

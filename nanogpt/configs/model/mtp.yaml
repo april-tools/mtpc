@@ -11,21 +11,20 @@ gpt: &gpt
     n_head: ${model.n_head}
     n_layer: 12
 mt_head: &mt_head
-    _target_: nanogpt.models.circuit.MultiTokenHead
+    _target_: nanogpt.models.mtp_head.MultiTokenHead
     vocab_size: ${data.vocab_size}
     n_embd: ${model.n_embd}
     n_head: ${model.n_head}
+    n_layer: 2
     n_component: ${model.n_component}
     n_token: ${model.n_token}
-    n_head: ${model.n_head}
-    n_layer: 2
 circuit: &circuit
     _target_: nanogpt.models.circuits.CircuitCP
     vocab_size: ${data.vocab_size}
     n_token: ${model.n_token}
     n_component: ${model.n_component}
 model:
-    _target_: nanogpt.models.mt.MultiTokenLM
+    _target_: nanogpt.models.mtp.MultiTokenLM
     gpt: *gpt
     mt_head: *mt_head
     circuit: *circuit

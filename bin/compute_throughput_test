@@ -7,19 +7,22 @@ mkdir -p $MTP_ROOT/outputs/results
 
 for device in cuda;
 do
-    torchrun -m nanogpt.generate_test device=$device \
-		model=default \
+    python -m nanogpt.generate_test device=$device \
+		data=shashakespeare_char \
+		model=gpt \
 		generate=default \
 		>> $MTP_ROOT/outputs/results/throughput.jsonl
     for n_token in 4 6 8 10;
 	do
 		for n_component in 1 4 8;
 		do
-			torchrun -m nanogpt.generate_test device=$device \
+			python -m nanogpt.generate_test device=$device \
+				data=shashakespeare_char \
 				model=mtp model.n_component=$n_component model.n_token=$n_token \
 				generate=default \
 				>> $MTP_ROOT/outputs/results/throughput.jsonl
-			torchrun -m nanogpt.generate_test device=$device \
+			python -m nanogpt.generate_test device=$device \
+				data=shashakespeare_char \
 				model=mtp model.n_component=$n_component model.n_token=$n_token \
 				generate=speculative \
 				>> $MTP_ROOT/outputs/results/throughput.jsonl

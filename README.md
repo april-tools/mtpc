@@ -29,7 +29,8 @@ source env.sh
 
 ## Download data
 ```
-python nanogpt/data/download.py 10
+# Download first 10 chunks of fineweb train dataset
+./bin/download_data 10
 ```
 
 ## Wandb

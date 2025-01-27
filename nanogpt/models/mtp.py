@@ -3,10 +3,11 @@ import torch
 from torch import Tensor
 from cirkit.utils.scope import Scope
 from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
-
-from nanogpt.models.circuit import CircuitCP, MultiTokenHead
 from nanogpt.models.gpt import GPT
-from nanogpt.models.layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
+from nanogpt.models.mtp_head import MultiTokenHead
+
+from .circuits import CircuitCP
+from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -30,9 +31,13 @@ class MultiTokenLM(torch.nn.Module):
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())
-        self._cat_layer = next(l for l in layers if isinstance(l, TorchBatchedCategoricalLayer))
-        self._sum_layer = next(l for l in layers if isinstance(l, TorchBatchedSumLayer))
-        self.sampler = SamplingQuery(self.circuit.circuit)
+        self._cat_layer: TorchBatchedCategoricalLayer = layers[self.circuit.cat_layer_idx]
+        assert isinstance(self._cat_layer, TorchBatchedCategoricalLayer)
+        self._sum_layer = layers[self.circuit.sum_layer_idx]
+        assert isinstance(self._sum_layer, TorchBatchedSumLayer)
+
+        # Initializer the sampler and the marginalizer objects
+        self.sampler = SamplingQuery(self.circuit._circuit)
         self.marginalizer = IntegrateQuery(self.circuit.circuit)
 
         # Cache some constants used in self-speculative decoding
@@ -43,7 +48,7 @@ class MultiTokenLM(torch.nn.Module):
             "_autoregressive_mar_mask", IntegrateQuery.scopes_to_mask(self.circuit.circuit, mar_scopes)
         )
 
-    def forward(self, xx: Tensor, yy: Tensor, return_log_probs: bool = False) -> tuple[Tensor | None, Tensor]:
+    def forward(self, xx: Tensor, yy: Tensor, return_log_probs: bool = False) -> dict[str, Tensor]:
         # Compute the loss, i.e., the multi-token average negated log-likelihood
 
         # xx: (B, S, D)
@@ -73,7 +78,7 @@ class MultiTokenLM(torch.nn.Module):
         loss = -log_probs.mean()
         if not return_log_probs:
             log_probs = None
-        return log_probs, loss
+        return dict(log_probs=log_probs, loss=loss, mtp_loss=loss)
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
         # Obtain dictionary of circuit parameters
@@ -93,8 +98,29 @@ class MultiTokenLM(torch.nn.Module):
         self._cat_layer.log_probs = cat_log_probs
         self._sum_layer.weight = sum_weight
 
+    def compute_next_token_log_probs(self, xx: Tensor) -> Tensor:
+        ########## TODO: to be refactored #########
+        # Next token prediction - equivalent to marginalising out future tokens
+        # See https://arxiv.org/pdf/2410.17765, eq. 11
+        # (1, B * S', 1, V)
+        next_token_cats = torch.exp(self._cat_layer.log_probs[0, :, :, :])
+        # (B * S', V)
+        next_token_probs = (self._sum_layer.weight @ next_token_cats).squeeze(0, 2)
+        # We keep track of next token prediction loss too, in order to discern
+        # how good the model would be for just next token prediction
+        #bs_idxs = torch.arange(yy.shape[0], device=yy.device)
+        #stp_probs = next_token_probs[bs_idxs, yy[:, :, 0].ravel()]
+        # stp_loss = -torch.log(stp_probs).mean()
+        ############################################
+        return next_token_probs
+
     @torch.no_grad()
-    def generate(self, inputs: Tensor):
+    def generate(self, inputs: Tensor, use_argmax: bool = False, mode: str = 'mtp') -> Tensor:
+        if mode == 'mtp' and use_argmax:
+            raise ValueError('Only multi-token generation by sampling is supported')
+        if use_argmax and mode != 'stp':
+            raise ValueError('Argmax is only supported for single token prediction')
+
         # Calling forward with no targets simply sets the parameters to the circuit
         # xx: (B, S, D)
         xx = self.gpt.encoder(inputs)
@@ -102,10 +128,18 @@ class MultiTokenLM(torch.nn.Module):
         # Parameterize the circuit
         self.parameterize_circuit(xx, generate=True)
 
-        # Sample the next tokens
-        tokens, _ = self.sampler(num_samples=1)
-        # Remove extraneous channel dimension
-        tokens = tokens.squeeze(dim=1)
+        if mode == 'mtp':
+            # Sample the next tokens
+            tokens, _ = self.sampler(num_samples=1)
+            # Remove extraneous channel dimension
+            tokens = tokens.squeeze(dim=1)
+        elif mode == 'stp':
+            next_token_probs = self.compute_next_token_log_probs()
+            if use_argmax:
+                tokens = torch.argmax(next_token_probs, dim=1)
+                tokens = tokens.unsqueeze(dim=2)
+            else:
+                tokens = torch.multinomial(next_token_probs, num_samples=1)
         return tokens
 
     @torch.no_grad()

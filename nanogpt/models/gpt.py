@@ -30,7 +30,6 @@ class GPTHead(nn.Module):
         # Compute the logits
         logits = self.lm_head(x)
         logits = 30 * torch.tanh(logits / 30)
-        print(logits.shape, logits.device, logits.dtype)
         if cast_default_dtype:
             # e.g., use fp32 for logits
             logits = logits.to(self._default_dtype)
@@ -92,11 +91,14 @@ class GPT(nn.Module):
         if not return_logits:
             logits = None
 
-        return logits, loss
+        return dict(logits=logits, loss=loss, stp_loss=loss)
 
     @torch.no_grad()
-    def generate(self, inputs: torch.Tensor, use_argmax: bool = False) -> Tensor:
-        logits, _ = self.forward(inputs, return_logits=True)
+    def generate(self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = 'stp') -> Tensor:
+        if mode != 'stp':
+            raise ValueError('Only single token generation is supported')
+        results = self.forward(inputs, return_logits=True)
+        logits = results['logits']
         if use_argmax:
             toks = torch.argmax(logits, dim=2)
         else:

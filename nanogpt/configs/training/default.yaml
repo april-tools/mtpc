@@ -2,11 +2,14 @@
 
 # Optimization hyperparams
 batch_size: 512
-device_batch_size: 16
-sequence_length: 512
-num_iterations: 15000
+device_batch_size: 64
+sequence_length: 256
+# num_iterations: 15000
+num_iterations: 2000
 learning_rate: 0.0005
 
 # Evaluation and logging hyperparams
-val_loss_every: 1000
+val_loss_every: 50
+save_model_every: 200
+# val_loss_every: 1000
 val_tokens: 1048576 # 8*64*1024

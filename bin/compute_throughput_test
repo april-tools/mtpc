@@ -5,7 +5,7 @@
 
 for device in cuda;
 do
-    torchrun -m nanogpt.generate device=$device \
+    torchrun -m nanogpt.generate_test device=$device \
 		model=default \
 		generate=default \
 		>> $MTP_ROOT/results/throughput.jsonl
@@ -13,11 +13,11 @@ do
 	do
 		for n_component in 1 4 8;
 		do
-			torchrun -m nanogpt.generate device=$device \
+			torchrun -m nanogpt.generate_test device=$device \
 				model=mtp model.n_component=$n_component model.n_token=$n_token \
 				generate=default \
 				>> $MTP_ROOT/results/throughput.jsonl
-			torchrun -m nanogpt.generate device=$device \
+			torchrun -m nanogpt.generate_test device=$device \
 				model=mtp model.n_component=$n_component model.n_token=$n_token \
 				generate=speculative \
 				>> $MTP_ROOT/results/throughput.jsonl

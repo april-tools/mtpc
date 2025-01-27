@@ -22,9 +22,9 @@ def test_gpt_forward(gpt: GPT):
     seq = torch.randint(high=2, size=(batch_size, seq_length + 1))
     xx = seq[:, :seq_length]
     yy = seq[:, 1:].contiguous()
-    _, loss = gpt(xx, yy, return_logits=False)
-    assert torch.isfinite(loss)
-    assert loss >= 0.0
+    results = gpt(xx, yy, return_logits=False)
+    assert torch.isfinite(results['loss'])
+    assert results['loss'] >= 0.0
 
 
 def test_gpt_generate(gpt: GPT):
@@ -52,9 +52,9 @@ def test_gpt_generate(gpt: GPT):
     worlds_seqs = torch.cat([torch.full(size=(worlds.shape[0], 1), fill_value=BOS, dtype=torch.int64), worlds], dim=1)
     xx = worlds_seqs[:, :-1].contiguous()
     yy = worlds_seqs[:, 1:].contiguous()
-    logits, _ = gpt(xx, targets=yy, return_logits=True)
-    assert logits.shape[1] == max_seq_length - 1
-    log_probs = torch.log_softmax(logits, dim=-1)
+    results = gpt(xx, targets=yy, return_logits=True)
+    assert results['logits'].shape[1] == max_seq_length - 1
+    log_probs = torch.log_softmax(results['logits'], dim=-1)
     worlds_log_probs = torch.gather(log_probs, dim=2, index=yy.unsqueeze(dim=2)).squeeze(dim=2)
     worlds_log_probs = torch.sum(worlds_log_probs, dim=1)
     worlds_probs = torch.exp(worlds_log_probs)

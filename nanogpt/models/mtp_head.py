@@ -1,30 +1,22 @@
 import torch
-import torch.nn.functional as F
-
-from cirkit.backend.torch.circuits import TorchCircuit
-from cirkit.pipeline import PipelineContext
-from cirkit.symbolic.circuit import Circuit
-from cirkit.symbolic.layers import HadamardLayer, SumLayer, CategoricalLayer
-from cirkit.utils.scope import Scope
 from torch import Tensor
-
+import torch.nn.functional as F
 from .mlp import Block
-from .pipeline import setup_pipeline_context
 
 
 class TransformerExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, n_embd: int, n_component: int, num_heads: int = 4, num_layers: int = 2):
+    def __init__(self, n_embd: int, n_component: int, n_head: int = 4, n_layer: int = 2):
         super().__init__()
         self.n_embd = n_embd            # D
         self.n_component = n_component  # R
-        self.num_heads = num_heads
-        self.num_layers = num_layers
+        self.n_head = n_head
+        self.n_layer = n_layer
 
         # NOTE: Below need not be causal - since over "R" dimension
-        te = torch.nn.TransformerEncoderLayer(d_model=n_embd, nhead=self.num_heads, batch_first=True)
-        self.rf = torch.nn.TransformerEncoder(te, num_layers=self.num_layers)
+        te = torch.nn.TransformerEncoderLayer(d_model=n_embd, nhead=self.n_head, batch_first=True)
+        self.rf = torch.nn.TransformerEncoder(te, n_layer=self.n_layer)
         self.rep_pos_embeds = torch.nn.Embedding(self.n_component, self.n_embd)
 
     def forward(self, xx):
@@ -69,12 +61,12 @@ class LinearExpanderHead(torch.nn.Module):
 class TransformerEncoderHead(torch.nn.Module):
     # Create custom parameterisation for each output token
 
-    def __init__(self, n_embd: int, n_head: int = 6, num_layers: int = 1):
+    def __init__(self, n_embd: int, n_head: int = 6, n_layer: int = 1):
         super().__init__()
         self.n_embd = n_embd
         self.n_head = n_head
-        self.num_layers = num_layers
-        self.transformer = torch.nn.ModuleList([Block(n_head, n_embd) for _ in range(self.num_layers)])
+        self.n_layer = n_layer
+        self.transformer = torch.nn.ModuleList([Block(n_head, n_embd) for _ in range(self.n_layer)])
 
     def forward(self, xx):
         # Batch, Sentence Length, Embed Dim
@@ -111,7 +103,7 @@ class TokenHead(torch.nn.Module):
 
 
 class MultiTokenHead(torch.nn.Module):
-    def __init__(self, vocab_size: int, n_embd: int, n_head: int = 2, n_component: int = 1, n_token: int = 3):
+    def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 2, n_head: int = 2, n_component: int = 1, n_token: int = 3):
         super().__init__()
         self.vocab_size = vocab_size           # V
         self.n_embd = n_embd                   # D
@@ -119,10 +111,14 @@ class MultiTokenHead(torch.nn.Module):
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
 
+        # number of heads and layers in the multi-token transformer
+        self.n_head = n_head
+        self.n_layer = n_layer
+
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
             TokenHead(
-                encoder=TransformerEncoderHead(self.n_embd, self.n_head),
+                encoder=TransformerEncoderHead(self.n_embd, n_head=self.n_head, n_layer=self.n_layer),
                 expander=LinearExpanderHead(self.n_embd, self.n_component)
             )
             for _ in range(self.n_token)
@@ -156,59 +152,3 @@ class MultiTokenHead(torch.nn.Module):
         )
 
         return dict(cat_log_probs=cat_log_probs, sum_weight=sum_weight)
-
-
-class CircuitCP(torch.nn.Module):
-    def __init__(self, vocab_size, n_token, n_component):
-        super().__init__()
-        self.vocab_size = vocab_size     # V
-        self.n_token = n_token           # H
-        self.n_component = n_component   # R
-        if self.n_token > 1:
-            # TODO: when we will be able to set custom input layers (e.g., CategoricalLayer) in tensor factorizations
-            #  (which is very soon)
-            # self.symb_circuit = tensor_factorizations.cp(
-            #     (self.vocab_size,) * self.n_token,
-            #     rank=self.n_component,
-            #     factor_param=utils.Parameterization(activation='none'),
-            #     weight_param=utils.Parameterization(activation='none')
-            # )
-            cats = [CategoricalLayer(
-                scope=Scope([i]),
-                num_output_units=self.n_component,
-                num_channels=1,
-                num_categories=self.vocab_size
-            ) for i in range(self.n_token)]
-            hadamard = HadamardLayer(self.n_component, arity=self.n_token)
-            out = SumLayer(num_input_units=self.n_component, num_output_units=1, arity=1)
-            self.symb_circuit = Circuit(
-                num_channels=1,
-                layers=cats + [hadamard, out],
-                in_layers={out: [hadamard], hadamard: cats},
-                outputs=[out]
-            )
-        else:
-            cat = CategoricalLayer(
-                scope=Scope([0]),
-                num_output_units=self.n_component,
-                num_channels=1,
-                num_categories=self.vocab_size
-            )
-            out = SumLayer(num_input_units=self.n_component, num_output_units=1, arity=1)
-            self.symb_circuit = Circuit(
-                num_channels=1,
-                layers=[cat, out],
-                in_layers={out: [cat]},
-                outputs=[out]
-            )
-
-        self._ctx: PipelineContext = setup_pipeline_context()
-        self._circuit: TorchCircuit = self._ctx.compile(self.symb_circuit)
-
-    @property
-    def circuit(self) -> TorchCircuit:
-        return self._circuit
-
-    @torch._dynamo.disable
-    def forward(self, yy):
-        return self._circuit(yy)

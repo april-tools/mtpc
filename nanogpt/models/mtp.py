@@ -104,14 +104,13 @@ class MultiTokenLM(torch.nn.Module):
         self._sum_layer.weight = sum_weight
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
-        ########## TODO: to be refactored #########
         # We keep track of next token prediction loss too, in order to discern
         # how good the model would be for just next token prediction
-        next_token_probs = self.compute_next_token_log_probs()
-        bs_idxs = torch.arange(yy.shape[0], device=yy.device)
-        stp_probs = next_token_probs[bs_idxs, yy[:, :, 0].ravel()]
-        stp_loss = -torch.log(stp_probs).mean()
-        ############################################
+        #
+        # yy: (B * S', 1, H)
+        # log_probs: (B * S', 1, 1)
+        log_probs = self.marginalizer(yy, integrate_vars=self._autoregressive_mar_mask[0])
+        stp_loss = -log_probs.mean()
         return stp_loss
 
     def compute_next_token_log_probs(self) -> Tensor:

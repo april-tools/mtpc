@@ -6,18 +6,18 @@ n_token: 4
 
 gpt: &gpt
     _target_: nanogpt.models.gpt.GPT
-    vocab_size: ${model.vocab_size}
+    vocab_size: ${data.vocab_size}
     n_embd: ${model.n_embd}
     n_head: ${model.n_head}
     n_layer: 12
 mt_head: &mt_head
     _target_: nanogpt.models.circuit.MultiTokenHead
-    vocab_size: ${model.vocab_size}
+    vocab_size: ${data.vocab_size}
     n_embd: ${model.n_embd}
     n_head: ${model.n_head}
     n_component: ${model.n_component}
     n_token: ${model.n_token}
-    n_head: 6
+    n_head: ${model.n_head}
     n_layer: 2
 circuit: &circuit
     _target_: nanogpt.models.circuits.CircuitCP

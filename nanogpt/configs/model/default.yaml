@@ -3,7 +3,7 @@ n_embd: 768
 
 model:
     _target_: nanogpt.models.gpt.GPT
-    vocab_size: ${model.vocab_size}
+    vocab_size: ${data.vocab_size}
     n_embd: ${model.n_embd}
     n_layer: 12
     n_head: 6

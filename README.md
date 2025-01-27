@@ -3,17 +3,6 @@ This project contains our implementation of Multi-Token Prediction (MTP) with ci
 The code is based on the [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
 
 
-# TODOS
-
-* [ ] Check the architecture we use for MTP / consider alternatives.
-* [ ] Implement approximate argmax prediction for circuit (to check if speculative decoding works, we need a way of decoding without randomness by using the circuit).
-* [ ] Implement speculative decoding.
-* [ ] Evaluate how well speculative decoding works - i.e. how many hits does the MTP model have when compared to the non-MTP model?
-
-## TODOS Coding (lower priority)
-* [ ] Remove Shakespeare Char dataset from git and include a downloader
-* [ ] Refactor timing into a timer class that works for both CUDA and CPU
-
 # Setup:
 
 ## Download packages

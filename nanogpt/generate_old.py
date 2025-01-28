@@ -82,7 +82,7 @@ def main(cfg: DictConfig):
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
 
-    result = json.dumps(stats, indent=4)
+    result = json.dumps(stats)
     print(result)
 
 

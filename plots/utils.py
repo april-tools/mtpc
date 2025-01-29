@@ -10,15 +10,16 @@ def setup_tueplots(
     rel_width: float = 1.0,
     hw_ratio: float | None = None,
     default_smaller: int = -2,
-    use_tex: bool = True,
+    use_tex: bool = False,
     tight_layout=False,
     constrained_layout=False,
+    family: str = "sans-serif",
     **kwargs
 ):
     if use_tex:
-        font_config = fonts.iclr2024_tex(family="serif")
+        font_config = fonts.iclr2024_tex(family=family)
     else:
-        font_config = fonts.iclr2024(family="serif")
+        font_config = fonts.iclr2024(family=family)
     if hw_ratio is not None:
         kwargs["height_to_width_ratio"] = hw_ratio
     size = figsizes.iclr2024(

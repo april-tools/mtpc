@@ -1,6 +1,8 @@
 fineweb10B/
 __pycache__/
 logs/
+outputs/plots/
+outputs/results
 .venv/
 venv/
 .idea/

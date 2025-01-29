@@ -3,6 +3,7 @@ import tqdm
 import hydra
 import torch
 import time
+import numpy as np
 from omegaconf import DictConfig
 
 
@@ -19,7 +20,7 @@ def main(cfg: DictConfig):
     # raw_model = model.module
 
     BATCH_SIZE = 1
-    NUM_TOKENS = 1024
+    NUM_TOKENS = 1000
 
     # TODO: Make below BOS - unsure what it is for the encoded docs
     BOS = 1
@@ -74,9 +75,9 @@ def main(cfg: DictConfig):
     stats['ncomponent'] = getattr(cfg.model, 'n_component', 1)
     stats['speculative'] = cfg.generate.speculative
     if num_accepted_tokens:
-        num_samples = len(num_accepted_tokens)
-        stats['avg_accepted_tokens'] = sum(num_accepted_tokens) / num_samples
-        stats['prob_all_accepted_tokens'] = len(list(filter(lambda n: n == n_token_mtp, num_accepted_tokens))) / num_samples
+        uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)
+        stats['avg_accepted_tokens'] = np.mean(num_accepted_tokens)
+        stats['hist_accepted_tokens'] = [uniq_accepted_toks.tolist(), hist_accepted_toks.tolist()]
     stats['device'] = cfg.device
     stats['batch_size'] = BATCH_SIZE
     stats['elapsed_time'] = elapsed_time

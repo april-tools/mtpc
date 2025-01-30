@@ -20,6 +20,7 @@ if __name__ == '__main__':
     parser.add_argument('results', type=str, help='Path to throughput.txt file (list of json).')
     parser.add_argument('--ncomponent', type=int, default=1, help="The number of components of the circuit model")
     parser.add_argument('--device', choices=('cuda', 'cpu'), default='cuda', type=str, help='Device to plot throughput for.')
+    parser.add_argument('--id', type=str, default="", help="The id of the experiment that will be appended to the filename")
 
     args = parser.parse_args()
 
@@ -37,6 +38,7 @@ if __name__ == '__main__':
                 entry['throughput'] = row['tokens_per_second']
                 entry['hx_accepted_tokens'] = None
                 entry['hy_accepted_tokens'] = None
+                entry['avg_accepted_tokens'] = 1.0
                 entry['speculative'] = False
             elif entry['model'] == "MultiTokenLM":
                 if row['ncomponent'] != args.ncomponent:
@@ -51,16 +53,17 @@ if __name__ == '__main__':
                 if row['speculative']:
                     entry['hx_accepted_tokens'] = row['hist_accepted_tokens'][0]
                     entry['hy_accepted_tokens'] = row['hist_accepted_tokens'][1]
+                    entry['avg_accepted_tokens'] = round(row['avg_accepted_tokens'], ndigits=1)
                 else:
                     entry['hx_accepted_tokens'] = None
                     entry['hy_accepted_tokens'] = None
+                    entry['avg_accepted_tokens'] = float(row['ntoken'])
                 entry['speculative'] = row['speculative']
             else:
                 raise ValueError(f"Unknown model name {row['model']}")
             entries.append(entry)
 
     df = pd.DataFrame(entries)
-
 
     # Plot throughput by the number of tokens
 
@@ -75,7 +78,8 @@ if __name__ == '__main__':
 
     ax.grid(linestyle="--", which="major", alpha=0.3, linewidth=0.5)
 
-    plt.savefig(os.path.join("outputs", "plots", "throughput.pdf"))
+    filename = f"throughput-{args.id}.pdf" if args.id else "throughput.pdf"
+    plt.savefig(os.path.join("outputs", "plots", filename))
     plt.clf()
     plt.cla()
 
@@ -83,21 +87,24 @@ if __name__ == '__main__':
 
     # Plot number of accepted tokens per multi token model
 
+    df = pd.DataFrame(entries)
     df = df[df['speculative'] == True]
-    df['model-ntoken'] = df.apply(lambda r: f"{r['model']} (n={r['ntoken']})", axis=1)
+    df['model'] = df.apply(lambda r: f"{r['model']} (n={r['ntoken']}) (rate={r['avg_accepted_tokens']})", axis=1)
+    df['hy_accepted_tokens_prob'] = df.apply(lambda r: r['hy_accepted_tokens'] / np.sum(r['hy_accepted_tokens']), axis=1)
     if len(df) == 0:
         exit()
-    df = df.explode(['hx_accepted_tokens', 'hy_accepted_tokens'])
+    df = df.explode(['hx_accepted_tokens', 'hy_accepted_tokens', 'hy_accepted_tokens_prob'])
 
     ax = sb.barplot(
         df,
         x="hx_accepted_tokens",
-        y="hy_accepted_tokens",
-        hue="model-ntoken"
+        y="hy_accepted_tokens_prob",
+        hue="model"
     )
-    plt.ylabel("frequency")
+    plt.ylabel("probability")
     plt.xlabel("accepted tokens")
 
     ax.grid(linestyle="--", which="major", alpha=0.3, linewidth=0.5)
 
-    plt.savefig(os.path.join("outputs", "plots", "acceptance-rate-lenient.pdf"))
+    filename = f"acceptance-rate-{args.id}.pdf" if args.id else "acceptance-rate.pdf"
+    plt.savefig(os.path.join("outputs", "plots", filename))

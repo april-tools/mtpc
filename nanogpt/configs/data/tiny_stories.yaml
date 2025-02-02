@@ -1,0 +1,4 @@
+name: fineweb10B
+vocab_size: 50304
+train_bin: '${oc.env:MTP_ROOT}/data/tiny_stories/tiny_stories_train_*.bin'
+val_bin: '${oc.env:MTP_ROOT}/data/tiny_stories/tiny_stories_val_*.bin'

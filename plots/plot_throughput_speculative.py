@@ -36,10 +36,12 @@ if __name__ == '__main__':
                 entry['ncomponent'] = row['ncomponent']
                 entry['ntoken'] = row['ntoken']
                 entry['throughput'] = row['tokens_per_second']
+                entry['speculative'] = False
                 entry['hx_accepted_tokens'] = None
                 entry['hy_accepted_tokens'] = None
+                entry['hy_accepted_tokens_prob'] = None
                 entry['avg_accepted_tokens'] = 1.0
-                entry['speculative'] = False
+                entry['avg_tokens_llm_call'] = 1.0
             elif entry['model'] == "MultiTokenLM":
                 if row['ncomponent'] != args.ncomponent:
                     continue
@@ -51,13 +53,20 @@ if __name__ == '__main__':
                 entry['ntoken'] = row['ntoken']
                 entry['throughput'] = row['tokens_per_second']
                 if row['speculative']:
-                    entry['hx_accepted_tokens'] = row['hist_accepted_tokens'][0]
-                    entry['hy_accepted_tokens'] = row['hist_accepted_tokens'][1]
-                    entry['avg_accepted_tokens'] = round(row['avg_accepted_tokens'], ndigits=1)
+                    entry['hx_accepted_tokens'] = np.array(row['hist_accepted_tokens'][0])
+                    entry['hy_accepted_tokens'] = np.array(row['hist_accepted_tokens'][1])
+                    entry['hy_accepted_tokens_prob'] = entry['hy_accepted_tokens'] / np.sum(entry['hy_accepted_tokens'])
+                    entry['avg_accepted_tokens'] = np.round(row['avg_accepted_tokens'], decimals=2)
+                    entry['avg_tokens_llm_call'] = np.round(
+                        np.sum(((1 + entry['hx_accepted_tokens']) * entry['hy_accepted_tokens'])) / (2 * np.sum(entry['hy_accepted_tokens'])),
+                        decimals=2
+                    )
                 else:
                     entry['hx_accepted_tokens'] = None
                     entry['hy_accepted_tokens'] = None
+                    entry['hy_accepted_tokens_prob'] = None
                     entry['avg_accepted_tokens'] = float(row['ntoken'])
+                    entry['avg_tokens_llm_call'] = float(row['ntoken'])
                 entry['speculative'] = row['speculative']
             else:
                 raise ValueError(f"Unknown model name {row['model']}")
@@ -89,8 +98,11 @@ if __name__ == '__main__':
 
     df = pd.DataFrame(entries)
     df = df[df['speculative'] == True]
-    df['model'] = df.apply(lambda r: f"{r['model']} (n={r['ntoken']}) (rate={r['avg_accepted_tokens']})", axis=1)
     df['hy_accepted_tokens_prob'] = df.apply(lambda r: r['hy_accepted_tokens'] / np.sum(r['hy_accepted_tokens']), axis=1)
+    df['model'] = df.apply(
+        lambda r: f"{r['model']} (n={r['ntoken']}) (A-rate={r['avg_accepted_tokens']}, T-rate={r['avg_tokens_llm_call']})",
+        axis=1
+    )
     if len(df) == 0:
         exit()
     df = df.explode(['hx_accepted_tokens', 'hy_accepted_tokens', 'hy_accepted_tokens_prob'])

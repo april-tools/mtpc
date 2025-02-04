@@ -38,7 +38,7 @@ def validation_step(model, val_loader, val_steps, ctx):
     for _ in range(val_steps):
         x_val, y_val = val_loader.next_batch()
         with ctx:
-            results = model(x_val, y_val)
+            results = model(x_val, y_val, return_stp_loss=True)
             val_loss += results['loss'].detach()
             val_stp_loss += results['stp_loss'].detach()
             if 'mtp_loss' in results:
@@ -68,7 +68,6 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
             results = model(x, y)
             loss = results['loss']
             train_loss = loss.detach()
-            train_stp_loss = results['stp_loss'].detach()
             if 'mtp_loss' in results:
                 train_mtp_loss = results['mtp_loss'].detach()
             else:
@@ -81,7 +80,8 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
             loss.backward()
 
     for p in model.parameters():
-        p.grad /= train_accumulation_steps
+        if p.requires_grad:
+            p.grad /= train_accumulation_steps
 
     # Add gradient clipping
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -91,7 +91,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 
     model.zero_grad(set_to_none=True)
 
-    return train_loss, train_stp_loss, train_mtp_loss
+    return train_loss, train_mtp_loss
 
 
 def name_exp(cfg):
@@ -178,7 +178,7 @@ def main(cfg: DictConfig):
                 torch.cuda.synchronize()
 
             # Training step
-            train_loss, train_stp_loss, train_mtp_loss = training_step(
+            train_loss, train_mtp_loss = training_step(
                 model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx
             )
 
@@ -204,7 +204,6 @@ def main(cfg: DictConfig):
             current_lr = optimizer.param_groups[0]['lr']
             logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
             wandb.log({'train/loss': train_loss,
-                       'train/stp_loss': train_stp_loss,
                        'train/mtp_loss': train_mtp_loss,
                        'global_step': step})
     finally:

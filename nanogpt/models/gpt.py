@@ -73,8 +73,10 @@ class GPT(nn.Module):
         self.apply(_init_weights)
 
     def forward(
-        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True
+        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True, return_stp_loss: bool = True
     ) -> tuple[Tensor | None, None]:
+        assert return_stp_loss
+
         # forward the GPT model itself
         x = self.encoder(idx)  # token embeddings of shape (b, t, n_embd)
 

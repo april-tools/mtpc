@@ -48,7 +48,13 @@ class MultiTokenLM(torch.nn.Module):
             "_autoregressive_mar_mask", IntegrateQuery.scopes_to_mask(self.circuit.circuit, mar_scopes)
         )
 
-    def forward(self, xx: Tensor, yy: Tensor, return_log_probs: bool = False) -> dict[str, Tensor]:
+    def forward(
+        self,
+        xx: Tensor,
+        yy: Tensor,
+        return_log_probs: bool = False,
+        return_stp_loss: bool = False
+    ) -> dict[str, Tensor]:
         # Compute the loss, i.e., the multi-token average negated log-likelihood
 
         # xx: (B, S, D)
@@ -79,9 +85,11 @@ class MultiTokenLM(torch.nn.Module):
         if not return_log_probs:
             log_probs = None
 
-        # TODO: do not compute single token loss, if we do not need it
-        # Compute also the single token loss
-        stp_loss = self.compute_next_token_loss(yy)
+        if return_stp_loss:
+            # Compute also the single token loss, if needed
+            stp_loss = self.compute_next_token_loss(yy)
+        else:
+            stp_loss = None
 
         return dict(log_probs=log_probs, loss=mtp_loss, mtp_loss=mtp_loss, stp_loss=stp_loss)
 
@@ -103,6 +111,7 @@ class MultiTokenLM(torch.nn.Module):
         self._cat_layer.log_probs = cat_log_probs
         self._sum_layer.weight = sum_weight
 
+    @torch._dynamo.disable
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
         # how good the model would be for just next token prediction
@@ -113,6 +122,7 @@ class MultiTokenLM(torch.nn.Module):
         stp_loss = -log_probs.mean()
         return stp_loss
 
+    @torch._dynamo.disable
     def compute_next_token_log_probs(self) -> Tensor:
         ########## TODO: to be refactored #########
         # Next token prediction - equivalent to marginalising out future tokens

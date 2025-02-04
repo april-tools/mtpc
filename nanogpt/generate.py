@@ -34,8 +34,7 @@ if __name__ == "__main__":
     # TODO: Do we care about changing this?
     BATCH_SIZE = 1
 
-    model = torch.load(args.checkpoint)
-    model = model.to(args.device)
+    model = torch.load(args.checkpoint, map_location=torch.device(args.device))
     model.eval()
 
     # Load config used to train the model

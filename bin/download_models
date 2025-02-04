@@ -1,5 +1,7 @@
 #!/usr/bin/bash
 
+mkdir -p $MTP_ROOT/outputs/models
+
 echo -e 'Downloading shakespeare_char models ...'
 wget https://multi-token-prediction.s3.eu-west-2.amazonaws.com/shakespeare_char.gz -O - | tar -xz -C $MTP_ROOT/outputs/models
 echo -e "Saved models to $MTP_ROOT/outputs/models ..."

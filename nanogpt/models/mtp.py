@@ -1,28 +1,32 @@
 import torch
 
 from torch import Tensor
-from cirkit.backend.torch.queries import SamplingQuery
+from cirkit.utils.scope import Scope
+from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
+from nanogpt.models.gpt import GPT
+from nanogpt.models.mtp_head import MultiTokenHead
 
 from .circuits import CircuitCP
 from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 
 
 class MultiTokenLM(torch.nn.Module):
-    """ A MultiTokenLM comprises three parts:
+    """A MultiTokenLM comprises three parts:
 
     1. A LM encoder, which can be the encoder (i.e. arch without lm_head)
     of any pretrained LLM. The encoder provides contextual embeddings for
     tokens.
 
-    2. A lm_head, which expands the contextual embeddings into parameters
+    2. A mt_head, which expands the contextual embeddings into parameters
     for the (circuit) output layer.
 
     3. A circuit which models the output tokens and encodes their dependencies.
     """
-    def __init__(self, lm_encoder: torch.nn.Module, lm_head: torch.nn.Module, circuit: CircuitCP):
+
+    def __init__(self, gpt: GPT, mt_head: MultiTokenHead, circuit: CircuitCP):
         super().__init__()
-        self.lm_encoder = lm_encoder
-        self.lm_head = lm_head
+        self.gpt = gpt
+        self.mt_head = mt_head
         self.circuit = circuit
 
         # Retrieve the circuit layers to parameterize
@@ -32,107 +36,254 @@ class MultiTokenLM(torch.nn.Module):
         self._sum_layer = layers[self.circuit.sum_layer_idx]
         assert isinstance(self._sum_layer, TorchBatchedSumLayer)
 
+        # Initializer the sampler and the marginalizer objects
         self.sampler = SamplingQuery(self.circuit._circuit)
+        self.marginalizer = IntegrateQuery(self.circuit.circuit)
 
-    # TODO: Replace xx and yy with input_ids
-    def forward(self, xx: Tensor, yy: Tensor = None, return_probs: bool = False):
+        # Cache some constants used in self-speculative decoding
+        mar_scopes = list(
+            reversed([Scope(self.mt_head.n_token - i - 1 for i in range(t)) for t in range(self.mt_head.n_token)])
+        )
+        self.register_buffer(
+            "_autoregressive_mar_mask", IntegrateQuery.scopes_to_mask(self.circuit.circuit, mar_scopes)
+        )
 
-        # If we pass a target yy, we are in training mode
-        # In training mode we use teacher forcing to make model(xx[:i]) predict yy[i:i+H]
-        # If we are not in training mode, we want to predict the tokens that should follow xx
-        training_mode = (yy is not None)
+    def forward(
+        self,
+        xx: Tensor,
+        yy: Tensor,
+        return_log_probs: bool = False,
+        return_stp_loss: bool = False
+    ) -> dict[str, Tensor]:
+        # Compute the loss, i.e., the multi-token average negated log-likelihood
 
-        # (B, S, D)
-        xx = self.lm_encoder(xx)
+        # xx: (B, S, D)
+        xx = self.gpt.encoder(xx)
 
-        # Obtain dict of circuit parameters
-        circuit_params = self.lm_head(xx)
+        # At training time, we want to learn to predict the next H tokens
+        # xx: (B, S', D), where S' = S - H + 1
+        xx = xx[:, : xx.shape[1] - self.mt_head.n_token + 1]
 
-        # Index the categorical logits and the sum weight accordingly
-        # cat_logits: (H, B, S, R, V) -> (H, B * S', R, V)
-        cat_log_probs = circuit_params['cat_log_probs']
+        # Parameterize the circuit
+        self.parameterize_circuit(xx)
 
-        # sum_weight: (B, S, 1, R) -> (1, B * S', 1, R)
-        sum_weight = circuit_params['sum_weight']
+        # Compute sliding windows indices
+        # from yy: (B, S) to yy: (B, S', H)
+        # where S' = S - H + 1
+        yy = yy.unfold(dimension=1, size=self.mt_head.n_token, step=1)
+        # Note that we unsqueeze a channel dimension, as required by cirkit
+        # yy: (B, S', H) -> (B * S', 1, H)
+        yy = yy.reshape(-1, 1, yy.shape[2])
 
-        if training_mode:
-            # S' = S - H + 1
-            crop_sentence_len = xx.shape[1] - self.lm_head.n_token + 1
+        # Compute the conditional log-likelihoods
+        # yy: (B * S', 1, H)
+        # log_probs: (B * S', 1, 1)
+        log_probs = self.circuit(yy)
 
-            cat_log_probs = cat_log_probs[:, :, :crop_sentence_len]
-            sum_weight = sum_weight[:, :crop_sentence_len]
+        # The loss is the negated average conditional log-likelihood
+        mtp_loss = -log_probs.mean()
+        if not return_log_probs:
+            log_probs = None
+
+        if return_stp_loss:
+            # Compute also the single token loss, if needed
+            stp_loss = self.compute_next_token_loss(yy)
         else:
-            # At generation time, we want to do future token prediction
-            # so we only need S=1 (the last entry)
-            # print('before', cat_log_probs.shape)
-            cat_log_probs = cat_log_probs[:, :, [-1]]
-            # print('after', cat_log_probs.shape)
-            # print('before', sum_weight.shape)
-            sum_weight = sum_weight[:, [-1]]
-            # print('after', sum_weight.shape)
+            stp_loss = None
 
-        cat_log_probs = cat_log_probs.reshape(cat_log_probs.shape[0], -1, cat_log_probs.shape[3], cat_log_probs.shape[4])
-        sum_weight = sum_weight.reshape(1, -1, 1, sum_weight.shape[3])
+        return dict(log_probs=log_probs, loss=mtp_loss, mtp_loss=mtp_loss, stp_loss=stp_loss)
 
+    def parameterize_circuit(self, xx: Tensor, generate: bool = False):
+        # Obtain dictionary of circuit parameters
+        circuit_params = self.mt_head(xx, generate=generate)
+
+        # cat_logits: (H, B, S', R, V)
+        cat_log_probs = circuit_params["cat_log_probs"]
+        # sum_weight: (B, S', 1, R)
+        sum_weight = circuit_params["sum_weight"]
+
+        # cat_log_probs: (H, B * S', R, V)
+        cat_log_probs = cat_log_probs.view(cat_log_probs.shape[0], -1, cat_log_probs.shape[3], cat_log_probs.shape[4])
+        # sum_weight: (1, B * S', 1, R)
+        sum_weight = sum_weight.view(1, -1, 1, sum_weight.shape[3])
+
+        # Set the parameters of the circuit
         self._cat_layer.log_probs = cat_log_probs
         self._sum_layer.weight = sum_weight
 
+    @torch._dynamo.disable
+    def compute_next_token_loss(self, yy: Tensor) -> Tensor:
+        # We keep track of next token prediction loss too, in order to discern
+        # how good the model would be for just next token prediction
+        #
+        # yy: (B * S', 1, H)
+        # log_probs: (B * S', 1, 1)
+        log_probs = self.marginalizer(yy, integrate_vars=self._autoregressive_mar_mask[0])
+        stp_loss = -log_probs.mean()
+        return stp_loss
+
+    @torch._dynamo.disable
+    def compute_next_token_log_probs(self) -> Tensor:
+        ########## TODO: to be refactored #########
         # Next token prediction - equivalent to marginalising out future tokens
         # See https://arxiv.org/pdf/2410.17765, eq. 11
         # (1, B * S', 1, V)
         next_token_cats = torch.exp(self._cat_layer.log_probs[0, :, :, :])
         # (B * S', V)
         next_token_probs = (self._sum_layer.weight @ next_token_cats).squeeze(0, 2)
-
-        mtp_loss = None
-        stp_loss = None
-
-        if training_mode:
-
-            # Compute sliding windows indices
-            # from yy: (B, S) to yy: (B * S', 1, H)
-            # unsqueeze channel dimension -> (B * S', 1, H)
-            tokens_idx = torch.arange(yy.shape[1], device=yy.device)                 # (S,)
-            # last two arguments are window size and step, correspondingly
-            sliding_window_idx = tokens_idx.unfold(0, self.lm_head.n_token, 1)       # (S', H)
-            yy = yy[:, sliding_window_idx].view(-1, 1, sliding_window_idx.shape[1])  # (B * S', 1, H)
-
-            # Compute the conditional log-likelihoods
-            # yy: (B * S', 1, H)
-            # log_probs: (B * S', 1, 1)
-            log_probs = self.circuit(yy)
-
-            # The loss is the negated average conditional log-likelihood
-            mtp_loss = -log_probs.mean()
-
-            # We keep track of next token prediction loss too, in order to discern
-            # how good the model would be for just next token prediction
-            bs_idxs = torch.arange(yy.shape[0], device=yy.device)
-            stp_probs = next_token_probs[bs_idxs, yy[:, :, 0].ravel()]
-            stp_loss = -torch.log(stp_probs).mean()
-
-        if not return_probs:
-            next_token_probs = None
-
-        return dict(loss=mtp_loss,
-                    stp_loss=stp_loss,
-                    mtp_loss=mtp_loss,
-                    next_token_probs=next_token_probs)
+        ############################################
+        return next_token_probs
 
     @torch.no_grad()
-    def generate(self, inputs: torch.Tensor, mode='mtp'):
+    def generate(self, inputs: Tensor, use_argmax: bool = False, mode: str = 'mtp') -> Tensor:
+        if mode == 'mtp' and use_argmax:
+            raise ValueError('Only multi-token generation by sampling is supported')
+        if use_argmax and mode != 'stp':
+            raise ValueError('Argmax is only supported for single token prediction')
 
-        results = self.forward(inputs, return_probs=(mode == 'stp'))
+        # Calling forward with no targets simply sets the parameters to the circuit
+        # xx: (B, S, D)
+        xx = self.gpt.encoder(inputs)
+
+        # Parameterize the circuit
+        self.parameterize_circuit(xx, generate=True)
 
         if mode == 'mtp':
-            sample, mix_samples = self.sampler(1)
-            # Remove Extraneous Channel Dimension
-            sample = sample.squeeze(dim=1)
+            # Sample the next tokens
+            tokens, _ = self.sampler(num_samples=1)
+            # Remove extraneous channel dimension
+            tokens = tokens.squeeze(dim=1)
         elif mode == 'stp':
-            # TODO: We probably also want to implement sample
-            sample = torch.argmax(results['next_token_probs'], dim=1)
-            # Add the sequence dimension
-            sample = sample.unsqueeze(-1)
-        else:
-            raise ValueError('Unknown mode: %s' % mode)
-        return sample
+            next_token_probs = self.compute_next_token_log_probs()
+            if use_argmax:
+                tokens = torch.argmax(next_token_probs, dim=1)
+                tokens = tokens.unsqueeze(dim=1)
+            else:
+                tokens = torch.multinomial(next_token_probs, num_samples=1)
+        return tokens
+
+    @torch.no_grad()
+    def self_speculative_generate(self, seq: Tensor) -> Tensor:
+        if len(seq.shape) != 2 or seq.shape[0] != 1:
+            raise NotImplementedError("Multi-batch self-speculative decoding not implemented yet")
+            # seq: (B, S), with B = 1 and also possibly S = 1
+
+        # Compute the embeddings
+        # xx: (B, S, D)
+        xx = self.gpt.encoder(seq)
+
+        # Set the circuit parameters, based on the last embeddings
+        self.parameterize_circuit(xx, generate=True)
+
+        # Sample the next H tokens
+        # tokens: (B=1, 1, H) -> (B=1, H)
+        tokens, _ = self.sampler(num_samples=1)
+        tokens = tokens.squeeze(dim=1)
+
+        # Concatenate the tokens with the current sequence,
+        # which gives the candidate next sequence
+        # gen_seq: (B, S + H)
+        gen_seq = torch.cat([seq, tokens], dim=1)
+
+        # Compute the next-token probabilities in parallel
+        # zz: (B, S + H, D) -> (B, H + 1, D)
+        zz = self.gpt.encoder(gen_seq)
+        zz = zz[:, -tokens.shape[1] - 1 :]
+        # logits: (B, H + 1, V)
+        logits = self.gpt.head(zz)
+
+        # Determine the number of accepted tokens,
+        # by iteratively computing conditional probabilities with the circuit
+        #
+        # To do so, we first compute context-conditioned marginals in parallel
+        # q(x_{t+1} \mid x_{\leq t})
+        # q(x_{t+1}, x_{t+2} \mid x_{\leq t})
+        # ...
+        # q(x_{t+1}, ..., x_{t+n} \mid x_{\leq t})
+        #
+        # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
+        log_marginal_probs = self.marginalizer(
+            tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1), integrate_vars=self._autoregressive_mar_mask
+        )
+        log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
+        #
+        # Sample H uniform noise values in [0,1), and take their log
+        # log_noise: (B=1, H)
+        log_noise = torch.log(torch.rand(size=(tokens.shape[0], tokens.shape[1])))
+        #
+        # Compute the number of tokens to accept
+        num_accepted_tokens = 0
+        for j in range(tokens.shape[1]):
+            # Check whether noise > ratio of conditional univariate probabilities,
+            # i.e., we should stop accepting tokens
+            # In the log space, this becomes log noise > difference of some log probabilities,
+            # which avoids many floating point divisions and is more numerically stable
+            gpt_next_token_log_probs = torch.log_softmax(logits[:, j], dim=1)
+            # gpt_jth_token_log_prob: (B, 1)
+            gpt_jth_token_log_prob = torch.gather(gpt_next_token_log_probs, dim=1, index=tokens[:, [j]]).cpu()
+            # Compute log conditional probabilities, conditioned on the context
+            if j == 0:
+                # q(x_{t+1}\mid x_{\leq t})
+                # mtp_jth_token_log_prob: (B, 1)
+                mtp_jth_token_log_prob = log_marginal_probs[:, 0].cpu()
+            else:
+                # q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) = \
+                #     q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j-1}\mid x_{\leq t})
+                # mtp_jth_token_log_prob: (B, 1)
+                mtp_jth_token_log_prob = log_marginal_probs[:, j].cpu() - log_marginal_probs[:, j - 1].cpu()
+            # Check noise > \
+            #     (p(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) / q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}))
+            if log_noise[:, j] > (gpt_jth_token_log_prob - mtp_jth_token_log_prob):
+                break
+            num_accepted_tokens += 1
+
+        if num_accepted_tokens == tokens.shape[1]:
+            # We are so lucky! We accept all the H tokens
+            # Let's index the probabilities to sample the H+1-th one
+            gpt_last_probs = torch.softmax(logits[:, -1], dim=1)
+            # Sample the last token
+            last_token = torch.multinomial(gpt_last_probs, num_samples=1)
+        else:  # num_accepted_tokens < tokens.shape[1]
+            # We accepted H' < H tokens
+            # Let's adjust the probabilities to sample the H'+1-th one
+            # gpt_last_probs: (B, V)
+            gpt_last_probs = torch.softmax(logits[:, num_accepted_tokens], dim=1)
+            # Let j be the number of accepted tokens, then
+            # max(0, p(x_{t+j+1}\mid x_{\leq t+j}) - q(x_{t+j+1}\mid x_{\leq t+j}))
+            # under the consideration that
+            # q(x_{t+j+1}\mid x_{\leq t+j}) = \
+            #     q(x_{t+1}, ..., x_{t+j+1}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t})
+            mtp_jp1th_tokens = torch.zeros(
+                tokens.shape[0], self.mt_head.vocab_size, tokens.shape[1], device=tokens.device, dtype=tokens.dtype
+            )
+            mtp_jp1th_tokens[:, :, :num_accepted_tokens] = tokens[:, :num_accepted_tokens]
+            mtp_jp1th_tokens[:, :, num_accepted_tokens] = torch.arange(
+                self.mt_head.vocab_size, device=tokens.device, dtype=tokens.dtype
+            ).unsqueeze(dim=0)
+            mtp_jp1th_tokens = mtp_jp1th_tokens.view(
+                mtp_jp1th_tokens.shape[0] * mtp_jp1th_tokens.shape[1], 1, tokens.shape[1]
+            )
+            if num_accepted_tokens + 1 == tokens.shape[1]:
+                # mtp_jp1th_token_log_probs: (B * V, 1, 1)
+                mtp_jp1th_token_log_probs = self.circuit(mtp_jp1th_tokens)
+            else:
+                # mtp_jp1th_token_log_probs: (B * V, 1, 1)
+                mtp_jp1th_token_log_probs = self.marginalizer(
+                    mtp_jp1th_tokens,
+                    integrate_vars=self._autoregressive_mar_mask[num_accepted_tokens],
+                )
+            # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
+            mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
+            # mtp_last_probs: (B, V)
+            if num_accepted_tokens == 0:
+                mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs)
+            else:
+                mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1])
+            adj_last_probs = torch.clamp_min(gpt_last_probs - mtp_last_probs, min=1e-15)
+            adj_last_probs = adj_last_probs / torch.sum(adj_last_probs, dim=1, keepdim=True)
+            # Sample the last token
+            last_token = torch.multinomial(adj_last_probs, num_samples=1)
+
+        # Retrieve the accepted tokens, plus the last one
+        tokens = torch.cat([tokens[:, :num_accepted_tokens], last_token], dim=1)
+        return tokens

@@ -4,5 +4,8 @@ datasets
 tqdm
 hydra-core
 omegaconf
-wandb
+pytest
 matplotlib
+seaborn
+tueplots
+wandb

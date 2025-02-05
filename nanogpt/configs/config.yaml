@@ -1,8 +1,9 @@
 defaults:
   - _self_
   - training: default
-  - model: default
+  - model: gpt
   - data: shakespeare_char
+  - generate: default
 
 name: nanogpt
 compile: true
@@ -17,7 +18,7 @@ hydra:
     name: ${name}
     env_set:
       OMP_NUM_THREADS: 1
-      CUDA_VISIBLE_DEVICES: 0
+      CUDA_VISIBLE_DEVICES: 0,1,2
   run:
     dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
 

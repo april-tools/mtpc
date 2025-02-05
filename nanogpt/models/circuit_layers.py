@@ -94,15 +94,17 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         x = x.squeeze(dim=3).squeeze(dim=1)
         # log_probs: (F, B, K, N)
         log_probs = self.log_probs
-        idx_fold = torch.arange(self.num_folds, device=log_probs.device)
+        idx_fold = torch.arange(x.shape[0], device=log_probs.device)
         idx_batch = torch.arange(x.shape[1], device=log_probs.device)
         # y: (F, B, K)
+        if log_probs.shape[1] != x.shape[1]:
+            log_probs = log_probs.broadcast_to(-1, x.shape[1], -1, -1)
         y = log_probs[idx_fold[:, None], idx_batch[None, :], :, x]
         return self.semiring.map_from(y, LSESumSemiring)
 
     def log_partition_function(self) -> Tensor:
         return torch.zeros(
-            size=(self.num_folds, 1, self.num_output_units), device=self.probs.device
+            size=(self.num_folds, 1, self.num_output_units), device=self.log_probs.device
         )
 
     def sample(self, num_samples: int = 1) -> Tensor:

@@ -1,24 +1,24 @@
 name: mtp
 n_embd: 768
-n_component: 5
-n_token: 3
+n_head: 6
+n_component: 1
+n_token: 4
 
-lm: &lm_encoder
-    _target_: nanogpt.models.gpt.GPTEncoder
-    config:
-      _target_: nanogpt.utils.Config
-      vocab_size: ${data.vocab_size}
-      n_embd: ${model.n_embd}
-      n_layer: 12
-      n_head: 6
-head: &lm_head
+gpt: &gpt
+    _target_: nanogpt.models.gpt.GPT
+    vocab_size: ${data.vocab_size}
+    n_embd: ${model.n_embd}
+    n_head: ${model.n_head}
+    n_layer: 12
+    encoder_only: true
+mt_head: &mt_head
     _target_: nanogpt.models.mtp_head.MultiTokenHead
     vocab_size: ${data.vocab_size}
     n_embd: ${model.n_embd}
+    n_head: ${model.n_head}
+    n_layer: 2
     n_component: ${model.n_component}
     n_token: ${model.n_token}
-    n_head: 6
-    n_layer: 2
 circuit: &circuit
     _target_: nanogpt.models.circuits.CircuitCP
     vocab_size: ${data.vocab_size}
@@ -26,6 +26,6 @@ circuit: &circuit
     n_component: ${model.n_component}
 model:
     _target_: nanogpt.models.mtp.MultiTokenLM
-    lm_encoder: *lm_encoder
-    lm_head: *lm_head
+    gpt: *gpt
+    mt_head: *mt_head
     circuit: *circuit

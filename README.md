@@ -29,6 +29,15 @@ source env.sh
 
 All commands should work from the root folder, `$MTP_ROOT`.
 
+# Run Unit Tests
+
+Running the tests can take up to one hour depending on the hardware.
+
+```bash
+export PYTHONPATH=.
+pytest
+```
+
 ## Download data
 ```
 # Download first 10 chunks of fineweb train dataset

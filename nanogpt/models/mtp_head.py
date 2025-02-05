@@ -1,15 +1,13 @@
 import torch
+from torch import Tensor
 import torch.nn.functional as F
-
-from collections import namedtuple
-
 from .mlp import Block
 
 
 class TransformerExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, n_embd, n_component, n_head=4, n_layer=2):
+    def __init__(self, n_embd: int, n_component: int, n_head: int = 4, n_layer: int = 2):
         super().__init__()
         self.n_embd = n_embd            # D
         self.n_component = n_component  # R
@@ -30,7 +28,7 @@ class TransformerExpanderHead(torch.nn.Module):
 class LinearExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, n_embd, n_component):
+    def __init__(self, n_embd: int, n_component: int):
         super().__init__()
         self.n_embd = n_embd            # D
         self.n_component = n_component  # R
@@ -41,7 +39,7 @@ class LinearExpanderHead(torch.nn.Module):
                                                  self.n_embd))
         torch.nn.init.normal_(self.Wr, mean=0.0, std=0.02)
 
-    def forward(self, xx):
+    def forward(self, xx: Tensor) -> Tensor:
         # Batch, Sentence Length, Embed Dim
         B, S, D = xx.shape
 
@@ -63,14 +61,12 @@ class LinearExpanderHead(torch.nn.Module):
 class TransformerEncoderHead(torch.nn.Module):
     # Create custom parameterisation for each output token
 
-    def __init__(self, n_embd, n_head=6, n_layer=2):
+    def __init__(self, n_embd: int, n_head: int = 6, n_layer: int = 2):
         super().__init__()
         self.n_embd = n_embd
         self.n_head = n_head
         self.n_layer = n_layer
-
-        config = namedtuple('opts', ['n_embd', 'n_head'])(self.n_embd, self.n_head)
-        self.transformer = torch.nn.ModuleList([Block(config) for _ in range(self.n_layer)])
+        self.transformer = torch.nn.ModuleList([Block(n_head, n_embd) for _ in range(self.n_layer)])
 
     def forward(self, xx):
         # Batch, Sentence Length, Embed Dim
@@ -85,15 +81,18 @@ class TransformerEncoderHead(torch.nn.Module):
 
 class TokenHead(torch.nn.Module):
 
-    def __init__(self, encoder, expander):
+    def __init__(self, encoder: TransformerEncoderHead, expander: LinearExpanderHead | None = None):
         super().__init__()
         self.encoder = encoder
         # Expands parametrisation for mixture model
         self.expander = expander
 
-    def forward(self, xx):
+    def forward(self, xx: Tensor, generate: bool = False) -> Tensor:
         # xx is B, S, D
         xx = self.encoder(xx)
+        if generate:
+            xx = xx[:, [-1]]
+
         # xx is B, S, D
         if self.expander is not None:
             xx = self.expander(xx)
@@ -104,17 +103,19 @@ class TokenHead(torch.nn.Module):
 
 
 class MultiTokenHead(torch.nn.Module):
-
-    def __init__(self,
-                 vocab_size,
-                 n_embd,
-                 n_layer=2,
-                 n_head=6,
-                 n_component=3,
-                 n_token=3):
+    def __init__(
+        self,
+        vocab_size: int,
+        n_embd: int,
+        n_layer: int = 2,
+        n_head: int = 6,
+        n_component: int = 1,
+        n_token: int = 3
+    ):
         super().__init__()
         self.vocab_size = vocab_size           # V
         self.n_embd = n_embd                   # D
+        self.n_head = n_head
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
 
@@ -125,36 +126,37 @@ class MultiTokenHead(torch.nn.Module):
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
             TokenHead(
-                encoder=TransformerEncoderHead(self.n_embd,
-                                               n_head=self.n_head,
-                                               n_layer=self.n_layer),
+                encoder=TransformerEncoderHead(self.n_embd, n_head=self.n_head, n_layer=self.n_layer),
                 expander=LinearExpanderHead(self.n_embd, self.n_component)
-                )
+            )
             for _ in range(self.n_token)
         ])
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
         
         # Projection to the sum layer parameters
-        self.sum_weight_head = TransformerEncoderHead(self.n_embd)
+        self.sum_weight_head = TransformerEncoderHead(self.n_embd, self.n_head, n_layer=self.n_layer)
         self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
-    def forward(self, xx):
+    def forward(self, xx: Tensor, generate: bool = False) -> dict[str, Tensor]:
         # xx: (B, S, D)
         logits = []
         # TODO: Can we avoid the for loop?
         for token_head in self.token_heads:
             # head_xx: (B, S, R, D)
-            head_xx = token_head(xx)
+            head_xx = token_head(xx, generate=generate)
             # head_logits: (B, S, R, V)
             head_logits = self.proj_cat_logits(head_xx)
             logits.append(head_logits)
-        # cat_logits: (H, B, S, R, V)
-        cat_logits = torch.stack(logits, dim=0)
         # cat_log_probs: (H, B, S, R, V)
-        cat_log_probs = torch.log_softmax(cat_logits, dim=-1)
+        cat_log_probs = torch.log_softmax(torch.stack(logits, dim=0), dim=-1)
+
         # sum_weight: (B, S, 1, R)
-        sum_weight = self.proj_sum_weight(
-            self.sum_weight_head(xx)
-        ).unsqueeze(dim=2)
-        sum_weight = torch.softmax(sum_weight, dim=-1)
+        sum_weight = self.sum_weight_head(xx)
+        if generate:
+            sum_weight = sum_weight[:, [-1]]
+        sum_weight = torch.softmax(
+            self.proj_sum_weight(sum_weight).unsqueeze(dim=2),
+            dim=-1
+        )
+
         return dict(cat_log_probs=cat_log_probs, sum_weight=sum_weight)

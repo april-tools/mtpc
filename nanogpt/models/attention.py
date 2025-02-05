@@ -2,20 +2,21 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+
 class Rotary(torch.nn.Module):
     def __init__(self, dim, base=10000):
         super().__init__()
-        self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
         self.seq_len_cached = None
         self.cos_cached = None
         self.sin_cached = None
+        self.register_buffer('inv_freq', 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim)))
 
     def forward(self, x):
         seq_len = x.shape[1]
         if seq_len != self.seq_len_cached:
             self.seq_len_cached = seq_len
             t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
-            freqs = torch.outer(t, self.inv_freq).to(x.device)
+            freqs = torch.outer(t, self.inv_freq)
             self.cos_cached = freqs.cos().bfloat16()
             self.sin_cached = freqs.sin().bfloat16()
         return self.cos_cached[None, :, None, :], self.sin_cached[None, :, None, :]
@@ -31,10 +32,10 @@ class Rotary(torch.nn.Module):
         return torch.cat([y1, y2], 3).type_as(x)
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, config):
+    def __init__(self, n_head: int, n_embd: int):
         super().__init__()
-        self.n_head = config.n_head
-        self.n_embd = config.n_embd
+        self.n_head = n_head
+        self.n_embd = n_embd
         self.head_dim = self.n_embd // self.n_head
         assert self.n_embd % self.n_head == 0
         self.c_q = nn.Linear(self.n_embd, self.n_embd, bias=False)

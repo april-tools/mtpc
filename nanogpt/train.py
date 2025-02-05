@@ -142,8 +142,9 @@ def main(cfg: DictConfig):
         train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
         val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
 
-        logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
-        logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
+        if master_process:
+            logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
+            logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
 
         # Calculate steps
         val_steps = cfg.training.val_tokens // (B * T * world_size)
@@ -162,7 +163,8 @@ def main(cfg: DictConfig):
             raw_model = raw_model.to(cfg.device)
 
         # Initialize optimizers and schedulers
-        logger("Setting up/compiling model...")
+        if master_process:
+            logger("Setting up/compiling model...")
         optimizer, scheduler = create_optimizers(raw_model, cfg)
 
         # Initialize training context
@@ -189,23 +191,29 @@ def main(cfg: DictConfig):
             # Validation
             if last_step or (cfg.training.val_loss_every > 0 and step % cfg.training.val_loss_every == 0):
                 val_loss, val_stp_loss, val_mtp_loss = validation_step(model, val_loader, val_steps, ctx)
-                wandb.log({'valid/loss': val_loss,
-                           'valid/stp_loss': val_stp_loss,
-                           'valid/mtp_loss': val_mtp_loss,
-                           'global_step': step})
-                logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
-            if last_step or (step % cfg.training.save_model_every == 0):
                 if master_process:
+                    wandb.log({
+                        'valid/loss': val_loss,
+                        'valid/stp_loss': val_stp_loss,
+                        'valid/mtp_loss': val_mtp_loss,
+                        'global_step': step
+                    })
+                    logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
+
+            # Logging and model saving
+            if master_process:
+                if last_step or (step % cfg.training.save_model_every == 0):
                     # TODO: save best / do not overwrite best
                     filename = os.path.join(output_dir, 'model@%d.pth' % step)
                     logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % filename)
                     torch.save(raw_model, filename)
-
-            current_lr = optimizer.param_groups[0]['lr']
-            logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
-            wandb.log({'train/loss': train_loss,
-                       'train/mtp_loss': train_mtp_loss,
-                       'global_step': step})
+                current_lr = optimizer.param_groups[0]['lr']
+                logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
+                wandb.log({
+                    'train/loss': train_loss,
+                    'train/mtp_loss': train_mtp_loss,
+                    'global_step': step
+                })
     finally:
         if cfg.ddp:
             dist.destroy_process_group()

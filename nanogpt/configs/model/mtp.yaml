@@ -10,6 +10,7 @@ gpt: &gpt
     n_embd: ${model.n_embd}
     n_head: ${model.n_head}
     n_layer: 12
+    encoder_only: true
 mt_head: &mt_head
     _target_: nanogpt.models.mtp_head.MultiTokenHead
     vocab_size: ${data.vocab_size}

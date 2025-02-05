@@ -62,20 +62,28 @@ class GPTEncoder(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 12, n_head: int = 6):
+    def __init__(
+        self,
+        vocab_size: int,
+        n_embd: int,
+        n_layer: int = 12,
+        n_head: int = 6,
+        encoder_only: bool = False
+    ):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_embd = n_embd
         self.n_layer = n_layer
         self.n_head = n_head
-        self.encoder = GPTEncoder(vocab_size, n_embd, n_layer, n_head)
-        self.head = GPTHead(n_embd, vocab_size)
+        self.encoder: GPTEncoder = GPTEncoder(vocab_size, n_embd, n_layer, n_head)
+        self.head: GPTHead | None = None if encoder_only else GPTHead(n_embd, vocab_size)
         self.apply(_init_weights)
 
     def forward(
         self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True, return_stp_loss: bool = True
     ) -> tuple[Tensor | None, None]:
-        assert return_stp_loss
+        assert self.head is not None, "The forward of GPT can only be called if encoder_only=False"
+        assert return_stp_loss, "The forward of GPT always computes the single-token loss"
 
         # forward the GPT model itself
         x = self.encoder(idx)  # token embeddings of shape (b, t, n_embd)

@@ -3,7 +3,7 @@
 # Optimization hyperparams
 batch_size: 512
 device_batch_size: 64
-sequence_length: 256
+sequence_length: 512
 # num_iterations: 15000
 num_iterations: 2000
 learning_rate: 0.0005

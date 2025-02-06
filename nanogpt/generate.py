@@ -5,6 +5,8 @@ import tqdm
 import torch
 import pickle
 import argparse
+import numpy as np
+
 from omegaconf import OmegaConf
 
 
@@ -26,6 +28,8 @@ if __name__ == "__main__":
                         help='The device to use for generation.')
     parser.add_argument('--prompt', default=None,
                         help='Prompt to use for generation.')
+    parser.add_argument('--speculative', action='store_true',
+                        help='Whether to use speculative decoding.')
     parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
                         help='Single Token Prediction (stp) is available both for MTP and autoregressive models. '
                         'MTP is available only for MTP models')
@@ -34,7 +38,9 @@ if __name__ == "__main__":
     # TODO: Do we care about changing this?
     BATCH_SIZE = 1
 
-    model = torch.load(args.checkpoint, map_location=torch.device(args.device))
+    model = torch.load(args.checkpoint,
+                       map_location=torch.device(args.device),
+                       weights_only=False)
     model.eval()
 
     # Load config used to train the model
@@ -47,8 +53,7 @@ if __name__ == "__main__":
     # TODO: Make below BOS - unsure what it is for the encoded docs
     if args.prompt == None:
         BOS = 1
-        x = torch.ones((BATCH_SIZE, 1), dtype=torch.int, device=args.device)
-        x = x * BOS
+        x = torch.full(size=(BATCH_SIZE, 1), fill_value=BOS, dtype=torch.int64, device=args.device)
     else:
         # TODO: Need tokenizer here for token models
         x = torch.tensor(vocabs['encode'](args.prompt), dtype=torch.int, device=args.device)
@@ -57,13 +62,18 @@ if __name__ == "__main__":
     # Init model in case loading takes additional time - do not use this output
     tokens = model.generate(x, mode=args.mode)
 
-
+    n_token = 1
+    n_component = 1
     if args.mode == 'mtp':
-        n_token_mtp = getattr(model.lm_head, 'n_token', 1)
-        assert(tokens.shape[1] == n_token_mtp)
+        n_token = model.mt_head.n_token
+        n_component = model.mt_head.n_component
+        assert(tokens.shape[1] == n_token)
     else:
-        n_token_mtp = 1
         assert(tokens.shape[1] == 1)
+
+    if args.speculative:
+        num_accepted_tokens = []
+        assert args.mode == 'mtp', 'Meaningless to use speculative decoding with STP'
 
     stats = dict()
     if args.device == 'cpu':
@@ -75,14 +85,23 @@ if __name__ == "__main__":
     else:
         raise ValueError('Unexpected device %s' % args.device)
 
-    init_length = x.shape[1] * x.shape[0]
+    assert x.shape[0] == 1
+
+    init_length = x.shape[1]
 
     with tqdm.tqdm(total=args.num_tokens) as pbar:
         # Keep track of total number of tokens generated
-        while (x.shape[1] * x.shape[0] - init_length) < args.num_tokens:
-            tokens = model.generate(x, mode=args.mode)
-            x = torch.concat([x, tokens], dim=1)
-            pbar.update(tokens.shape[0] * tokens.shape[1])
+        while (x.shape[1] - init_length) < args.num_tokens:
+            if args.speculative:
+                tokens = model.self_speculative_generate(x)
+                # The current self-speculative decoding implementation always returns
+                # at least one extra token. So, we subtract 1 to get the number of accepted
+                # tokens from the draft/circuit model
+                num_accepted_tokens.append(tokens.shape[1] - 1)
+            else:
+                tokens = model.generate(x, mode=args.mode)
+            x = torch.cat([x, tokens], dim=1)
+            pbar.update(tokens.shape[1])
 
     if args.device == 'cpu':
         end_time = time.perf_counter()
@@ -99,8 +118,13 @@ if __name__ == "__main__":
     tps = args.num_tokens / elapsed_time
 
     stats['model'] = cfg.model.model._target_
-    stats['ntoken'] = n_token_mtp
-    stats['ncomponent'] = getattr(model.lm_head, 'n_component', 1)
+    stats['ntoken'] = n_token
+    stats['ncomponent'] = n_component
+    stats['speculative'] = args.speculative
+    if args.speculative:
+        uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)
+        stats['avg_accepted_tokens'] = np.mean(num_accepted_tokens)
+        stats['hist_accepted_tokens'] = [uniq_accepted_toks.tolist(), hist_accepted_toks.tolist()]
     stats['device'] = args.device
     stats['batch_size'] = BATCH_SIZE
     stats['elapsed_time'] = elapsed_time

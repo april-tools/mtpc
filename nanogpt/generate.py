@@ -134,9 +134,12 @@ if __name__ == "__main__":
     stats['ncomponent'] = n_component
     stats['speculative'] = args.speculative
     if args.speculative:
+        num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)
+        full_hist_accepted_toks = np.zeros(num_token_idxs, dtype=np.int32)
+        full_hist_accepted_toks[uniq_accepted_toks] = hist_accepted_toks
         stats['avg_accepted_tokens'] = np.mean(num_accepted_tokens)
-        stats['hist_accepted_tokens'] = [uniq_accepted_toks.tolist(), hist_accepted_toks.tolist()]
+        stats['hist_accepted_tokens'] = [np.arange(num_token_idxs).tolist(), full_hist_accepted_toks.tolist()]
     stats['device'] = args.device
     stats['batch_size'] = BATCH_SIZE
     stats['elapsed_time'] = elapsed_time

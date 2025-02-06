@@ -3,6 +3,8 @@ __pycache__/
 logs/
 outputs/plots/
 outputs/results
+outputs/models
 .venv/
 venv/
 .idea/
+env.sh

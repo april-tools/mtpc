@@ -3,7 +3,7 @@ import torch
 from torch import Tensor
 from cirkit.utils.scope import Scope
 from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
-from nanogpt.models.gpt import GPT
+from nanogpt.models.lm import LM
 from nanogpt.models.mtp_head import MultiTokenHead
 
 from .circuits import CircuitCP
@@ -23,9 +23,9 @@ class MultiTokenLM(torch.nn.Module):
     3. A circuit which models the output tokens and encodes their dependencies.
     """
 
-    def __init__(self, gpt: GPT, mt_head: MultiTokenHead, circuit: CircuitCP):
+    def __init__(self, lm: LM, mt_head: MultiTokenHead, circuit: CircuitCP):
         super().__init__()
-        self.gpt = gpt
+        self.lm = lm
         self.mt_head = mt_head
         self.circuit = circuit
 
@@ -47,6 +47,12 @@ class MultiTokenLM(torch.nn.Module):
         self.register_buffer(
             "_autoregressive_mar_mask", IntegrateQuery.scopes_to_mask(self.circuit.circuit, mar_scopes)
         )
+        self._ddp_params_and_buffers_to_ignore = []
+        for n, p in self.named_parameters():
+            if hasattr(p, '_ddp_ignored'):
+                self._ddp_params_and_buffers_to_ignore.append(n)
+                # If we compile the model, the param above will become:
+                self._ddp_params_and_buffers_to_ignore.append('_orig_mod.%s' % n)
 
     def forward(
         self,
@@ -58,7 +64,7 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the loss, i.e., the multi-token average negated log-likelihood
 
         # xx: (B, S, D)
-        xx = self.gpt.encoder(xx)
+        xx = self.lm.encoder(xx)
 
         # At training time, we want to learn to predict the next H tokens
         # xx: (B, S', D), where S' = S - H + 1
@@ -143,7 +149,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Calling forward with no targets simply sets the parameters to the circuit
         # xx: (B, S, D)
-        xx = self.gpt.encoder(inputs)
+        xx = self.lm.encoder(inputs)
 
         # Parameterize the circuit
         self.parameterize_circuit(xx, generate=True)
@@ -170,7 +176,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Compute the embeddings
         # xx: (B, S, D)
-        xx = self.gpt.encoder(seq)
+        xx = self.lm.encoder(seq)
 
         # Set the circuit parameters, based on the last embeddings
         self.parameterize_circuit(xx, generate=True)
@@ -187,10 +193,10 @@ class MultiTokenLM(torch.nn.Module):
 
         # Compute the next-token probabilities in parallel
         # zz: (B, S + H, D) -> (B, H + 1, D)
-        zz = self.gpt.encoder(gen_seq)
+        zz = self.lm.encoder(gen_seq)
         zz = zz[:, -tokens.shape[1] - 1 :]
         # logits: (B, H + 1, V)
-        logits = self.gpt.head(zz)
+        logits = self.lm.head(zz)
 
         # Determine the number of accepted tokens,
         # by iteratively computing conditional probabilities with the circuit
@@ -218,9 +224,9 @@ class MultiTokenLM(torch.nn.Module):
             # i.e., we should stop accepting tokens
             # In the log space, this becomes log noise > difference of some log probabilities,
             # which avoids many floating point divisions and is more numerically stable
-            gpt_next_token_log_probs = torch.log_softmax(logits[:, j], dim=1)
-            # gpt_jth_token_log_prob: (B, 1)
-            gpt_jth_token_log_prob = torch.gather(gpt_next_token_log_probs, dim=1, index=tokens[:, [j]]).cpu()
+            lm_next_token_log_probs = torch.log_softmax(logits[:, j], dim=1)
+            # lm_jth_token_log_prob: (B, 1)
+            lm_jth_token_log_prob = torch.gather(lm_next_token_log_probs, dim=1, index=tokens[:, [j]]).cpu()
             # Compute log conditional probabilities, conditioned on the context
             if j == 0:
                 # q(x_{t+1}\mid x_{\leq t})
@@ -233,21 +239,21 @@ class MultiTokenLM(torch.nn.Module):
                 mtp_jth_token_log_prob = log_marginal_probs[:, j].cpu() - log_marginal_probs[:, j - 1].cpu()
             # Check noise > \
             #     (p(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) / q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}))
-            if log_noise[:, j] > (gpt_jth_token_log_prob - mtp_jth_token_log_prob):
+            if log_noise[:, j] > (lm_jth_token_log_prob - mtp_jth_token_log_prob):
                 break
             num_accepted_tokens += 1
 
         if num_accepted_tokens == tokens.shape[1]:
             # We are so lucky! We accept all the H tokens
             # Let's index the probabilities to sample the H+1-th one
-            gpt_last_probs = torch.softmax(logits[:, -1], dim=1)
+            lm_last_probs = torch.softmax(logits[:, -1], dim=1)
             # Sample the last token
-            last_token = torch.multinomial(gpt_last_probs, num_samples=1)
+            last_token = torch.multinomial(lm_last_probs, num_samples=1)
         else:  # num_accepted_tokens < tokens.shape[1]
             # We accepted H' < H tokens
             # Let's adjust the probabilities to sample the H'+1-th one
-            # gpt_last_probs: (B, V)
-            gpt_last_probs = torch.softmax(logits[:, num_accepted_tokens], dim=1)
+            # lm_last_probs: (B, V)
+            lm_last_probs = torch.softmax(logits[:, num_accepted_tokens], dim=1)
             # Let j be the number of accepted tokens, then
             # max(0, p(x_{t+j+1}\mid x_{\leq t+j}) - q(x_{t+j+1}\mid x_{\leq t+j}))
             # under the consideration that
@@ -279,7 +285,7 @@ class MultiTokenLM(torch.nn.Module):
                 mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs)
             else:
                 mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1])
-            adj_last_probs = torch.clamp_min(gpt_last_probs - mtp_last_probs, min=1e-15)
+            adj_last_probs = torch.clamp_min(lm_last_probs - mtp_last_probs, min=1e-15)
             adj_last_probs = adj_last_probs / torch.sum(adj_last_probs, dim=1, keepdim=True)
             # Sample the last token
             last_token = torch.multinomial(adj_last_probs, num_samples=1)

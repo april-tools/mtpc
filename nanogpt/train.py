@@ -73,7 +73,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
             else:
                 train_mtp_loss = None
 
-        if i < train_accumulation_steps and torch.cuda.is_available():
+        if i < train_accumulation_steps and ctx.device == 'cuda':
             with model.no_sync():
                 loss.backward()
         else:
@@ -97,7 +97,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 def name_exp(cfg):
     name = cfg.model.name
     if name == 'mtp':
-        name = '%s-s=%d-r=%d' % (name, cfg.model.n_token, cfg.model.n_component)
+        name = '%s-n=%d-r=%d' % (name, cfg.model.n_token, cfg.model.n_component)
     return name
 
 
@@ -106,15 +106,12 @@ def main(cfg: DictConfig):
 
     try:
 
-        if cfg.ddp:
-            # Initialize distributed setup
-            rank, local_rank, world_size, _ = setup_distributed()
-            master_process = (rank == 0)
-        else:
-            master_process = True
-            rank = 0
-            local_rank = 0
-            world_size = 1
+        # Set DEVICE env variable, which is used by nanogpt.utils.distributed
+        os.environ['DEVICE'] = cfg.device
+
+        # Initialize distributed setup
+        rank, local_rank, world_size, _ = setup_distributed()
+        master_process = (rank == 0)
 
         if master_process:
             expname = name_exp(cfg)
@@ -123,7 +120,7 @@ def main(cfg: DictConfig):
             # Setup Wandb
             run = wandb.init(project='mtp',
                              name=expname,
-                             group=cfg.data.name,
+                             tags=[cfg.data.name],
                              config=OmegaConf.to_container(cfg))
             wandb.define_metric("*", step_metric="global_step")
 
@@ -151,21 +148,13 @@ def main(cfg: DictConfig):
         train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
         # Initialize model
-        myconf = hydra.utils.instantiate(cfg.model)
-        model = myconf.model
-
-        # If distributed data parallel
-        if cfg.ddp:
-            model = wrap_model_distributed(model, local_rank, cfg.compile)
-            raw_model = model.module
-        else:
-            raw_model = model
-            raw_model = raw_model.to(cfg.device)
+        model = hydra.utils.instantiate(cfg.model).model
+        model = wrap_model_distributed(model, local_rank, cfg.compile)
 
         # Initialize optimizers and schedulers
         if master_process:
             logger("Setting up/compiling model...")
-        optimizer, scheduler = create_optimizers(raw_model, cfg)
+        optimizer, scheduler = create_optimizers(model, cfg)
 
         # Initialize training context
         ctx = autocast(device_type=cfg.device, dtype=torch.bfloat16)
@@ -176,7 +165,7 @@ def main(cfg: DictConfig):
             last_step = (step == cfg.training.num_iterations)
 
             t0 = time.time()
-            if torch.cuda.is_available():
+            if cfg.device == 'cuda':
                 torch.cuda.synchronize()
 
             # Training step
@@ -184,7 +173,7 @@ def main(cfg: DictConfig):
                 model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx
             )
 
-            if torch.cuda.is_available():
+            if cfg.device == 'cuda':
                 torch.cuda.synchronize()
             dt = time.time() - t0
 
@@ -206,7 +195,7 @@ def main(cfg: DictConfig):
                     # TODO: save best / do not overwrite best
                     filename = os.path.join(output_dir, 'model@%d.pth' % step)
                     logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % filename)
-                    torch.save(raw_model, filename)
+                    torch.save(model, filename)
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
                 wandb.log({
@@ -215,8 +204,7 @@ def main(cfg: DictConfig):
                     'global_step': step
                 })
     finally:
-        if cfg.ddp:
-            dist.destroy_process_group()
+        dist.destroy_process_group()
 
 if __name__ == "__main__":
     main()

@@ -7,8 +7,7 @@ defaults:
 
 name: nanogpt
 compile: true
-ddp: true
-device: cuda   # can be cpu only if ddp is False
+device: cuda   # if cpu make source num processes=1
 # checkpoint: logs/2025-01-16/15-59-39/model@250.pth
 checkpoint: null
 
@@ -16,9 +15,6 @@ hydra:
   job:
     chdir: true
     name: ${name}
-    env_set:
-      OMP_NUM_THREADS: 1
-      CUDA_VISIBLE_DEVICES: 0,1,2
   run:
     dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
 

@@ -1,8 +1,11 @@
 name: autoregressive
+n_embd: 768
+n_layer: 12
+n_head: 6
 
 model:
     _target_: nanogpt.models.gpt.GPT
     vocab_size: ${data.vocab_size}
-    n_embd: 768
-    n_layer: 12
-    n_head: 6
+    n_embd: ${model.n_embd}
+    n_layer: ${model.n_layer}
+    n_head: ${model.n_head}

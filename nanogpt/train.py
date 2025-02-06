@@ -97,7 +97,7 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 def name_exp(cfg):
     name = cfg.model.name
     if name == 'mtp':
-        name = '%s-s=%d-r=%d' % (name, cfg.model.n_token, cfg.model.n_component)
+        name = '%s-n=%d-r=%d' % (name, cfg.model.n_token, cfg.model.n_component)
     return name
 
 
@@ -123,7 +123,7 @@ def main(cfg: DictConfig):
             # Setup Wandb
             run = wandb.init(project='mtp',
                              name=expname,
-                             group=cfg.data.name,
+                             tags=[cfg.data.name],
                              config=OmegaConf.to_container(cfg))
             wandb.define_metric("*", step_metric="global_step")
 

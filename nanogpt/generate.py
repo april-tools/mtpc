@@ -8,6 +8,7 @@ import argparse
 import numpy as np
 
 from omegaconf import OmegaConf
+from hydra.utils import instantiate
 
 
 def load_vocabs(path):
@@ -20,8 +21,9 @@ def load_vocabs(path):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint', required=True,
-                        help='The checkpointed model (.pth file) to use for generation.')
+    parser.add_argument('--checkpoint', required=True, type=str,
+                        help='The checkpointed model (.pth file) to use for generation or '
+                        'a .yaml config file if we want to initialise a random model.')
     parser.add_argument('--num-tokens', default=1000, type=int,
                         help='Number of tokens to generate.')
     parser.add_argument('--device', default='cuda',
@@ -37,16 +39,26 @@ if __name__ == "__main__":
 
     # TODO: Do we care about changing this?
     BATCH_SIZE = 1
+    os.environ['DEVICE'] = args.device
 
-    model = torch.load(args.checkpoint,
-                       map_location=torch.device(args.device),
-                       weights_only=False)
+    if args.checkpoint.endswith('.pth'):
+        model = torch.load(args.checkpoint,
+                           map_location=torch.device(args.device),
+                           weights_only=False)
+
+        # Load config used to train the model
+        config_folder = os.path.dirname(args.checkpoint)
+        config_path = os.path.join(config_folder, 'config.yaml')
+        cfg = OmegaConf.load(config_path)
+        checkpoint = os.path.basename(args.checkpoint)
+    elif args.checkpoint.endswith('.yaml'):
+        cfg = OmegaConf.load(args.checkpoint)
+        model = instantiate(cfg.model).model
+        model = model.to(torch.device(args.device))
+        checkpoint = 'random'
+    else:
+        raise ValueError('Invalid checkpoint/config file: %s' % args.checkpoint)
     model.eval()
-
-    # Load config used to train the model
-    config_folder = os.path.dirname(args.checkpoint)
-    config_path = os.path.join(config_folder, 'config.yaml')
-    cfg = OmegaConf.load(config_path)
 
     vocabs = load_vocabs(cfg.data.vocabs)
 
@@ -130,6 +142,7 @@ if __name__ == "__main__":
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
     stats['mode'] = args.mode
+    stats['checkpoint'] = checkpoint
 
     result = json.dumps(stats)
 

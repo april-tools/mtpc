@@ -5,8 +5,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 def get_local_device():
-    local_rank = int(os.environ['LOCAL_RANK'])
-    device = f'cuda:{local_rank}'
+    device = os.environ['DEVICE']
+    if device == 'cuda':
+        local_rank = int(os.environ.get('LOCAL_RANK', 0))
+        device = f'cuda:{local_rank}'
     return device
 
 
@@ -21,15 +23,21 @@ def setup_distributed():
     world_size = int(os.environ['WORLD_SIZE'])
     device = get_local_device()
     
-    # Set up device
-    torch.cuda.set_device(device)
+    if 'cuda' in device:
+        # Set up device
+        torch.cuda.set_device(device)
     
     return rank, local_rank, world_size, device
 
 
 def wrap_model_distributed(model, local_rank, compile):
     """Wrap model in DDP and prepare for training."""
-    model = model.cuda()
+    device = get_local_device()
+    if 'cuda' in device:
+        model = model.cuda()
     if compile:
         model = torch.compile(model)
-    return DDP(model, device_ids=[local_rank])
+    if 'cuda' in device:
+        return DDP(model, device_ids=[local_rank])
+    else:
+        return model

@@ -1,6 +1,8 @@
 import torch
 from torch import nn, Tensor
 
+from nanogpt.utils.distributed import get_local_device
+
 
 class LM(nn.Module):
     """Wrapper to make a Language Model (LM) compatible with MTP."""
@@ -18,7 +20,9 @@ class LM(nn.Module):
 
         if from_checkpoint is not None:
             assert lm is None
-            self.lm = torch.load(from_checkpoint, weights_only=False)
+            self.lm = torch.load(from_checkpoint,
+                                 weights_only=False,
+                                 map_location=get_local_device())
         else:
             assert lm is not None
             self.lm = lm

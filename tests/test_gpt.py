@@ -3,7 +3,7 @@ import itertools
 import pytest
 import torch
 
-from nanogpt.models.gpt import GPT
+from mtp.models.gpt import GPT
 
 
 @pytest.fixture

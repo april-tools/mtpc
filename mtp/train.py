@@ -7,10 +7,10 @@ from torch import autocast
 from omegaconf import DictConfig, OmegaConf, open_dict
 import time
 
-from nanogpt.data.dataloader import DistributedDataLoader
-from nanogpt.utils.distributed import setup_distributed, wrap_model_distributed
-from nanogpt.utils.checkpoint import Checkpoint
-from nanogpt.utils.logger import Logger
+from mtp.data.dataloader import DistributedDataLoader
+from mtp.utils.distributed import setup_distributed, wrap_model_distributed
+from mtp.utils.checkpoint import Checkpoint
+from mtp.utils.logger import Logger
 
 
 def create_optimizers(raw_model, cfg):
@@ -107,7 +107,7 @@ def main(cfg: DictConfig):
 
     try:
 
-        # Set DEVICE env variable, which is used by nanogpt.utils.distributed
+        # Set DEVICE env variable, which is used by mtp.utils.distributed
         os.environ['DEVICE'] = cfg.device
 
         # Initialize distributed setup

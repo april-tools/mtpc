@@ -5,7 +5,7 @@ import torch
 
 from omegaconf import OmegaConf
 
-from nanogpt.utils.distributed import get_local_device
+from mtp.utils.distributed import get_local_device
 
 
 def fix_model_state_dict(state_dict):

@@ -7,7 +7,7 @@ import pickle
 import argparse
 import numpy as np
 
-from nanogpt.utils.checkpoint import Checkpoint
+from mtp.utils.checkpoint import Checkpoint
 
 
 def load_vocabs(path):

@@ -2,6 +2,7 @@ import glob
 import numpy as np
 import torch
 
+
 def _peek_data_shard(filename):
     # only reads the header, returns header data
     with open(filename, "rb") as f:
@@ -17,6 +18,7 @@ def _peek_data_shard(filename):
     ntok = header[2]  # number of tokens (claimed)
     return ntok  # for now just return the number of tokens
 
+
 def _load_data_shard(filename):
     with open(filename, "rb") as f:
         # first read the header, which is 256 int32 integers (4 bytes each)
@@ -28,6 +30,7 @@ def _load_data_shard(filename):
         tokens = np.frombuffer(f.read(), dtype=np.uint16)
     assert len(tokens) == ntok, "number of tokens read does not match header?"
     return tokens
+
 
 class DistributedDataLoader:
     def __init__(self, filename_pattern, B, T, process_rank, num_processes, device):
@@ -65,7 +68,7 @@ class DistributedDataLoader:
     def next_batch(self):
         B = self.B
         T = self.T
-        buf = self.tokens[self.current_position : self.current_position+B*T+1]
+        buf = self.tokens[self.current_position: self.current_position+B*T+1]
         buf = torch.tensor(buf.astype(np.int32), dtype=torch.long)
         x = (buf[:-1]).view(B, T)  # inputs
         y = (buf[1:]).view(B, T)   # targets

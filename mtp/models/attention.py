@@ -31,6 +31,7 @@ class Rotary(torch.nn.Module):
         y2 = x1 * (-sin) + x2 * cos
         return torch.cat([y1, y2], 3).type_as(x)
 
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, n_head: int, n_embd: int):
         super().__init__()

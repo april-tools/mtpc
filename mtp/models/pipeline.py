@@ -3,6 +3,7 @@ import torch
 from cirkit.backend.torch.compiler import TorchCompiler
 from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.layers import CategoricalLayer, SumLayer
+
 from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 
 

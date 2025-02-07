@@ -10,6 +10,6 @@ learning_rate: 0.0005
 
 # Evaluation and logging hyperparams
 val_loss_every: 50
-save_model_every: 200
+save_model_every: 50
 # val_loss_every: 1000
 val_tokens: 1048576 # 8*64*1024

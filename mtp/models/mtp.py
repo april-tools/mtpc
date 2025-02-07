@@ -3,8 +3,9 @@ import torch
 from torch import Tensor
 from cirkit.utils.scope import Scope
 from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
-from nanogpt.models.lm import LM
-from nanogpt.models.mtp_head import MultiTokenHead
+
+from .models.lm import LM
+from .models.mtp_head import MultiTokenHead
 
 from .circuits import CircuitCP
 from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer

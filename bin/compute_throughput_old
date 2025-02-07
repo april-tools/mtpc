@@ -7,7 +7,7 @@ mkdir -p $MTP_ROOT/outputs/results
 
 for device in cuda;
 do
-    torchrun -m nanogpt.generate_old device=$device \
+    torchrun -m mtp.generate_old device=$device \
 		data=shakespeare_char \
 		model=gpt \
 		generate=default \
@@ -16,12 +16,12 @@ do
 	do
 		for n_component in 1 8;
 		do
-			python -m nanogpt.generate_old device=$device \
+			python -m mtp.generate_old device=$device \
 				data=shakespeare_char \
 				model=mtp model.n_component=$n_component model.n_token=$n_token \
 				generate=default \
 				>> $MTP_ROOT/outputs/results/throughput.jsonl
-			python -m nanogpt.generate_old device=$device \
+			python -m mtp.generate_old device=$device \
 				data=shakespeare_char \
 				model=mtp model.n_component=$n_component model.n_token=$n_token \
 				generate=speculative \

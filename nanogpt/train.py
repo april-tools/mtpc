@@ -9,6 +9,7 @@ import time
 
 from nanogpt.data.dataloader import DistributedDataLoader
 from nanogpt.utils.distributed import setup_distributed, wrap_model_distributed
+from nanogpt.utils.checkpoint import Checkpoint
 from nanogpt.utils.logger import Logger
 
 
@@ -125,11 +126,14 @@ def main(cfg: DictConfig):
             wandb.define_metric("*", step_metric="global_step")
 
             # Below Points to hydra.run.dir (not directly accessible)
-            output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+            out_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
-            # Save current config
-            with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
-                OmegaConf.save(cfg, f)
+            ckp = Checkpoint(folder=out_dir, config=cfg)
+            ckp.save()
+
+            # # Save current config
+            # with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
+            #     OmegaConf.save(cfg, f)
 
             # Setup logging
             logger = Logger(master_process)
@@ -139,9 +143,8 @@ def main(cfg: DictConfig):
         train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
         val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
 
-        if master_process:
-            logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
-            logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
+        logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
+        logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
 
         # Calculate steps
         val_steps = cfg.training.val_tokens // (B * T * world_size)
@@ -152,8 +155,7 @@ def main(cfg: DictConfig):
         model = wrap_model_distributed(model, local_rank, cfg.compile)
 
         # Initialize optimizers and schedulers
-        if master_process:
-            logger("Setting up/compiling model...")
+        logger("Setting up/compiling model...")
         optimizer, scheduler = create_optimizers(model, cfg)
 
         # Initialize training context
@@ -180,6 +182,7 @@ def main(cfg: DictConfig):
             # Validation
             if last_step or (cfg.training.val_loss_every > 0 and step % cfg.training.val_loss_every == 0):
                 val_loss, val_stp_loss, val_mtp_loss = validation_step(model, val_loader, val_steps, ctx)
+                logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
                 if master_process:
                     wandb.log({
                         'valid/loss': val_loss,
@@ -187,15 +190,15 @@ def main(cfg: DictConfig):
                         'valid/mtp_loss': val_mtp_loss,
                         'global_step': step
                     })
-                    logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
 
             # Logging and model saving
             if master_process:
                 if last_step or (step % cfg.training.save_model_every == 0):
                     # TODO: save best / do not overwrite best
-                    filename = os.path.join(output_dir, 'model@%d.pth' % step)
-                    logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % filename)
-                    torch.save(model, filename)
+                    ckp.save(global_step=step, model=model, optimizer=optimizer, scheduler=scheduler)
+                    # filename = os.path.join(output_dir, 'model@%d.pth' % step)
+                    # logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % filename)
+                    # torch.save(model, filename)
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
                 wandb.log({

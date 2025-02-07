@@ -2,9 +2,20 @@ import os
 import re
 import hydra
 import torch
-import OmegaConf
 
-from nanogpt.utils import get_local_device
+from omegaconf import OmegaConf
+
+from nanogpt.utils.distributed import get_local_device
+
+
+def fix_model_state_dict(state_dict):
+    # Compilation and DDP introduce weird prefixes to the state
+    # I think DDP introduces module and compilation _orig_mod
+    for bad_prefix in ['module._orig_mod.', '_orig_mod.', 'module.']:
+        for k, v in list(state_dict.items()):
+            if k.startswith(bad_prefix):
+                state_dict[k[len(bad_prefix):]] = state_dict.pop(k)
+    return state_dict
 
 
 class Checkpoint(object):
@@ -17,44 +28,51 @@ class Checkpoint(object):
         super().__init__()
         self.folder = folder
         self.config = config
+        assert global_step >= 0
         self.global_step = global_step
         self.configpath = os.path.join(self.folder, "config.yaml")
         self.expname = self.config.expname
-        assert global_step >= 0
-        if self.global_step == 0:
-            self.modelpath = None
-        else:
-            self.modelpath = os.path.join(self.folder, "model@%d.pt" % global_step)
 
     def __repr__(self):
-        return '%s@%s' % (self.expname, self.global_step)
+        return "%s@%s" % (self.expname, self.global_step)
 
     def _load_state(self, device=None):
         if device is None:
             device = get_local_device()
         # load state dict from the saved file
         # and load state dict for the items passed in
-        state = torch.load(self.modelpath, weights_only=True, map_location=device)
+        state = torch.load(
+            self.modelpath,
+            weights_only=True,
+            map_location=device
+        )
         return state
 
-    def save(self, global_step=0, model=None, optimizer=None, scheduler=None, **kwargs):
+    def save(self, global_step=0, model=None, optimizer=None, scheduler=None):
         assert global_step >= 0
+        # Advance global_step
+        self.global_step = global_step
         # We haven't begun training, just serialise the config file
         if global_step == 0:
             with open(self.configpath, "w") as f:
                 OmegaConf.save(self.config, f)
         else:
             assert model is not None
-            model_state_dict = model.state_dict()
-            optimizer_state_dict = None if optimizer is None else optimizer.state_dict()
-            scheduler_state_dict = None if scheduler is None else scheduler.state_dict()
+            model_state_dict = fix_model_state_dict(model.state_dict())
+            optimizer_state_dict = (
+                None if optimizer is None else optimizer.state_dict()
+            )
+            scheduler_state_dict = (
+                None if scheduler is None else scheduler.state_dict()
+            )
 
-        state = {
-            "model_state_dict": model_state_dict,
-            "optimizer_state_dict": optimizer_state_dict,
-            "scheduler_state_dict": scheduler_state_dict,
-        }
-        torch.save(save, self.modelpath)
+            state = {
+                "global_step": global_step,
+                "model_state_dict": model_state_dict,
+                "optimizer_state_dict": optimizer_state_dict,
+                "scheduler_state_dict": scheduler_state_dict,
+            }
+            torch.save(state, self.modelpath)
 
     def restore(self, model, optimizer=None, scheduler=None, device=None):
         # NOTE: modifies inplace
@@ -66,14 +84,24 @@ class Checkpoint(object):
         model.load_state_dict(state["model_state_dict"])
         if optimizer is not None:
             optimizer.load_state_dict(state["optimizer_state_dict"])
-        if schedular is not None:
+        if scheduler is not None:
             scheduler.load_state_dict(state["scheduler_state_dict"])
 
     @property
+    def modelpath(self):
+        modelpath = os.path.join(
+            self.folder, "model@%d.pt" % self.global_step
+        )
+        return modelpath
+
+    @property
     def model(self):
-        model = hydra.utils.instantiate(cfg.model).model
+        model = hydra.utils.instantiate(self.config.model).model
+
+        device = get_local_device()
+        model = model.to(device)
         # If we have begun training, you are getting the saved model
-        if global_step > 0:
+        if self.global_step > 0:
             state = self._load_state(device=device)
             model.load_state_dict(state["model_state_dict"])
         # Otherwise, you get a randomly initialised one
@@ -87,10 +115,12 @@ class Checkpoint(object):
             modelname = os.path.basename(filepath)
             match = re.match(r"model@(?P<global_step>\d+).pt", modelname)
             if match is None:
-                raise ValueError("Could not extract global_step from modelname")
+                raise ValueError(
+                    "Could not extract global_step from modelname"
+                )
             global_step = int(match.group("global_step"))
 
-            configname = "%s.yaml" % folder
+            configname = os.path.join(folder, "config.yaml")
             config = OmegaConf.load(configname)
         # If we pass the config path, just load the config.
         elif filepath.endswith(".yaml"):

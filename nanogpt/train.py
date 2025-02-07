@@ -196,9 +196,7 @@ def main(cfg: DictConfig):
                 if last_step or (step % cfg.training.save_model_every == 0):
                     # TODO: save best / do not overwrite best
                     ckp.save(global_step=step, model=model, optimizer=optimizer, scheduler=scheduler)
-                    # filename = os.path.join(output_dir, 'model@%d.pth' % step)
-                    # logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % filename)
-                    # torch.save(model, filename)
+                    logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
                 wandb.log({

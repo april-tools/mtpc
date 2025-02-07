@@ -7,10 +7,7 @@ import pickle
 import argparse
 import numpy as np
 
-from omegaconf import OmegaConf
-from hydra.utils import instantiate
-
-from nanogpt.utils import Checkpoint
+from nanogpt.utils.checkpoint import Checkpoint
 
 
 def load_vocabs(path):
@@ -28,7 +25,7 @@ if __name__ == "__main__":
                         'a .yaml config file if we want to initialise a random model.')
     parser.add_argument('--num-tokens', default=1000, type=int,
                         help='Number of tokens to generate.')
-    parser.add_argument('--device', default='cuda',
+    parser.add_argument('--device', default='cpu',
                         help='The device to use for generation.')
     parser.add_argument('--prompt', default=None,
                         help='Prompt to use for generation.')
@@ -64,10 +61,11 @@ if __name__ == "__main__":
     model = ckp.model
     model.eval()
 
+    cfg = ckp.config
     vocabs = load_vocabs(cfg.data.vocabs)
 
     # TODO: Make below BOS - unsure what it is for the encoded docs
-    if args.prompt == None:
+    if args.prompt is None:
         BOS = 1
         x = torch.full(size=(BATCH_SIZE, 1), fill_value=BOS, dtype=torch.int64, device=args.device)
     else:
@@ -83,9 +81,9 @@ if __name__ == "__main__":
     if args.mode == 'mtp':
         n_token = model.mt_head.n_token
         n_component = model.mt_head.n_component
-        assert(tokens.shape[1] == n_token)
+        assert tokens.shape[1] == n_token
     else:
-        assert(tokens.shape[1] == 1)
+        assert tokens.shape[1] == 1
 
     if args.speculative:
         num_accepted_tokens = []
@@ -149,7 +147,7 @@ if __name__ == "__main__":
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
     stats['mode'] = args.mode
-    stats['checkpoint'] = checkpoint
+    stats['checkpoint'] = repr(ckp)
 
     result = json.dumps(stats)
 

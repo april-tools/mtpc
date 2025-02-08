@@ -134,17 +134,65 @@ def main(cfg: DictConfig):
             # Setup logging
             logger = Logger(master_process)
 
-            expname = name_exp(cfg)
-            with open_dict(cfg):
-                cfg.expname = expname
-            # Setup Wandb
-            wandb.init(project='mtp',
-                       name=expname,
-                       tags=[cfg.data.name],
-                       config=OmegaConf.to_container(cfg))
-            wandb.define_metric("*", step_metric="global_step")
+        # ===================== BEGIN MODEL SETUP ============================
+        # Initialize model. Use model for checkpoints
+        # as this is current pytorch recommendation for saving compiled models
+        # https://pytorch.org/get-started/pytorch-2.0/#serialization
+        model = hydra.utils.instantiate(cfg.model).model
+        optimized_model = wrap_model_distributed(model, local_rank, cfg.compile)
 
-        # Initialize data loaders
+        # Initialize optimizers and schedulers
+        logger("Setting up/compiling model...")
+        optimizer, scheduler = create_optimizers(optimized_model, cfg)
+
+        # Initialize training context
+        ctx = autocast(device_type=cfg.device, dtype=torch.bfloat16)
+
+        # ===================== BEGIN CHECKPOINT SETUP =======================
+        if cfg.from_checkpoint is None:
+            global_step = 0
+            if master_process:
+                expname = name_exp(cfg)
+                # Setup Wandb
+                run = wandb.init(project='mtp',
+                                 name=expname,
+                                 # entity=os.environ['USER'],
+                                 tags=[cfg.data.name, os.environ['USER']],
+                                 config=OmegaConf.to_container(cfg))
+                wandb.define_metric("*", step_metric="global_step")
+                with open_dict(cfg):
+                    cfg.expname = expname
+                    cfg.wandb_run_id = run.id
+
+                # Hydra sets cwd to the generated folder
+                ckp = Checkpoint(folder=os.getcwd(), config=cfg)
+                logger(f"Saving config and checkpoints to {ckp.folder}...")
+                ckp.save()
+        else:
+            # Load the checkpoint to restore training from
+            ckp = Checkpoint.load(cfg.from_checkpoint)
+            global_step = ckp.global_step
+            cfg = ckp.config
+
+            logger(f"Restoring checkpoint {cfg.from_checkpoint}...")
+            # Restore the model, optimizer and scheduler from checkpoint
+            ckp.restore(model=model, optimizer=optimizer, scheduler=scheduler)
+
+            if master_process:
+                # Setup Wandb to resume run by passing wandb id
+                run = wandb.init(project='mtp',
+                                 name=cfg.expname,
+                                 # entity=os.environ['USER'],
+                                 tags=[cfg.data.name, os.environ['USER']],
+                                 config=OmegaConf.to_container(cfg),
+                                 id=cfg.wandb_run_id,
+                                 resume='allow',
+                                 # Can use resume_from or fork_from if we get access
+                                 # resume_from=f"{cfg.wandb_run_id}?_step={global_step}"
+                                 )
+                wandb.define_metric("*", step_metric="global_step")
+
+        # ===================== BEGIN DATASET SETUP ==========================
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
         train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
         val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
@@ -156,37 +204,12 @@ def main(cfg: DictConfig):
         val_steps = cfg.training.val_tokens // (B * T * world_size)
         train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
-        # Initialize model. Use model for checkpoints
-        # as this is current pytorch recommendation for saving compiled models
-        # https://pytorch.org/get-started/pytorch-2.0/#serialization
-        model = hydra.utils.instantiate(cfg.model).model
-        optimized_model = wrap_model_distributed(model, local_rank, cfg.compile)
-
-        # Initialize optimizers and schedulers
-        logger("Setting up/compiling model...")
-        optimizer, scheduler = create_optimizers(optimized_model, cfg)
-
-        if cfg.from_checkpoint is None:
-            global_step = 0
-            if master_process:
-                # Hydra sets cwd to the generated folder
-                ckp = Checkpoint(folder=os.getcwd(), config=cfg)
-                ckp.save()
-        else:
-            # Load the other checkpoint to restore
-            ckp = Checkpoint.load(cfg.from_checkpoint)
-            global_step = ckp.global_step
-            # Restore the model, optimizer and scheduler from checkpoint
-            ckp.restore(model=model, optimizer=optimizer, scheduler=scheduler)
-
-        # Initialize training context
-        ctx = autocast(device_type=cfg.device, dtype=torch.bfloat16)
-
-        # Training loop
         train_loader.reset()
         if global_step > 0:
             # Skip global_step training examples to resume training
             train_loader.seek(global_step * train_accumulation_steps)
+
+        # ===================== BEGIN TRAINING LOOP ==========================
         for step in range(1 + global_step, cfg.training.num_iterations + global_step + 1):
             last_step = (step == (cfg.training.num_iterations + global_step))
 

@@ -149,14 +149,14 @@ def main(cfg: DictConfig):
                        config=OmegaConf.to_container(cfg))
             wandb.define_metric("*", step_metric="global_step")
 
-            if cfg.checkpoint is None:
+            if cfg.from_checkpoint is None:
                 # Hydra sets cwd to the generated folder
                 ckp = Checkpoint(folder=os.getcwd(), config=cfg)
                 global_step = 0
                 ckp.save()
             else:
                 # Load the other checkpoint to restore
-                ckp = Checkpoint.load(cfg.checkpoint)
+                ckp = Checkpoint.load(cfg.from_checkpoint)
                 global_step = ckp.global_step
                 # Restore the model, optimizer and scheduler from checkpoint
                 ckp.restore(model=model, optimizer=optimizer, scheduler=scheduler)

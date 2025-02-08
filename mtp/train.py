@@ -13,6 +13,19 @@ from mtp.utils.checkpoint import Checkpoint
 from mtp.utils.logger import Logger
 
 
+def set_deterministic(seed):
+    # https://discuss.pytorch.org/t/reproducibility-with-multiple-gpus-not-working/209583
+    torch.manual_seed(seed)
+    import random
+    import numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.benchmark = False
+    # For this we also need env var CUBLAS_WORKSPACE_CONFIG=:4096:8
+    torch.backends.cudnn.deterministic = True
+
+
 def create_optimizers(raw_model, cfg):
     """Initialize optimizers and schedulers."""
     optimizer = torch.optim.AdamW(
@@ -107,6 +120,7 @@ def main(cfg: DictConfig):
 
     try:
 
+        set_deterministic(cfg.training.random_seed)
         # Set DEVICE env variable, which is used by mtp.utils.distributed
         os.environ['DEVICE'] = cfg.device
 
@@ -117,6 +131,16 @@ def main(cfg: DictConfig):
         if master_process:
             # Setup logging
             logger = Logger(master_process)
+
+            expname = name_exp(cfg)
+            with open_dict(cfg):
+                cfg.expname = expname
+            # Setup Wandb
+            wandb.init(project='mtp',
+                       name=expname,
+                       tags=[cfg.data.name],
+                       config=OmegaConf.to_container(cfg))
+            wandb.define_metric("*", step_metric="global_step")
 
         # Initialize data loaders
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
@@ -130,47 +154,44 @@ def main(cfg: DictConfig):
         val_steps = cfg.training.val_tokens // (B * T * world_size)
         train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
-        # Initialize model
+        # Initialize model. Use model for checkpoints
+        # as this is current pytorch recommendation for saving compiled models
+        # https://pytorch.org/get-started/pytorch-2.0/#serialization
         model = hydra.utils.instantiate(cfg.model).model
-        model = wrap_model_distributed(model, local_rank, cfg.compile)
+        optimized_model = wrap_model_distributed(model, local_rank, cfg.compile)
 
         # Initialize optimizers and schedulers
         logger("Setting up/compiling model...")
-        optimizer, scheduler = create_optimizers(model, cfg)
+        optimizer, scheduler = create_optimizers(optimized_model, cfg)
 
-        if master_process:
-            expname = name_exp(cfg)
-            with open_dict(cfg):
-                cfg.expname = expname
-            # Setup Wandb
-            wandb.init(project='mtp',
-                       name=expname,
-                       tags=[cfg.data.name],
-                       config=OmegaConf.to_container(cfg))
-            wandb.define_metric("*", step_metric="global_step")
-
-            if cfg.from_checkpoint is None:
+        if cfg.from_checkpoint is None:
+            global_step = 0
+            if master_process:
                 # Hydra sets cwd to the generated folder
                 ckp = Checkpoint(folder=os.getcwd(), config=cfg)
-                global_step = 0
                 ckp.save()
-            else:
-                # Load the other checkpoint to restore
-                ckp = Checkpoint.load(cfg.from_checkpoint)
-                global_step = ckp.global_step
-                # Restore the model, optimizer and scheduler from checkpoint
-                ckp.restore(model=model, optimizer=optimizer, scheduler=scheduler)
+        else:
+            # Load the other checkpoint to restore
+            ckp = Checkpoint.load(cfg.from_checkpoint)
+            global_step = ckp.global_step
+            # Restore the model, optimizer and scheduler from checkpoint
+            ckp.restore(model=model, optimizer=optimizer, scheduler=scheduler)
 
         # Initialize training context
         ctx = autocast(device_type=cfg.device, dtype=torch.bfloat16)
 
         # Training loop
         train_loader.reset()
+        if global_step > 0:
+            # Skip global_step training examples to resume training
+            train_loader.seek(global_step * train_accumulation_steps)
         for step in range(1 + global_step, cfg.training.num_iterations + global_step + 1):
             last_step = (step == (cfg.training.num_iterations + global_step))
-            # Skip global_step training examples so that we
-            # resume training where we left off
-            train_loader.seek(global_step)
+
+            # Below is needed for reproducibility if we use ops that
+            # rely on random state. Need to have same seq of random nums.
+            # even if we restore from a checkpoint
+            torch.manual_seed(step)
 
             t0 = time.time()
             if cfg.device == 'cuda':
@@ -178,7 +199,7 @@ def main(cfg: DictConfig):
 
             # Training step
             train_loss, train_mtp_loss = training_step(
-                model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx
+                optimized_model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx
             )
 
             if cfg.device == 'cuda':
@@ -187,7 +208,7 @@ def main(cfg: DictConfig):
 
             # Validation
             if last_step or (cfg.training.val_loss_every > 0 and step % cfg.training.val_loss_every == 0):
-                val_loss, val_stp_loss, val_mtp_loss = validation_step(model, val_loader, val_steps, ctx)
+                val_loss, val_stp_loss, val_mtp_loss = validation_step(optimized_model, val_loader, val_steps, ctx)
                 logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
                 if master_process:
                     wandb.log({
@@ -204,7 +225,7 @@ def main(cfg: DictConfig):
                     ckp.save(global_step=step, model=model, optimizer=optimizer, scheduler=scheduler)
                     logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                 current_lr = optimizer.param_groups[0]['lr']
-                logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.6f} time/step:{dt:.2f}s")
+                logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.10f} time/step:{dt:.2f}s")
                 wandb.log({
                     'train/loss': train_loss,
                     'train/mtp_loss': train_mtp_loss,

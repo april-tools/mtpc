@@ -31,10 +31,14 @@ if __name__ == "__main__":
                         help='Prompt to use for generation.')
     parser.add_argument('--speculative', action='store_true',
                         help='Whether to use speculative decoding.')
+    parser.add_argument('--random-seed', default=13, type=int,
+                        help='The random seed to use for sampling.')
     parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
                         help='Single Token Prediction (stp) is available both for MTP and autoregressive models. '
                         'MTP is available only for MTP models')
     args = parser.parse_args()
+
+    torch.manual_seed(args.random_seed)
 
     # TODO: Do we care about changing this?
     BATCH_SIZE = 1

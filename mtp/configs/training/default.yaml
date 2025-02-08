@@ -1,4 +1,5 @@
-# Data hyperparams
+# Reproducibility
+random_seed: 13
 
 # Optimization hyperparams
 batch_size: 512

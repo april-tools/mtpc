@@ -115,26 +115,6 @@ def main(cfg: DictConfig):
         master_process = (rank == 0)
 
         if master_process:
-            expname = name_exp(cfg)
-            with open_dict(cfg):
-                cfg.expname = expname
-            # Setup Wandb
-            run = wandb.init(project='mtp',
-                             name=expname,
-                             tags=[cfg.data.name],
-                             config=OmegaConf.to_container(cfg))
-            wandb.define_metric("*", step_metric="global_step")
-
-            # Below Points to hydra.run.dir (not directly accessible)
-            out_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-
-            ckp = Checkpoint(folder=out_dir, config=cfg)
-            ckp.save()
-
-            # # Save current config
-            # with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
-            #     OmegaConf.save(cfg, f)
-
             # Setup logging
             logger = Logger(master_process)
 
@@ -158,13 +138,39 @@ def main(cfg: DictConfig):
         logger("Setting up/compiling model...")
         optimizer, scheduler = create_optimizers(model, cfg)
 
+        if master_process:
+            expname = name_exp(cfg)
+            with open_dict(cfg):
+                cfg.expname = expname
+            # Setup Wandb
+            wandb.init(project='mtp',
+                       name=expname,
+                       tags=[cfg.data.name],
+                       config=OmegaConf.to_container(cfg))
+            wandb.define_metric("*", step_metric="global_step")
+
+            if cfg.checkpoint is None:
+                # Hydra sets cwd to the generated folder
+                ckp = Checkpoint(folder=os.getcwd(), config=cfg)
+                global_step = 0
+                ckp.save()
+            else:
+                # Load the other checkpoint to restore
+                ckp = Checkpoint.load(cfg.checkpoint)
+                global_step = ckp.global_step
+                # Restore the model, optimizer and scheduler from checkpoint
+                ckp.restore(model=model, optimizer=optimizer, scheduler=scheduler)
+
         # Initialize training context
         ctx = autocast(device_type=cfg.device, dtype=torch.bfloat16)
 
         # Training loop
         train_loader.reset()
-        for step in range(1, cfg.training.num_iterations + 1):
-            last_step = (step == cfg.training.num_iterations)
+        for step in range(1 + global_step, cfg.training.num_iterations + global_step + 1):
+            last_step = (step == (cfg.training.num_iterations + global_step))
+            # Skip global_step training examples so that we
+            # resume training where we left off
+            train_loader.seek(global_step)
 
             t0 = time.time()
             if cfg.device == 'cuda':
@@ -206,6 +212,7 @@ def main(cfg: DictConfig):
                 })
     finally:
         dist.destroy_process_group()
+
 
 if __name__ == "__main__":
     main()

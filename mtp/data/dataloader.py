@@ -80,3 +80,12 @@ class DistributedDataLoader:
             return x.cuda(), y.cuda()
         else:
             return x, y
+
+    def seek(self, num_steps):
+        # Move the dataloader forward num_steps
+        B = self.B
+        T = self.T
+        for i in range(num_steps):
+            self.current_position += B * T * self.num_processes
+            if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
+                self.advance()

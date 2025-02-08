@@ -23,24 +23,6 @@ def maskcwd(func):
     return wrapper
 
 
-def remove_model_prefix(state_dict):
-    # Compilation and DDP introduce weird prefixes to the state
-    # I think DDP introduces module and compilation _orig_mod
-    for bad_prefix in ['module._orig_mod.', '_orig_mod.', 'module.']:
-        for k, v in list(state_dict.items()):
-            if k.startswith(bad_prefix):
-                state_dict[k[len(bad_prefix):]] = state_dict.pop(k)
-    return state_dict
-
-
-def add_model_prefix(state_dict):
-    # Compilation and DDP introduce weird prefixes to the state
-    # I think DDP introduces module and compilation _orig_mod
-    for k, v in list(state_dict.items()):
-        state_dict['module._orig_mod.%s' % k] = state_dict.pop(k)
-    return state_dict
-
-
 class Checkpoint(object):
     """In the checkpoint folder we keep:
     1. a yaml config with the model spec
@@ -69,7 +51,6 @@ class Checkpoint(object):
             weights_only=True,
             map_location=device
         )
-        state['model_state_dict'] = add_model_prefix(state['model_state_dict'])
         return state
 
     @maskcwd
@@ -83,7 +64,7 @@ class Checkpoint(object):
                 OmegaConf.save(self.config, f)
         else:
             assert model is not None
-            model_state_dict = remove_model_prefix(model.state_dict())
+            model_state_dict = model.state_dict()
             optimizer_state_dict = (
                 None if optimizer is None else optimizer.state_dict()
             )

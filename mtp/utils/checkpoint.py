@@ -8,13 +8,36 @@ from omegaconf import OmegaConf
 from mtp.utils.distributed import get_local_device
 
 
-def fix_model_state_dict(state_dict):
+def maskcwd(func):
+    # https://github.com/omry/omegaconf/blob/117f7de07285e4d1324b9229eaf873de15279457/omegaconf/omegaconf.py#L184
+    # Omegaconf uses abspath everywhere, which when combined with hydra's
+    # assumption about cwd can be a pain.
+    # Since we want relative paths to work from cli from MTP_ROOT
+    # change dir and restore, use abs paths if calling checkpoint from train.py
+    def wrapper(*args, **kwargs):
+        cwd = os.getcwd()
+        os.chdir(os.environ['MTP_ROOT'])
+        result = func(*args, **kwargs)
+        os.chdir(cwd)
+        return result
+    return wrapper
+
+
+def remove_model_prefix(state_dict):
     # Compilation and DDP introduce weird prefixes to the state
     # I think DDP introduces module and compilation _orig_mod
     for bad_prefix in ['module._orig_mod.', '_orig_mod.', 'module.']:
         for k, v in list(state_dict.items()):
             if k.startswith(bad_prefix):
                 state_dict[k[len(bad_prefix):]] = state_dict.pop(k)
+    return state_dict
+
+
+def add_model_prefix(state_dict):
+    # Compilation and DDP introduce weird prefixes to the state
+    # I think DDP introduces module and compilation _orig_mod
+    for k, v in list(state_dict.items()):
+        state_dict['module._orig_mod.%s' % k] = state_dict.pop(k)
     return state_dict
 
 
@@ -46,8 +69,10 @@ class Checkpoint(object):
             weights_only=True,
             map_location=device
         )
+        state['model_state_dict'] = add_model_prefix(state['model_state_dict'])
         return state
 
+    @maskcwd
     def save(self, global_step=0, model=None, optimizer=None, scheduler=None):
         assert global_step >= 0
         # Advance global_step
@@ -58,7 +83,7 @@ class Checkpoint(object):
                 OmegaConf.save(self.config, f)
         else:
             assert model is not None
-            model_state_dict = fix_model_state_dict(model.state_dict())
+            model_state_dict = remove_model_prefix(model.state_dict())
             optimizer_state_dict = (
                 None if optimizer is None else optimizer.state_dict()
             )
@@ -108,8 +133,11 @@ class Checkpoint(object):
         return model
 
     @classmethod
+    @maskcwd
     def load(cls, filepath):
-        folder = os.path.dirname(filepath)
+        # Omegaconf is a pain to use without an absolute path
+        # so just bite the bullet and use the same for pytorch
+        folder = os.path.abspath(os.path.dirname(filepath))
         # If we pass a .pt file, load a specific checkpoint
         if filepath.endswith(".pt"):
             modelname = os.path.basename(filepath)

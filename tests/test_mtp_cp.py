@@ -3,10 +3,10 @@ import itertools
 import pytest
 import torch
 
-from nanogpt.models.circuits import CircuitCP
-from nanogpt.models.gpt import GPT
-from nanogpt.models.mtp_head import MultiTokenHead
-from nanogpt.models.mtp import MultiTokenLM
+from mtp.models.circuits import CircuitCP
+from mtp.models.gpt import GPT
+from mtp.models.mtp_head import MultiTokenHead
+from mtp.models.mtp import MultiTokenLM
 
 
 @pytest.fixture

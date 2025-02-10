@@ -1,7 +1,7 @@
 import torch
 from torch import nn, Tensor
 
-from nanogpt.utils.distributed import get_local_device
+from mtp.utils.distributed import get_local_device
 
 
 class LM(nn.Module):

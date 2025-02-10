@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ## Environment Variables
 
-Change data paths in `nanogpt/configs/config.yaml` to your own paths.
+Change data paths in `mtp/configs/config.yaml` to your own paths.
 Also specify :
 
 1. The device IDs (comma separated) by setting `CUDA_VISIBLE_DEVICES`.
@@ -56,10 +56,10 @@ You will need to create an account to track metrics remotely.
 ## Train Models:
 
 ```bash
-# Train the default nanogpt model on shakespeare_char (see nanogpt/config/model/default.yaml)
-torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespeare_char model=default model.n_embd=384
-# Train the mtp model on shakespeare_char (see nanogpt/config/model/mtp.yaml)
-torchrun --standalone --nproc_per_node=${GPUS} -m nanogpt.train data=shakespeare_char model=mtp model.n_embd=384 model.n_token=3 model.n_component=5
+# Train the default nanogpt model on shakespeare_char (see mtp/config/model/default.yaml)
+torchrun --standalone --nproc_per_node=${GPUS} -m mtp.train data=shakespeare_char model=default model.n_embd=384
+# Train the mtp model on shakespeare_char (see mtp/config/model/mtp.yaml)
+torchrun --standalone --nproc_per_node=${GPUS} -m mtp.train data=shakespeare_char model=mtp model.n_embd=384 model.n_token=3 model.n_component=5
 ```
 
 The outputs of each experiment (config and checkpoints) are written to a folder with the current date+time under `logs`.
@@ -85,8 +85,8 @@ You can also specify a prompt by using the `--prompt` parameter:
 
 
 ```bash
-torchrun -m nanogpt.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pth --mode mtp --prompt ANTO
-torchrun -m nanogpt.generate --device cuda --checkpoint /path/to/stp/model@xxx.pth --mode stp --prompt ANTO
+torchrun -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pth --mode mtp --prompt ANTO
+torchrun -m mtp.generate --device cuda --checkpoint /path/to/stp/model@xxx.pth --mode stp --prompt ANTO
 ```
 
 

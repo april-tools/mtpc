@@ -16,17 +16,17 @@ def setup_distributed():
     """Initialize the distributed training environment."""
     assert torch.cuda.is_available()
     dist.init_process_group(backend='nccl')
-    
+
     # Get distributed training details from environment
     rank = int(os.environ['RANK'])
     local_rank = int(os.environ['LOCAL_RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
     device = get_local_device()
-    
+
     if 'cuda' in device:
         # Set up device
         torch.cuda.set_device(device)
-    
+
     return rank, local_rank, world_size, device
 
 

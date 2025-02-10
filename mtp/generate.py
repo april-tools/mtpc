@@ -7,7 +7,7 @@ import pickle
 import argparse
 import numpy as np
 
-from omegaconf import OmegaConf
+from mtp.utils.checkpoint import Checkpoint
 
 
 def load_vocabs(path):
@@ -20,38 +20,56 @@ def load_vocabs(path):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint', required=True,
-                        help='The checkpointed model (.pth file) to use for generation.')
+    parser.add_argument('--checkpoint', required=True, type=str,
+                        help='The checkpointed model (.pth file) to use for generation or '
+                        'a .yaml config file if we want to initialise a random model.')
     parser.add_argument('--num-tokens', default=1000, type=int,
                         help='Number of tokens to generate.')
-    parser.add_argument('--device', default='cuda',
+    parser.add_argument('--device', default='cpu',
                         help='The device to use for generation.')
     parser.add_argument('--prompt', default=None,
                         help='Prompt to use for generation.')
     parser.add_argument('--speculative', action='store_true',
                         help='Whether to use speculative decoding.')
+    parser.add_argument('--random-seed', default=13, type=int,
+                        help='The random seed to use for sampling.')
     parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
                         help='Single Token Prediction (stp) is available both for MTP and autoregressive models. '
                         'MTP is available only for MTP models')
     args = parser.parse_args()
 
+    torch.manual_seed(args.random_seed)
+
     # TODO: Do we care about changing this?
     BATCH_SIZE = 1
+    os.environ['DEVICE'] = args.device
 
-    model = torch.load(args.checkpoint,
-                       map_location=torch.device(args.device),
-                       weights_only=False)
+    # if args.checkpoint.endswith('.pth'):
+    #     model = torch.load(args.checkpoint,
+    #                        map_location=torch.device(args.device),
+    #                        weights_only=False)
+    #
+    #     # Load config used to train the model
+    #     config_folder = os.path.dirname(args.checkpoint)
+    #     config_path = os.path.join(config_folder, 'config.yaml')
+    #     cfg = OmegaConf.load(config_path)
+    #     checkpoint = os.path.basename(args.checkpoint)
+    # elif args.checkpoint.endswith('.yaml'):
+    #     cfg = OmegaConf.load(args.checkpoint)
+    #     model = instantiate(cfg.model).model
+    #     model = model.to(torch.device(args.device))
+    #     checkpoint = 'random'
+    # else:
+    #     raise ValueError('Invalid checkpoint/config file: %s' % args.checkpoint)
+    ckp = Checkpoint.load(args.checkpoint)
+    model = ckp.model
     model.eval()
 
-    # Load config used to train the model
-    config_folder = os.path.dirname(args.checkpoint)
-    config_path = os.path.join(config_folder, 'config.yaml')
-    cfg = OmegaConf.load(config_path)
-
+    cfg = ckp.config
     vocabs = load_vocabs(cfg.data.vocabs)
 
     # TODO: Make below BOS - unsure what it is for the encoded docs
-    if args.prompt == None:
+    if args.prompt is None:
         BOS = 1
         x = torch.full(size=(BATCH_SIZE, 1), fill_value=BOS, dtype=torch.int64, device=args.device)
     else:
@@ -67,9 +85,9 @@ if __name__ == "__main__":
     if args.mode == 'mtp':
         n_token = model.mt_head.n_token
         n_component = model.mt_head.n_component
-        assert(tokens.shape[1] == n_token)
+        assert tokens.shape[1] == n_token
     else:
-        assert(tokens.shape[1] == 1)
+        assert tokens.shape[1] == 1
 
     if args.speculative:
         num_accepted_tokens = []
@@ -122,14 +140,18 @@ if __name__ == "__main__":
     stats['ncomponent'] = n_component
     stats['speculative'] = args.speculative
     if args.speculative:
+        num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)
+        full_hist_accepted_toks = np.zeros(num_token_idxs, dtype=np.int32)
+        full_hist_accepted_toks[uniq_accepted_toks] = hist_accepted_toks
         stats['avg_accepted_tokens'] = np.mean(num_accepted_tokens)
-        stats['hist_accepted_tokens'] = [uniq_accepted_toks.tolist(), hist_accepted_toks.tolist()]
+        stats['hist_accepted_tokens'] = [np.arange(num_token_idxs).tolist(), full_hist_accepted_toks.tolist()]
     stats['device'] = args.device
     stats['batch_size'] = BATCH_SIZE
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
     stats['mode'] = args.mode
+    stats['checkpoint'] = repr(ckp)
 
     result = json.dumps(stats)
 

@@ -6,5 +6,6 @@ outputs/results
 outputs/models
 .venv/
 venv/
+wandb/
 .idea/
 env.sh

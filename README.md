@@ -15,19 +15,19 @@ pip install -r requirements.txt
 
 ## Environment Variables
 
-Change data paths in `mtp/configs/config.yaml` to your own paths.
-Also specify :
-
-1. The device IDs (comma separated) by setting `CUDA_VISIBLE_DEVICES`.
-2. The MTP_ROOT environment variable; set it to the root directory of the project, see example in `env.sh`.
-
-You can set the above as env variables in `env.sh` and do:
+All paths are configured w.r.t. the project root folder, `$MTP_ROOT`.
+To set it, run the following command from the root folder:
 
 ```bash
+# From root directory of the project run the following, it sets $MTP_ROOT
 source env.sh
 ```
 
-All commands should work from the root folder, `$MTP_ROOT`.
+You may want to adapt/change:
+
+1. The number of GPUs and device IDs (comma separated) by setting `CUDA_VISIBLE_DEVICES`.
+2. Whether to use wandb or not (currently `disabled`, change to `online` for logging)
+
 
 # Run Unit Tests
 
@@ -85,8 +85,8 @@ You can also specify a prompt by using the `--prompt` parameter:
 
 
 ```bash
-torchrun -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pth --mode mtp --prompt ANTO
-torchrun -m mtp.generate --device cuda --checkpoint /path/to/stp/model@xxx.pth --mode stp --prompt ANTO
+python -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pth --mode mtp --prompt ANTO
+python -m mtp.generate --device cuda --checkpoint /path/to/stp/model@xxx.pth --mode stp --prompt ANTO
 ```
 
 

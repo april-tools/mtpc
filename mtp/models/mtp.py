@@ -4,8 +4,8 @@ from torch import Tensor
 from cirkit.utils.scope import Scope
 from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
 
-from .models.lm import LM
-from .models.mtp_head import MultiTokenHead
+from .lm import LM
+from .mtp_head import MultiTokenHead
 
 from .circuits import CircuitCP
 from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer

@@ -2,7 +2,7 @@ defaults:
   - _self_
   - training: default
   - model: gpt
-  - data: shakespeare_char
+  - data: fineweb10B
   - generate: default
 
 name: nanogpt

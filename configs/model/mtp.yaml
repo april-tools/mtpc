@@ -1,17 +1,18 @@
 name: mtp
 n_embd: 768
 n_head: 6
+n_layer: 12
 n_component: 1
 n_token: 4
 
 lm: &lm
     _target_: mtp.models.lm.LM
-    # lm:
-    #     _target_: mtp.models.gpt.GPT
-    #     vocab_size: ${data.vocab_size}
-    #     n_embd: ${model.n_embd}
-    #     n_head: ${model.n_head}
-    #     n_layer: 12
+    lm:
+        _target_: mtp.models.gpt.GPT
+        vocab_size: ${data.vocab_size}
+        n_embd: ${model.n_embd}
+        n_head: ${model.n_head}
+        n_layer: ${model.n_layer}
     encoder_only: true
     from_checkpoint: null
     ref_enc: encoder

@@ -4,25 +4,38 @@ import torch.nn.functional as F
 from .mlp import Block
 
 
-class TransformerExpanderHead(torch.nn.Module):
-    # Expand parametrisation for mixture model
+# Taken from the Medusa paper's code
+# https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
+class ResBlock(torch.nn.Module):
+    """
+    A Residual Block module.
 
-    def __init__(self, n_embd: int, n_component: int, n_head: int = 4, n_layer: int = 2):
+    This module performs a linear transformation followed by a SiLU activation,
+    and then adds the result to the original input, creating a residual connection.
+
+    Args:
+        hidden_size (int): The size of the hidden layers in the block.
+    """
+
+    def __init__(self, hidden_size: int):
         super().__init__()
-        self.n_embd = n_embd            # D
-        self.n_component = n_component  # R
-        self.n_head = n_head
-        self.n_layer = n_layer
+        self.linear = torch.nn.Linear(hidden_size, hidden_size)
+        # Initialize as an identity mapping
+        torch.nn.init.zeros_(self.linear.weight)
+        # Use SiLU activation to keep consistent with the Llama model
+        self.act = torch.nn.SiLU()
 
-        # NOTE: Below need not be causal - since over "R" dimension
-        te = torch.nn.TransformerEncoderLayer(d_model=n_embd, nhead=self.n_head, batch_first=True)
-        self.rf = torch.nn.TransformerEncoder(te, n_layer=self.n_layer)
-        self.rep_pos_embeds = torch.nn.Embedding(self.n_component, self.n_embd)
+    def forward(self, xx: Tensor) -> Tensor:
+        """
+        Forward pass of the ResBlock.
 
-    def forward(self, xx):
-        # Batch, Embed Dim
-        B, D = xx.shape
-        pass
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output after the residual connection and activation.
+        """
+        return xx + self.act(self.linear(xx))
 
 
 class LinearExpanderHead(torch.nn.Module):
@@ -56,6 +69,29 @@ class LinearExpanderHead(torch.nn.Module):
         xx = F.rms_norm(xx, (xx.size(-1),))
         xx = self.gelu(xx)
         return xx
+
+
+class MLPExpanderHead(torch.nn.Module):
+    # Expand parametrisation for mixture model
+
+    def __init__(self, n_embd: int, n_component: int, n_layer: int=1):
+        super().__init__()
+        self.n_embd = n_embd            # D
+        self.n_component = n_component  # R
+        self.n_layer = n_layer
+        self.mlps = torch.nn.ModuleList([torch.nn.Sequential(*([ResBlock(self.n_embd)] * self.n_layer))
+                                         for c in range(self.n_component)])
+
+    def forward(self, xx: Tensor) -> Tensor:
+        # Batch, Sentence Length, Embed Dim
+        B, S, D = xx.shape
+
+        xxs = []
+        for mlp in self.mlps:
+            act = mlp(xx)
+            xxs.append(act)
+        xxs = torch.stack(xxs, dim=-2)
+        return xxs
 
 
 class TransformerEncoderHead(torch.nn.Module):
@@ -132,7 +168,7 @@ class MultiTokenHead(torch.nn.Module):
             for _ in range(self.n_token)
         ])
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
-        
+
         # Projection to the sum layer parameters
         self.sum_weight_head = TransformerEncoderHead(self.n_embd, self.n_head, n_layer=self.n_layer)
         self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)

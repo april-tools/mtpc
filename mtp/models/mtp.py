@@ -101,6 +101,11 @@ class MultiTokenLM(torch.nn.Module):
         return dict(log_probs=log_probs, loss=mtp_loss, mtp_loss=mtp_loss, stp_loss=stp_loss)
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
+        # Free previous tensors before we produce new ones
+        # this is important, since cat_layer probs is a large tensor
+        self._cat_layer.log_probs = None
+        self._sum_layer.weight = None
+
         # Obtain dictionary of circuit parameters
         circuit_params = self.mt_head(xx, generate=generate)
 

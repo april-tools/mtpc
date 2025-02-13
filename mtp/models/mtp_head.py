@@ -125,7 +125,10 @@ class TokenHead(torch.nn.Module):
 
     def forward(self, xx: Tensor, generate: bool = False) -> Tensor:
         # xx is B, S, D
-        xx = self.encoder(xx)
+
+        # We can bypass the transformer encoder by setting it to have n_layer=0
+        if self.encoder.n_layer > 0:
+            xx = self.encoder(xx)
         if generate:
             xx = xx[:, [-1]]
 
@@ -157,16 +160,19 @@ class MultiTokenHead(torch.nn.Module):
 
         # number of heads and layers in the multi-token transformer
         self.n_head = n_head
+        assert n_layer >= 0
         self.n_layer = n_layer
 
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
             TokenHead(
                 encoder=TransformerEncoderHead(self.n_embd, n_head=self.n_head, n_layer=self.n_layer),
-                expander=LinearExpanderHead(self.n_embd, self.n_component)
+                # expander=LinearExpanderHead(self.n_embd, self.n_component)
+                expander=MLPExpanderHead(self.n_embd, self.n_component)
             )
             for _ in range(self.n_token)
         ])
+        # The shared unembedding matrix
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
 
         # Projection to the sum layer parameters

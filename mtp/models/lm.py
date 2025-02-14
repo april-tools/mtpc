@@ -38,9 +38,7 @@ class LM(nn.Module):
         self.freeze = freeze
 
         if self.encoder_only:
-            for n, p in self.head.named_parameters():
-                p._ddp_ignored = True
-                p.requires_grad = False
+            setattr(self.lm, self.ref_head, None)
 
         if self.freeze:
             for p in self.lm.parameters():

@@ -1,4 +1,3 @@
-import torch
 import torch.nn.functional as F
 
 from torch import nn
@@ -16,6 +15,11 @@ class MLP(nn.Module):
         x = self.c_proj(x)
         return x
 
+    def reset_parameters(self):
+        self.c_fc.reset_parameters()
+        self.c_proj.reset_parameters()
+
+
 class Block(nn.Module):
     def __init__(self, n_head: int, n_embd: int):
         super().__init__()
@@ -27,3 +31,7 @@ class Block(nn.Module):
         x = x + self.attn(F.rms_norm(x, (x.size(-1),)))
         x = x + self.mlp(F.rms_norm(x, (x.size(-1),)))
         return x
+
+    def reset_parameters(self):
+        self.attn.reset_parameters()
+        self.mlp.reset_parameters()

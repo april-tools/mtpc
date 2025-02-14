@@ -1,9 +1,13 @@
+import copy
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+
+from torch import Tensor
+from torch.nn import Linear
 from .mlp import Block
 
 
+# TODO: Maybe move this to a medusa module - since we will likely compare to medusa anyway
 # Taken from the Medusa paper's code
 # https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
 class ResBlock(torch.nn.Module):
@@ -37,6 +41,10 @@ class ResBlock(torch.nn.Module):
         """
         return xx + self.act(self.linear(xx))
 
+    def reset_parameters(self):
+        # TODO: Maybe better to just init all random but very small?
+        torch.nn.init.zeros_(self.linear.weight)
+
 
 class LinearExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
@@ -65,10 +73,15 @@ class LinearExpanderHead(torch.nn.Module):
         xx = xx.permute(1, 0, 2)
         # xx is B x S, R, D
         xx = xx.reshape(B, S, -1, D)
+        # xx is B, S, R, D
 
         xx = F.rms_norm(xx, (xx.size(-1),))
         xx = self.gelu(xx)
         return xx
+
+    def reset_parameters(self):
+        # TODO: Maybe better to just init all random but very small?
+        torch.nn.init.normal_(self.Wr, mean=0.0, std=0.02)
 
 
 class MLPExpanderHead(torch.nn.Module):
@@ -90,8 +103,39 @@ class MLPExpanderHead(torch.nn.Module):
         for mlp in self.mlps:
             act = mlp(xx)
             xxs.append(act)
+        # xxs is B, S, R, D
         xxs = torch.stack(xxs, dim=-2)
         return xxs
+
+    def reset_parameters(self):
+        # TODO: Maybe better to just init all random but very small?
+        for mlp in self.mlps:
+            for ss in mlp:
+                ss.reset_parameters()
+
+
+class ExpanderHead(torch.nn.Module):
+    """Wrapper class of expanders to make running from config easier."""
+    def __init__(self, n_embd: int, n_component: int, n_layer: int=1, expander_type='linear'):
+        super().__init__()
+        self.n_embd = n_embd            # D
+        self.n_component = n_component  # R
+        assert expander_type in ['linear', 'mlp']
+        if expander_type == 'linear':
+            assert n_layer in (1, None), 'n_layer is only valid for MLP'
+        self.n_layer = n_layer
+        self.expander_type = expander_type
+        if self.expander_type == 'linear':
+            self.expander = LinearExpanderHead(self.n_embd, self.n_component)
+        elif self.expander_type == 'mlp':
+            self.expander = MLPExpanderHead(self.n_embd, self.n_component, self.n_layer)
+
+    def forward(self, xx: Tensor) -> Tensor:
+        return self.expander(xx)
+
+    def reset_parameters(self):
+        # TODO: Maybe better to just init all random but very small?
+        self.expander.reset_parameters()
 
 
 class TransformerEncoderHead(torch.nn.Module):
@@ -102,6 +146,7 @@ class TransformerEncoderHead(torch.nn.Module):
         self.n_embd = n_embd
         self.n_head = n_head
         self.n_layer = n_layer
+        assert n_layer >= 0
         self.transformer = torch.nn.ModuleList([Block(n_head, n_embd) for _ in range(self.n_layer)])
 
     def forward(self, xx):
@@ -114,13 +159,20 @@ class TransformerEncoderHead(torch.nn.Module):
         xx = F.rms_norm(xx, (xx.size(-1),))
         return xx
 
+    def reset_parameters(self):
+        for each in self.transformer:
+            each.reset_parameters()
 
-class TokenHead(torch.nn.Module):
 
-    def __init__(self, encoder: TransformerEncoderHead, expander: LinearExpanderHead | None = None):
+class OutputHead(torch.nn.Module):
+
+    def __init__(self, encoder: TransformerEncoderHead, expander: ExpanderHead | Linear):
         super().__init__()
         self.encoder = encoder
         # Expands parametrisation for mixture model
+        # NOTE: For the case of the categoricals, we want a tensor B, S, R, *D*  (expander)
+        # For the case of the sum layer, we want                   B, S, R
+        # We therefore allow the expander to be a simple linear layer (not linear expander)
         self.expander = expander
 
     def forward(self, xx: Tensor, generate: bool = False) -> Tensor:
@@ -132,52 +184,43 @@ class TokenHead(torch.nn.Module):
         if generate:
             xx = xx[:, [-1]]
 
-        # xx is B, S, D
-        if self.expander is not None:
-            xx = self.expander(xx)
-        else:
-            xx = xx.unsqueeze(dim=2)
-        # xx is B, S, R, D
+        xx = self.expander(xx)
         return xx
+
+    def reset_parameters(self):
+        self.encoder.reset_parameters()
+        self.expander.reset_parameters()
 
 
 class MultiTokenHead(torch.nn.Module):
     def __init__(
         self,
+        token_head: OutputHead,
+        sum_weight_head: OutputHead,
         vocab_size: int,
         n_embd: int,
-        n_layer: int = 2,
-        n_head: int = 6,
         n_component: int = 1,
         n_token: int = 3
     ):
         super().__init__()
         self.vocab_size = vocab_size           # V
+        self.token_head = token_head
+        self.sum_weight_head = sum_weight_head
         self.n_embd = n_embd                   # D
-        self.n_head = n_head
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
 
-        # number of heads and layers in the multi-token transformer
-        self.n_head = n_head
-        assert n_layer >= 0
-        self.n_layer = n_layer
-
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
-            TokenHead(
-                encoder=TransformerEncoderHead(self.n_embd, n_head=self.n_head, n_layer=self.n_layer),
-                # expander=LinearExpanderHead(self.n_embd, self.n_component)
-                expander=MLPExpanderHead(self.n_embd, self.n_component)
-            )
+            copy.deepcopy(self.token_head)
             for _ in range(self.n_token)
         ])
+        for th in self.token_heads:
+            th.reset_parameters()
+        # Delete the original instance, since we took deep copies
+        del self.token_head
         # The shared unembedding matrix
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
-
-        # Projection to the sum layer parameters
-        self.sum_weight_head = TransformerEncoderHead(self.n_embd, self.n_head, n_layer=self.n_layer)
-        self.proj_sum_weight = torch.nn.Linear(self.n_embd, self.n_component, bias=False)
 
     def forward(self, xx: Tensor, generate: bool = False) -> dict[str, Tensor]:
         # xx: (B, S, D)
@@ -193,11 +236,9 @@ class MultiTokenHead(torch.nn.Module):
         cat_log_probs = torch.log_softmax(torch.stack(logits, dim=0), dim=-1)
 
         # sum_weight: (B, S, 1, R)
-        sum_weight = self.sum_weight_head(xx)
-        if generate:
-            sum_weight = sum_weight[:, [-1]]
+        sum_weight = self.sum_weight_head(xx, generate=generate)
         sum_weight = torch.softmax(
-            self.proj_sum_weight(sum_weight).unsqueeze(dim=2),
+            sum_weight.unsqueeze(dim=2),
             dim=-1
         )
 

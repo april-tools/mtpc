@@ -42,6 +42,8 @@ class ResBlock(torch.nn.Module):
         return xx + self.act(self.linear(xx))
 
     def reset_parameters(self):
+        # NOTE: Below needed as we need to reset the bias too
+        self.linear.reset_parameters()
         # TODO: Maybe better to just init all random but very small?
         torch.nn.init.zeros_(self.linear.weight)
 

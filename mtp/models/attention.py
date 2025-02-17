@@ -58,3 +58,9 @@ class CausalSelfAttention(nn.Module):
         y = y.transpose(1, 2).contiguous().view_as(x)
         y = self.c_proj(y)
         return y
+
+    def reset_parameters(self):
+        self.c_q.reset_parameters()
+        self.c_k.reset_parameters()
+        self.c_v.reset_parameters()
+        self.c_proj.reset_parameters()

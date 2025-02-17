@@ -1,7 +1,9 @@
 import torch
+import torch.nn.functional as F
 from torch import nn, Tensor
 
 from mtp.utils.distributed import get_local_device
+from mtp.utils.checkpoint import Checkpoint
 
 
 class LM(nn.Module):
@@ -18,15 +20,6 @@ class LM(nn.Module):
     ):
         super().__init__()
 
-        if from_checkpoint is not None:
-            assert lm is None
-            self.lm = torch.load(from_checkpoint,
-                                 weights_only=False,
-                                 map_location=get_local_device())
-        else:
-            assert lm is not None
-            self.lm = lm
-
         self.from_checkpoint = from_checkpoint
         # What lm attribute to find the encoder under
         self.ref_enc = ref_enc
@@ -37,14 +30,39 @@ class LM(nn.Module):
         # Whether to freeze the lm or not
         self.freeze = freeze
 
+        if from_checkpoint is not None:
+            assert lm is None
+            # Assume that if we can find the conf, we saved the checkpoint
+            try:
+                cp = Checkpoint.load(self.from_checkpoint)
+                self.lm = cp.model
+            # otherwise try loading as default pt
+            except Exception:
+                self.lm = torch.load(self.from_checkpoint,
+                                     weights_only=False,
+                                     map_location=get_local_device())
+            # Keep track of the keys which we set to None
+            self.none_keys = set(self.lm.state_dict().keys())
+        else:
+            assert lm is not None
+            self.lm = lm
+
+        # If encoder only, drop the head
         if self.encoder_only:
-            for n, p in self.head.named_parameters():
-                p._ddp_ignored = True
-                p.requires_grad = False
+            setattr(self.lm, self.ref_head, None)
 
         if self.freeze:
             for p in self.lm.parameters():
                 p.requires_grad = False
+
+    def state_dict(self, *args, **kwargs):
+        state = super().state_dict(*args, **kwargs)
+        # If we have loaded from checkpoint and the weights are frozen
+        # do not store the weights, we will load them again from the checkpoint
+        if self.from_checkpoint is not None and self.freeze is True:
+            new_state = {k: None for k in self.none_keys}
+            state.update(new_state)
+        return state
 
     @property
     def encoder(self):

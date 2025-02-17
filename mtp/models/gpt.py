@@ -29,7 +29,9 @@ class GPTHead(nn.Module):
     def forward(self, x: Tensor, cast_default_dtype: bool = True) -> Tensor:
         # Compute the logits
         logits = self.lm_head(x)
-        logits = 30 * torch.tanh(logits / 30)
+        # NOTE: I am disabling logit softcapping
+        # TODO: Add option to enable and check if it helps
+        # logits = 30 * torch.tanh(logits / 30)
         if cast_default_dtype:
             # e.g., use fp32 for logits
             logits = logits.to(self._default_dtype)

@@ -53,6 +53,23 @@ class Checkpoint(object):
         )
         return state
 
+    def _load_model_state_dict(self, model, saved_model_state_dict):
+        # We want to deal with the situation of missing keys
+        # E.g. if we are loading a LM from a checkpoint we do not need to save
+        # the params in the state dict, because we can load the checkpoint
+        ok_if_missing = {k for k, v in saved_model_state_dict.items()
+                         if v is None}
+        # Drop keys that are None - None means ok if missing
+        model_state = {k: v for k, v in saved_model_state_dict.items()
+                       if k not in ok_if_missing}
+        missing_keys, unexpected_keys = model.load_state_dict(model_state, strict=False)
+        if len(unexpected_keys) > 1:
+            raise ValueError('Found unexpected keys when loading: %s' % unexpected_keys)
+        if len(missing_keys) > 1:
+            if set(missing_keys) != set(ok_if_missing):
+                unexpected = set(missing_keys).difference(set(ok_if_missing))
+                raise ValueError('Found unexpected missing keys when loading: %s' % unexpected)
+
     @maskcwd
     def save(self, global_step=0, model=None, optimizer=None, scheduler=None):
         assert global_step >= 0
@@ -87,7 +104,8 @@ class Checkpoint(object):
         assert self.global_step != 0
         state = self._load_state(device=device)
 
-        model.load_state_dict(state["model_state_dict"])
+        # Deal with cases where we only serialize subset of params
+        self._load_model_state_dict(model, state['model_state_dict'])
         if optimizer is not None:
             optimizer.load_state_dict(state["optimizer_state_dict"])
         if scheduler is not None:
@@ -109,7 +127,8 @@ class Checkpoint(object):
         # If we have begun training, you are getting the saved model
         if self.global_step > 0:
             state = self._load_state(device=device)
-            model.load_state_dict(state["model_state_dict"])
+            # Deal with cases where we only serialize subset of params
+            self._load_model_state_dict(model, state['model_state_dict'])
         # Otherwise, you get a randomly initialised one
         return model
 

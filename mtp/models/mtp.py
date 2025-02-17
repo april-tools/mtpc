@@ -48,12 +48,6 @@ class MultiTokenLM(torch.nn.Module):
         self.register_buffer(
             "_autoregressive_mar_mask", IntegrateQuery.scopes_to_mask(self.circuit.circuit, mar_scopes)
         )
-        self._ddp_params_and_buffers_to_ignore = []
-        for n, p in self.named_parameters():
-            if hasattr(p, '_ddp_ignored'):
-                self._ddp_params_and_buffers_to_ignore.append(n)
-                # If we compile the model, the param above will become:
-                self._ddp_params_and_buffers_to_ignore.append('_orig_mod.%s' % n)
 
     def forward(
         self,

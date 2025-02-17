@@ -62,6 +62,8 @@ if __name__ == "__main__":
     # else:
     #     raise ValueError('Invalid checkpoint/config file: %s' % args.checkpoint)
     ckp = Checkpoint.load(args.checkpoint)
+    if args.speculative:
+        ckp.config.model.lm.encoder_only = False
     model = ckp.model
     model.eval()
 
@@ -82,9 +84,11 @@ if __name__ == "__main__":
 
     n_token = 1
     n_component = 1
-    if args.mode == 'mtp':
+    # Override with MTP case
+    if hasattr(model, 'mt_head'):
         n_token = model.mt_head.n_token
         n_component = model.mt_head.n_component
+    if args.mode == 'mtp':
         assert tokens.shape[1] == n_token
     else:
         assert tokens.shape[1] == 1

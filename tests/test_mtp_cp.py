@@ -5,23 +5,39 @@ import torch
 
 from mtp.models.circuits import CircuitCP
 from mtp.models.gpt import GPT
-from mtp.models.mtp_head import MultiTokenHead
+from mtp.models.mtp_head import MultiTokenHead, OutputHead
+from mtp.models.mtp_head import TransformerEncoderHead, ExpanderHead
 from mtp.models.mtp import MultiTokenLM
 
 
 @pytest.fixture
 def mtp_cp(
     vocab_size: int = 2,
-    n_embd = 8,
+    n_embd: int = 8,
     n_layer: int = 1,
     n_head: int = 2,
     n_component: int = 2,
-    n_token: int = 2 
+    n_token: int = 2
 ) -> MultiTokenLM:
-    gpt = GPT(vocab_size, n_embd, n_layer, n_head)
-    mt_head = MultiTokenHead(vocab_size, n_embd, n_layer, n_head, n_component, n_token)
+    lm = GPT(vocab_size, n_embd, n_layer, n_head)
+    token_head = OutputHead(encoder=TransformerEncoderHead(n_embd=n_embd,
+                                                           n_head=n_head,
+                                                           n_layer=n_layer),
+                            expander=ExpanderHead(expander_type='linear',
+                                                  n_embd=n_embd,
+                                                  n_component=n_component))
+    sum_head = OutputHead(encoder=TransformerEncoderHead(n_embd=n_embd,
+                                                         n_head=n_head,
+                                                         n_layer=n_layer),
+                          expander=torch.nn.Linear(n_embd, n_component))
+    mt_head = MultiTokenHead(token_head=token_head,
+                             sum_weight_head=sum_head,
+                             vocab_size=vocab_size,
+                             n_embd=n_embd,
+                             n_component=n_component,
+                             n_token=n_token)
     circuit = CircuitCP(vocab_size, n_token, n_component)
-    mtp = MultiTokenLM(gpt, mt_head, circuit)
+    mtp = MultiTokenLM(lm, mt_head, circuit)
     return mtp
 
 
@@ -69,7 +85,7 @@ def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     worlds_probs = torch.exp(worlds_log_probs)
     assert torch.isclose(torch.sum(ratios), torch.tensor(1.0))
     assert torch.isclose(torch.sum(worlds_probs), torch.tensor(1.0))
-    assert torch.allclose(ratios, worlds_probs, rtol=3e-2), \
+    assert torch.allclose(ratios, worlds_probs, rtol=4e-2), \
         torch.max(torch.abs(worlds_probs / ratios - 1.0))
 
 

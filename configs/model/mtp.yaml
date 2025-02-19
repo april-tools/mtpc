@@ -15,6 +15,7 @@ lm:
         n_layer: ${model.n_layer}
     encoder_only: true
     from_checkpoint: null
+    from_huggingface: null
     ref_enc: encoder
     ref_head: head
     freeze: true

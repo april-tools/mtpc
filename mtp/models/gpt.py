@@ -60,7 +60,7 @@ class GPTEncoder(nn.Module):
         for block in self.transformer.h:
             xx = block(xx)
         xx = F.rms_norm(xx, (xx.size(-1),))
-        return xx
+        return dict(last_hidden_state=xx)
 
 
 class GPT(nn.Module):
@@ -88,7 +88,7 @@ class GPT(nn.Module):
         assert return_stp_loss, "The forward of GPT always computes the single-token loss"
 
         # forward the GPT model itself
-        x = self.encoder(idx)  # token embeddings of shape (b, t, n_embd)
+        x = self.encoder(idx)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss

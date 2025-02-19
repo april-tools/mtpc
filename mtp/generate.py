@@ -44,23 +44,6 @@ if __name__ == "__main__":
     BATCH_SIZE = 1
     os.environ['DEVICE'] = args.device
 
-    # if args.checkpoint.endswith('.pth'):
-    #     model = torch.load(args.checkpoint,
-    #                        map_location=torch.device(args.device),
-    #                        weights_only=False)
-    #
-    #     # Load config used to train the model
-    #     config_folder = os.path.dirname(args.checkpoint)
-    #     config_path = os.path.join(config_folder, 'config.yaml')
-    #     cfg = OmegaConf.load(config_path)
-    #     checkpoint = os.path.basename(args.checkpoint)
-    # elif args.checkpoint.endswith('.yaml'):
-    #     cfg = OmegaConf.load(args.checkpoint)
-    #     model = instantiate(cfg.model).model
-    #     model = model.to(torch.device(args.device))
-    #     checkpoint = 'random'
-    # else:
-    #     raise ValueError('Invalid checkpoint/config file: %s' % args.checkpoint)
     ckp = Checkpoint.load(args.checkpoint)
     if args.speculative:
         ckp.config.model.lm.encoder_only = False

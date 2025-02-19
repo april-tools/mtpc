@@ -221,6 +221,9 @@ class MultiTokenHead(torch.nn.Module):
             th.reset_parameters()
         # Delete the original instance, since we took deep copies
         del self.token_head
+        # If we only have one component we do not need a sum_weight_head
+        if self.n_component == 1:
+            del self.sum_weight_head
         # The shared unembedding matrix
         self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
 
@@ -238,10 +241,20 @@ class MultiTokenHead(torch.nn.Module):
         cat_log_probs = torch.log_softmax(torch.stack(logits, dim=0), dim=-1)
 
         # sum_weight: (B, S, 1, R)
-        sum_weight = self.sum_weight_head(xx, generate=generate)
-        sum_weight = torch.softmax(
-            sum_weight.unsqueeze(dim=2),
-            dim=-1
-        )
+        if self.n_component > 1:
+            sum_weight = self.sum_weight_head(xx, generate=generate)
+            sum_weight = torch.softmax(
+                sum_weight.unsqueeze(dim=2),
+                dim=-1
+            )
+        else:
+            B, S, D = xx.shape
+            if generate:
+                shape = (B, 1, 1, 1)
+            else:
+                shape = (B, S, 1, 1)
+            sum_weight = torch.ones(*shape,
+                                    device=xx.device,
+                                    requires_grad=False)
 
         return dict(cat_log_probs=cat_log_probs, sum_weight=sum_weight)

@@ -1,0 +1,4 @@
+name: finewebedu10B
+vocab_size: 50257
+train_bin: '${oc.env:MTP_ROOT}/data/finewebedu10B/finewebedu_train_*.bin'
+val_bin: '${oc.env:MTP_ROOT}/data/finewebedu10B/finewebedu_val_*.bin'

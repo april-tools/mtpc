@@ -122,6 +122,9 @@ def main(cfg: DictConfig):
 
     try:
 
+        # NOTE: Below seems needed if freeze=false for some LLMs
+        # torch._dynamo.config.optimize_ddp = False
+
         set_deterministic(cfg.training.random_seed)
         # Set DEVICE env variable, which is used by mtp.utils.distributed
         os.environ['DEVICE'] = cfg.device

@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
+
 from torch import nn, Tensor
+from transformers import AutoModelForCausalLM
 
 from mtp.utils.distributed import get_local_device
 from mtp.utils.checkpoint import Checkpoint
@@ -13,6 +15,7 @@ class LM(nn.Module):
         self,
         lm: nn.Module = None,
         from_checkpoint: str = None,
+        from_huggingface: str = None,
         ref_enc: str = "model",
         ref_head: str = "lm_head",
         encoder_only: bool = True,
@@ -21,6 +24,7 @@ class LM(nn.Module):
         super().__init__()
 
         self.from_checkpoint = from_checkpoint
+        self.from_huggingface = from_huggingface
         # What lm attribute to find the encoder under
         self.ref_enc = ref_enc
         # What lm attribute to find the head under
@@ -30,8 +34,13 @@ class LM(nn.Module):
         # Whether to freeze the lm or not
         self.freeze = freeze
 
-        if from_checkpoint is not None:
+        # We only save weights if the model is not frozen
+        # or if we initialised a model that does not have a chackpoint
+        self.save_weights = (lm is not None) or self.freeze is False
+
+        if self.from_checkpoint is not None:
             assert lm is None
+            assert self.from_huggingface is None
             # Assume that if we can find the conf, we saved the checkpoint
             try:
                 cp = Checkpoint.load(self.from_checkpoint)
@@ -41,11 +50,19 @@ class LM(nn.Module):
                 self.lm = torch.load(self.from_checkpoint,
                                      weights_only=False,
                                      map_location=get_local_device())
-            # Keep track of the keys which we set to None
-            self.none_keys = set(self.lm.state_dict().keys())
+        elif self.from_huggingface is not None:
+            assert lm is None
+            assert self.from_checkpoint is None
+            self.lm = AutoModelForCausalLM.from_pretrained(self.from_huggingface,
+                                                           attn_implementation="flash_attention_2",
+                                                           torch_dtype=torch.bfloat16)
         else:
             assert lm is not None
             self.lm = lm
+
+        # Keep track of the keys which we set to None if save_weights=False
+        # we need to do this before we drop the head
+        self.none_keys = set('lm.%s' % k for k in self.lm.state_dict().keys())
 
         # If encoder only, drop the head
         if self.encoder_only:
@@ -59,8 +76,11 @@ class LM(nn.Module):
         state = super().state_dict(*args, **kwargs)
         # If we have loaded from checkpoint and the weights are frozen
         # do not store the weights, we will load them again from the checkpoint
-        if self.from_checkpoint is not None and self.freeze is True:
-            new_state = {k: None for k in self.none_keys}
+        if not self.save_weights:
+            # NOTE: The complication here is that when we created none_keys
+            # we were not prefixing with the current modules prefix
+            prefix = kwargs.pop('prefix')
+            new_state = {('%s%s' % (prefix, k)): None for k in self.none_keys}
             state.update(new_state)
         return state
 

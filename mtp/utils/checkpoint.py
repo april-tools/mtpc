@@ -57,7 +57,7 @@ class Checkpoint(object):
         # We want to deal with the situation of missing keys
         # E.g. if we are loading a LM from a checkpoint we do not need to save
         # the params in the state dict, because we can load the checkpoint
-        ok_if_missing = {k for k, v in saved_model_state_dict.items()
+        ok_if_missing = {k for k, v in model.state_dict().items()
                          if v is None}
         # Drop keys that are None - None means ok if missing
         model_state = {k: v for k, v in saved_model_state_dict.items()
@@ -66,8 +66,8 @@ class Checkpoint(object):
         if len(unexpected_keys) > 1:
             raise ValueError('Found unexpected keys when loading: %s' % unexpected_keys)
         if len(missing_keys) > 1:
-            if set(missing_keys) != set(ok_if_missing):
-                unexpected = set(missing_keys).difference(set(ok_if_missing))
+            if not set(missing_keys).issubset(set(ok_if_missing)):
+                unexpected = set(ok_if_missing).difference(set(missing_keys))
                 raise ValueError('Found unexpected missing keys when loading: %s' % unexpected)
 
     @maskcwd

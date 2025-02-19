@@ -59,7 +59,7 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the loss, i.e., the multi-token average negated log-likelihood
 
         # xx: (B, S, D)
-        xx = self.lm.encoder(xx)
+        xx = self.lm.encoder(xx)['last_hidden_state']
 
         # At training time, we want to learn to predict the next H tokens
         # xx: (B, S', D), where S' = S - H + 1
@@ -149,7 +149,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Calling forward with no targets simply sets the parameters to the circuit
         # xx: (B, S, D)
-        xx = self.lm.encoder(inputs)
+        xx = self.lm.encoder(inputs)['last_hidden_state']
 
         # Parameterize the circuit
         self.parameterize_circuit(xx, generate=True)
@@ -176,7 +176,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Compute the embeddings
         # xx: (B, S, D)
-        xx = self.lm.encoder(seq)
+        xx = self.lm.encoder(seq)['last_hidden_state']
 
         # Set the circuit parameters, based on the last embeddings
         self.parameterize_circuit(xx, generate=True)
@@ -193,7 +193,8 @@ class MultiTokenLM(torch.nn.Module):
 
         # Compute the next-token probabilities in parallel
         # zz: (B, S + H, D) -> (B, H + 1, D)
-        zz = self.lm.encoder(gen_seq)
+        zz = self.lm.encoder(gen_seq)['last_hidden_state']
+
         zz = zz[:, -tokens.shape[1] - 1 :]
         # logits: (B, H + 1, V)
         logits = self.lm.head(zz)

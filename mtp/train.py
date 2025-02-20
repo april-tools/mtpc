@@ -133,9 +133,8 @@ def main(cfg: DictConfig):
         rank, local_rank, world_size, _ = setup_distributed()
         master_process = (rank == 0)
 
-        if master_process:
-            # Setup logging
-            logger = Logger(master_process)
+        # Setup logging
+        logger = Logger(master_process)
 
         # ===================== BEGIN MODEL SETUP ============================
         # Initialize model. Use model for checkpoints

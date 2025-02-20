@@ -2,6 +2,7 @@ defaults:
   - _self_
   - training: default
   - model: gpt
+  - lm: nanogpt
   - data: fineweb10B
   - generate: default
 

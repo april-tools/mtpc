@@ -60,7 +60,7 @@ class LinearExpanderHead(torch.nn.Module):
         self.Wr = torch.nn.Parameter(torch.zeros(self.n_component,
                                                  self.n_embd,
                                                  self.n_embd))
-        torch.nn.init.normal_(self.Wr, mean=0.0, std=0.02)
+        self.reset_parameters()
 
     def forward(self, xx: Tensor) -> Tensor:
         # Batch, Sentence Length, Embed Dim
@@ -76,14 +76,16 @@ class LinearExpanderHead(torch.nn.Module):
         # xx is B x S, R, D
         xx = xx.reshape(B, S, -1, D)
         # xx is B, S, R, D
-
-        xx = F.rms_norm(xx, (xx.size(-1),))
-        xx = self.gelu(xx)
         return xx
 
     def reset_parameters(self):
-        # TODO: Maybe better to just init all random but very small?
-        torch.nn.init.normal_(self.Wr, mean=0.0, std=0.02)
+        torch.nn.init.normal_(self.Wr, mean=0.0, std=1e-4)
+        # At the beginning of training we want the linear layer to act
+        # roughly as an identity matrix
+        eye = torch.eye(self.n_embd)
+        # Expand to R x n_embd x n_embd
+        eye = eye.unsqueeze(0).repeat(self.n_component, 1, 1)
+        self.Wr.data += eye
 
 
 class MLPExpanderHead(torch.nn.Module):

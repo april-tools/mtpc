@@ -34,35 +34,22 @@ class LM(nn.Module):
         # Whether to freeze the lm or not
         self.freeze = freeze
 
-        # We only save weights if the model is not frozen
-        # or if we initialised a model that does not have a chackpoint
+        noneness = (lm is None, from_checkpoint is None, from_huggingface is None)
+        assert noneness in set([(False, True, True), (True, False, True), (True, True, False)])
+
+        # We only save weights if a) the model is not frozen
+        # or b) if we initialised a model that does not have a checkpoint
         self.save_weights = (lm is not None) or self.freeze is False
 
-        if self.from_checkpoint is not None:
-            assert lm is None
-            assert self.from_huggingface is None
-            # Assume that if we can find the conf, we saved the checkpoint
-            try:
-                cp = Checkpoint.load(self.from_checkpoint)
-                self.lm = cp.model
-            # otherwise try loading as default pt
-            except Exception:
-                self.lm = torch.load(self.from_checkpoint,
-                                     weights_only=False,
-                                     map_location=get_local_device())
-        elif self.from_huggingface is not None:
-            assert lm is None
-            assert self.from_checkpoint is None
-            self.lm = AutoModelForCausalLM.from_pretrained(self.from_huggingface,
-                                                           attn_implementation="flash_attention_2",
-                                                           torch_dtype=torch.bfloat16)
-        else:
-            assert lm is not None
-            self.lm = lm
+        self.lm = lm or self._load_lm()
 
         # Keep track of the keys which we set to None if save_weights=False
         # we need to do this before we drop the head
         self.none_keys = set('lm.%s' % k for k in self.lm.state_dict().keys())
+
+        # Keep lm head weights in case we want to use them during init
+        # We delete this in MultiTokenLM when we do not need it
+        self.lm_head_weights = self.head.weight.data
 
         # If encoder only, drop the head
         if self.encoder_only:
@@ -71,6 +58,24 @@ class LM(nn.Module):
         if self.freeze:
             for p in self.lm.parameters():
                 p.requires_grad = False
+
+    def _load_lm(self):
+        lm = None
+        if self.from_checkpoint is not None:
+            # Assume that if we can find the conf, we saved the checkpoint
+            try:
+                cp = Checkpoint.load(self.from_checkpoint)
+                lm = cp.model
+            # otherwise try loading as default pt
+            except Exception:
+                lm = torch.load(self.from_checkpoint,
+                                weights_only=False,
+                                map_location=get_local_device())
+        elif self.from_huggingface is not None:
+            lm = AutoModelForCausalLM.from_pretrained(self.from_huggingface,
+                                                      attn_implementation="flash_attention_2",
+                                                      torch_dtype=torch.bfloat16)
+        return lm
 
     def state_dict(self, *args, **kwargs):
         state = super().state_dict(*args, **kwargs)

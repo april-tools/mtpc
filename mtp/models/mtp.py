@@ -24,11 +24,12 @@ class MultiTokenLM(torch.nn.Module):
     3. A circuit which models the output tokens and encodes their dependencies.
     """
 
-    def __init__(self, lm: LM, mt_head: MultiTokenHead, circuit: CircuitCP):
+    def __init__(self, lm: LM, mt_head: MultiTokenHead, circuit: CircuitCP, init_from_lm_head: bool = True):
         super().__init__()
         self.lm = lm
         self.mt_head = mt_head
         self.circuit = circuit
+        self.init_from_lm_head = init_from_lm_head
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())
@@ -36,6 +37,10 @@ class MultiTokenLM(torch.nn.Module):
         assert isinstance(self._cat_layer, TorchBatchedCategoricalLayer)
         self._sum_layer = layers[self.circuit.sum_layer_idx]
         assert isinstance(self._sum_layer, TorchBatchedSumLayer)
+
+        if self.init_from_lm_head:
+            self.mt_head.set_unembedding_weights(lm.lm_head_weights)
+        del lm.lm_head_weights
 
         # Initializer the sampler and the marginalizer objects
         self.sampler = SamplingQuery(self.circuit._circuit)

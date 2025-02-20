@@ -37,6 +37,10 @@ class GPTHead(nn.Module):
             logits = logits.to(self._default_dtype)
         return logits
 
+    @property
+    def weight(self):
+        return self.lm_head.weight
+
 
 class GPTEncoder(nn.Module):
     def __init__(self, vocab_size: int, n_embd: int, n_layer: int = 12, n_head: int = 6):

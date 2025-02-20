@@ -202,7 +202,8 @@ class MultiTokenHead(torch.nn.Module):
         vocab_size: int,
         n_embd: int,
         n_component: int = 1,
-        n_token: int = 3
+        n_token: int = 3,
+        freeze_unembedding=False
     ):
         super().__init__()
         self.vocab_size = vocab_size           # V
@@ -211,6 +212,7 @@ class MultiTokenHead(torch.nn.Module):
         self.n_embd = n_embd                   # D
         self.n_component = n_component         # R
         self.n_token = n_token                 # H
+        self.freeze_unembedding = freeze_unembedding
 
         # Projection to the Categorical log probs
         self.token_heads = torch.nn.ModuleList([
@@ -225,7 +227,13 @@ class MultiTokenHead(torch.nn.Module):
         if self.n_component == 1:
             del self.sum_weight_head
         # The shared unembedding matrix
-        self.proj_cat_logits = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
+        self.W = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
+        # Potentially freeze unembedding weights
+        for p in self.W.parameters():
+            p.requires_grad = not self.freeze_unembedding
+
+    def set_unembedding_weights(self, weights):
+        self.W.weight.data = weights
 
     def forward(self, xx: Tensor, generate: bool = False) -> dict[str, Tensor]:
         # xx: (B, S, D)
@@ -235,7 +243,7 @@ class MultiTokenHead(torch.nn.Module):
             # head_xx: (B, S, R, D)
             head_xx = token_head(xx, generate=generate)
             # head_logits: (B, S, R, V)
-            head_logits = self.proj_cat_logits(head_xx)
+            head_logits = self.W(head_xx)
             logits.append(head_logits)
         # cat_log_probs: (H, B, S, R, V)
         cat_log_probs = torch.log_softmax(torch.stack(logits, dim=0), dim=-1)

@@ -36,6 +36,7 @@ mt_head:
     n_embd: ${lm.n_embd}
     n_component: ${model.n_component}
     n_token: ${model.n_token}
+    freeze_unembedding: false
 circuit:
     _target_: mtp.models.circuits.CircuitCP
     vocab_size: ${data.vocab_size}
@@ -46,3 +47,4 @@ model:
     lm: ${lm.model}
     mt_head: ${model.mt_head}
     circuit: ${model.circuit}
+    init_from_lm_head: true

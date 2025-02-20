@@ -49,7 +49,7 @@ class LM(nn.Module):
 
         # Keep lm head weights in case we want to use them during init
         # We delete this in MultiTokenLM when we do not need it
-        self.lm_head_weights = self.head.weight.data
+        self.lm_head_weights = self.head.weight.detach().clone().data
 
         # If encoder only, drop the head
         if self.encoder_only:

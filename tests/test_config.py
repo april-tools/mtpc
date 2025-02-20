@@ -18,9 +18,9 @@ def load_mtp(overrides):
 @pytest.mark.parametrize("expander", ["linear", "mlp"])
 def test_mtp_head_params_differ(expander):
     cfg, mt = load_mtp(['model=mtp',
-                        'model.n_layer=2',
-                        'model.n_head=2',
-                        'model.n_embd=32',
+                        'lm.n_layer=2',
+                        'lm.n_head=2',
+                        'lm.n_embd=32',
                         'model.n_component=2',
                         'model.n_token=3',
                         'model.token_head.expander.expander_type=%s' % expander])
@@ -46,12 +46,12 @@ def test_mtp_train_params_differ(expander, freeze_lm):
     torch.set_grad_enabled(True)
     torch.manual_seed(13)
     cfg, model = load_mtp(['model=mtp',
-                           'model.n_layer=2',
-                           'model.n_head=2',
-                           'model.n_embd=32',
+                           'lm.n_layer=2',
+                           'lm.n_head=2',
+                           'lm.n_embd=32',
                            'model.n_component=2',
                            'model.n_token=3',
-                           'model.lm.freeze=%s' % freeze_lm,
+                           'lm.model.freeze=%s' % freeze_lm,
                            'model.token_head.expander.expander_type=%s' % expander])
     mcopy = copy.deepcopy(model)
 
@@ -85,10 +85,10 @@ def test_mtp_train_params_differ(expander, freeze_lm):
 @pytest.mark.parametrize("expander, th_nlayer, swh_nlayer", itertools.product(["linear", "mlp"], [0, 1], [0, 1]))
 def test_zero_layer_encoder(expander, th_nlayer: int, swh_nlayer: int):
     cfg, model = load_mtp(['model=mtp',
-                           'model.n_layer=2',
-                           'model.n_head=2',
-                           'model.n_embd=32',
-                           'model.n_component=1',
+                           'lm.n_layer=2',
+                           'lm.n_head=2',
+                           'lm.n_embd=32',
+                           'model.n_component=2',
                            'model.n_token=1',
                            'model.token_head.encoder.n_layer=%s' % th_nlayer,
                            'model.sum_weight_head.encoder.n_layer=%s' % swh_nlayer,

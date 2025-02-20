@@ -8,6 +8,7 @@ from mtp.models.gpt import GPT
 from mtp.models.mtp_head import MultiTokenHead, OutputHead
 from mtp.models.mtp_head import TransformerEncoderHead, ExpanderHead
 from mtp.models.mtp import MultiTokenLM
+from mtp.models.lm import LM
 
 
 @pytest.fixture
@@ -19,7 +20,10 @@ def mtp_cp(
     n_component: int = 2,
     n_token: int = 2
 ) -> MultiTokenLM:
-    lm = GPT(vocab_size, n_embd, n_layer, n_head)
+    lm = LM(lm=GPT(vocab_size, n_embd, n_layer, n_head),
+            ref_enc='encoder',
+            ref_head='head',
+            encoder_only=False)
     token_head = OutputHead(encoder=TransformerEncoderHead(n_embd=n_embd,
                                                            n_head=n_head,
                                                            n_layer=n_layer),
@@ -63,7 +67,7 @@ def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
         toks = mtp_cp.generate(seqs)
         assert toks.shape == (num_seqs, mtp_cp.mt_head.n_token)
         seqs = torch.cat([seqs, toks], dim=1)
-    assert torch.all(torch.isin(seqs, torch.tensor(list(range(mtp_cp.lm.vocab_size)))))
+    assert torch.all(torch.isin(seqs, torch.tensor(list(range(mtp_cp.lm.lm.vocab_size)))))
     # Map samples to indices of the probabilities computed above
     # seqs_idx: (num_seqs,)
     seqs_idx = torch.sum(seqs * torch.tensor([0] + list(reversed([2 ** i for i in range(max_seq_length - 1)]))), dim=-1)
@@ -107,7 +111,7 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
             num_accepted_tokens.append(toks.shape[1] - 1)
         seq = seq[:, :max_seq_length]
         assert seq.shape == (1, max_seq_length)
-        assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.lm.vocab_size)))))
+        assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.lm.lm.vocab_size)))))
         seqs[i] = seq.squeeze(dim=0)
     assert any(j != 0 and j != mtp_cp.mt_head.n_token for j in num_accepted_tokens)
     # Map samples to indices of the probabilities computed above

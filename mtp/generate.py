@@ -46,7 +46,7 @@ if __name__ == "__main__":
 
     ckp = Checkpoint.load(args.checkpoint)
     if args.speculative:
-        ckp.config.model.lm.encoder_only = False
+        ckp.config.lm.model.encoder_only = False
     model = ckp.model
     model.eval()
 

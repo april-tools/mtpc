@@ -1,4 +1,6 @@
 name: fineweb10B
-vocab_size: 50257
+# NOTE: Below is 50272 instead of 50257, because we want to be compatible
+# with a released model that has a softmax vocab of 50272
+vocab_size: 50272
 train_bin: '${oc.env:MTP_ROOT}/data/fineweb10B/fineweb_train_*.bin'
 val_bin: '${oc.env:MTP_ROOT}/data/fineweb10B/fineweb_val_*.bin'

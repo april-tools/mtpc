@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Reproduce Experiment 3.6 https://arxiv.org/pdf/2410.17765
+
+for r in 1 2 4;
+do
+	for n in 4;
+	do
+		torchrun --standalone \
+			--nproc_per_node=$GPUS \
+			-m mtp.train \
+			data=finewebedu10B \
+			training=finewebedu \
+			lm=finewebedu \
+			model=basharin \
+			model.n_token=$n \
+			model.n_component=$r \
+			training.device_batch_size=8 \
+			training.val_loss_every=20 \
+			training.save_model_every=100
+	done
+done

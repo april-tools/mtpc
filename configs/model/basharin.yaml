@@ -1,0 +1,50 @@
+name: mtp
+n_component: 1
+n_token: 4
+
+token_head:
+    _target_: mtp.models.mtp_head.OutputHead
+    encoder:
+      _target_: mtp.models.mtp_head.TransformerEncoderHead
+      n_embd: ${lm.n_embd}
+      n_head: ${lm.n_head}
+      # Set to zero if you want no encoder
+      n_layer: 0
+    expander:
+      _target_: mtp.models.mtp_head.ExpanderHead
+      expander_type: 'linear' 
+      n_embd: ${lm.n_embd}
+      n_component: ${model.n_component}
+      n_layer: 0
+sum_weight_head:
+    _target_: mtp.models.mtp_head.OutputHead
+    encoder:
+      _target_: mtp.models.mtp_head.TransformerEncoderHead
+      n_embd: ${lm.n_embd}
+      n_head: ${lm.n_head}
+      # Set to zero if you want no encoder
+      n_layer: 0
+    expander:
+      _target_: torch.nn.Linear
+      in_features: ${lm.n_embd}
+      out_features: ${model.n_component}
+mt_head:
+    _target_: mtp.models.mtp_head.MultiTokenHead
+    token_head: ${model.token_head}
+    sum_weight_head: ${model.sum_weight_head}
+    vocab_size: ${data.vocab_size}
+    n_embd: ${lm.n_embd}
+    n_component: ${model.n_component}
+    n_token: ${model.n_token}
+    freeze_unembedding: true
+circuit:
+    _target_: mtp.models.circuits.CircuitCP
+    vocab_size: ${data.vocab_size}
+    n_token: ${model.n_token}
+    n_component: ${model.n_component}
+model:
+    _target_: mtp.models.mtp.MultiTokenLM
+    lm: ${lm.model}
+    mt_head: ${model.mt_head}
+    circuit: ${model.circuit}
+    init_from_lm_head: true

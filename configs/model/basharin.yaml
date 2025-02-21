@@ -12,10 +12,7 @@ token_head:
       n_layer: 0
     expander:
       _target_: mtp.models.mtp_head.ExpanderHead
-      # NOTE: We need linear below, but it is currently slow
-      # keep like this until we fix
-      # expander_type: 'linear' 
-      expander_type: 'mlp' 
+      expander_type: 'linear' 
       n_embd: ${lm.n_embd}
       n_component: ${model.n_component}
       n_layer: 1

@@ -12,8 +12,12 @@ learning_rate: 0.0005
 use_scheduler: true
 
 # Evaluation and logging hyperparams
-val_loss_every: 50
+# Whether to save model at checkpoints
+save_model: true
+# Whether to save the optimizer and scheduler at checkpoints
+save_optimizer: true
 save_model_every: 500
+val_loss_every: 50
 val_tokens: 1048576 # 8*64*1024
 
 # wandb

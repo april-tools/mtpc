@@ -9,7 +9,7 @@ defaults:
 name: nanogpt
 compile: true
 device: cuda   # if cpu make source num processes=1
-# from_checkpoint: logs/2025-01-16/15-59-39/model@250.pth
+# from_checkpoint: path/to/model@dddd.pth
 from_checkpoint: null
 
 hydra:

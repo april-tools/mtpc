@@ -65,16 +65,14 @@ class LinearExpanderHead(torch.nn.Module):
         # Batch, Sentence Length, Embed Dim
         B, S, D = xx.shape
 
-        # Collapse: B x S, D for the matmul
-        xx = xx.reshape(-1, D)
+        # xxs = []
+        # for i in range(self.n_component):
+        #     xxs.append(xx @ self.Wr[i])
+        # xx = torch.stack(xxs, dim=-2)
 
-        # Wr is R, D, D
-        xx = xx @ self.Wr
-        # xx is R, B x S, D
-        xx = xx.permute(1, 0, 2)
-        # xx is B x S, R, D
-        xx = xx.reshape(B, S, -1, D)
-        # xx is B, S, R, D
+        # xx is B x S x R x D
+        xx = torch.einsum('bsc,rcd->bsrd', xx, self.Wr)
+
         return xx
 
     def reset_parameters(self):

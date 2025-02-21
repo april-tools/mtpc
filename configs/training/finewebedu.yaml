@@ -6,7 +6,7 @@ batch_size: 512
 device_batch_size: 64
 sequence_length: 1024
 num_iterations: 15000
-learning_rate: 0.0005
+learning_rate: 0.00005
 
 # Evaluation and logging hyperparams
 val_loss_every: 100

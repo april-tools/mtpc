@@ -76,13 +76,12 @@ class LinearExpanderHead(torch.nn.Module):
         return xx
 
     def reset_parameters(self):
-        torch.nn.init.normal_(self.Wr, mean=0.0, std=1e-4)
-        # At the beginning of training we want the linear layer to act
-        # roughly as an identity matrix
+        # At the beginning of training we want the linear layer to not
+        # change the logits - so we want an identity matrix
         eye = torch.eye(self.n_embd, device=self.Wr.device)
         # Expand to R x n_embd x n_embd
         eye = eye.unsqueeze(0).repeat(self.n_component, 1, 1)
-        self.Wr.data += eye
+        self.Wr.data = eye
 
 
 class MLPExpanderHead(torch.nn.Module):

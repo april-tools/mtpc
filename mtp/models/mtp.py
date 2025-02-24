@@ -99,6 +99,180 @@ class MultiTokenLM(torch.nn.Module):
 
         return dict(log_probs=log_probs, loss=mtp_loss, mtp_loss=mtp_loss, stp_loss=stp_loss)
 
+    def forward_eq14(
+            self,
+            xx: torch.Tensor,               # (B, S) input ids
+            yy: torch.Tensor,               # (B, S) target ids
+            teacher_probs: torch.Tensor,    # teacher distribution, shape (B, S', H, V) or (H, B, S', V)
+            alpha: float = 0.9,             # weight for KL-distillation
+            gamma: float = 1.0,             # discount factor for each token in the multi-token block
+        ) -> dict:
+            r"""
+            Fine-tuning forward pass that mixes KL-distillation from a teacher model
+            and cross-entropy with ground-truth targets.
+
+            The total loss for each predicted token k = 1..H is:
+                L_k = alpha * KL( p^c_k || p^d_k ) + (1 - alpha)* CE( p^d_k, x_{k} )
+            possibly multiplied by a discount factor gamma^(k-1),
+            and summed over all tokens.
+
+            Finally, we add the usual mixture-of-experts balancing loss,
+            e.g. self._aux_loss, if desired.
+
+            Args:
+            xx: shape (B, S), the input token indices
+            yy: shape (B, S), the target token indices
+            teacher_probs: teacher's token distributions,
+                            e.g. shape (B, S', H, V) or (H, B, S', V)
+                            must align with the same sliding windows as multi-token
+            alpha: float, factor for KL vs CE
+            gamma: float, discount factor for each successive token in the multi-token block
+
+            Returns:
+            A dictionary with keys:
+                'loss': the final scalar,
+                'distill_loss': the sum of distillation terms,
+                'crossent_loss': the sum of cross-entropy terms,
+                'aux_loss': mixture-of-experts balancing loss,
+                'mtp_loss': combined total (useful to log).
+            """
+
+            # 1) Encode the inputs with the underlying LM (backbone).
+            #    shape -> (B, S, D)
+            embeddings = self.lm.encoder(xx)['last_hidden_state']
+
+            # For multi-token training, we only align up to (S - H + 1).
+            # Because for each position t we attempt to predict the next H tokens
+            # in one forward pass.
+            # shape -> (B, S - H + 1, D)
+            seq_len = embeddings.shape[1]
+            needed_len = seq_len - self.mt_head.n_token + 1
+            embeddings = embeddings[:, :needed_len]
+
+            # 2) Parameterize the circuit with these embeddings
+            #    (this sets self._cat_layer.log_probs and self._sum_layer.weight)
+            self.parameterize_circuit(embeddings)
+
+            # 3) We'll build the new distribution p^d_{k} for each predicted token k
+            #    from the mixture-of-experts circuit.
+            #    cat_log_probs has shape (H, B, S', R, V), sum_weight has shape (B, S', 1, R)
+            cat_log_probs = self._cat_layer.log_probs  # shape: (H, B*S', R, V)
+            sum_weight   = self._sum_layer.weight      # shape: (1, B*S', 1, R)
+
+            # Reshape them to group (B, S') again
+            # cat_log_probs -> (H, B, S', R, V)
+            # sum_weight    -> (B, S', R)
+            H = self.mt_head.n_token
+            B_ = embeddings.shape[0]
+            S_ = embeddings.shape[1]  # S' = needed_len
+            R  = self.mt_head.n_component
+            V  = self.mt_head.vocab_size
+
+            cat_log_probs = cat_log_probs.view(H, B_, S_, R, V)
+            sum_weight    = sum_weight.view(1, B_, S_, 1, R).squeeze(0).squeeze(3)
+            # sum_weight now is (B, S', R).
+
+            # The final distribution p^d_k is sum_{alpha} w_alpha * exp(cat_log_probs[k, ...]),
+            # shape: (B, S', V).
+            # We can do this for each k in a loop, or vectorize. Let's do partial vector form:
+            #   (B, S', 1, R) + broadcast with cat_log_probs[k,b,s,r,v]
+            # Then sum over r.
+            # We'll create a list of distributions for each k, or stack them up.
+
+            # teacher_probs is supposed to match shape (H, B, S', V) or (B, S', H, V).
+            # Let's unify to (H, B, S', V) for easy indexing [k, b, s, :]
+            # We'll check first which dimension is first:
+            if teacher_probs.shape[0] != H:
+                # then presumably teacher_probs is (B, S', H, V),
+                # transpose it to (H, B, S', V)
+                teacher_probs = teacher_probs.permute(2, 0, 1, 3).contiguous()
+
+            # We also need the ground-truth next tokens for each position t
+            # i.e. shape (B, S) => unfold into (B, S', H). Exactly as the normal forward does
+            #   or we can do a simpler approach: each predicted token is at offset +k
+            # We'll do the same approach as the normal training to match indices:
+            # 'yy' shape is (B, S)
+            # after unfold: (B, S', H)
+            # Each [b, s, k] is the target for the k-th predicted token at position s
+            # NOTE: S' = S-H+1
+            y_unfold = yy.unfold(dimension=1, size=H, step=1)  # (B, S', H)
+
+            # Distillation loss
+            distill_loss = torch.zeros([], device=embeddings.device)
+            # Cross-entropy
+            crossent_loss = torch.zeros([], device=embeddings.device)
+
+            for k in range(H):
+                # cat_log_probs for token k: shape (B, S', R, V)
+                log_probs_k = cat_log_probs[k]  # (B, S', R, V)
+                # sum_weight: shape (B, S', R)
+                # => p^d_k(b, s, v) = \sum_{r} sum_weight[b,s,r] * exp( log_probs_k[b,s,r,v] )
+                # We'll do a stable approach with log-sum-exp in R dimension:
+                #  log( p^d_k(b,s,v) ) = logsumexp( log( sum_weight ) + log_probs_k, over r )
+                log_w = torch.log(sum_weight + 1e-45)  # (B, S', R)
+                # broadcast to match => shape (B, S', R, V)
+                log_pdraft_k = log_w.unsqueeze(-1) + log_probs_k
+                # log_pdraft_k(b, s, r, v)
+                # then we do logsumexp over r => shape (B, S', V)
+                log_pdraft_k = torch.logsumexp(log_pdraft_k, dim=2)  # sum over r
+                # p^d_k:
+                pdraft_k = torch.exp(log_pdraft_k)  # shape (B, S', V)
+
+                # teacher for this token: shape (B, S', V)
+                pteacher_k = teacher_probs[k]  # (B, S', V)
+
+                #  -- 1) KL Distillation:  KL( p^c_k || p^d_k ) = sum_{v} p^c_k log( p^c_k / p^d_k )
+                # We do a safe log ratio
+                kl_part = pteacher_k * (torch.log(pteacher_k + 1e-45) - log_pdraft_k)
+                kl_part = torch.sum(kl_part, dim=-1)  # shape (B, S')
+                #  => kl_part(b, s)
+                #  -- 2) CrossEntropy with real target: -log( p^d_k(b,s, y_unfold[b,s,k]) )
+                # gather the log prob:
+                # shape => (B, S')
+                idx_k = y_unfold[:, :, k]  # the gold token (B, S')
+                ce_part = -log_pdraft_k.gather(dim=-1, index=idx_k.unsqueeze(-1)).squeeze(-1)
+                #  -- combine
+                # L_k(b,s) = alpha * kl_part + (1-alpha)*ce_part
+                this_loss = alpha * kl_part + (1.0 - alpha) * ce_part
+
+                # Possibly discount by gamma^k
+                if gamma != 1.0:
+                    this_loss = (gamma ** k) * this_loss
+
+                # accumulate
+                distill_loss += (gamma ** k) * torch.sum(kl_part)
+                crossent_loss += (gamma ** k) * torch.sum(ce_part)
+
+                # sum over all b,s
+            # end for k in range(H)
+
+            # average over total number of predicted tokens
+            # total count is B*S' * H tokens if we sum them all
+            denom = (B_ * S_)  # the # of positions in the sliding window
+            total_loss = (
+                alpha * distill_loss
+                + (1.0 - alpha) * crossent_loss
+            ) / (denom * 1.0)
+
+            # 4) Add mixture-of-experts balancing loss, e.g. L_aux if desired
+            # Usually we track usage of each expert alpha to ensure they are balanced
+            # For example:
+            #    self._aux_loss = self.balancing_loss(...)
+            # We'll assume you have computed that in 'self._aux_loss', or similarly
+            # If not, set self._aux_loss = 0
+            aux_loss = getattr(self, '_aux_loss', 0.0)
+            
+            # Combine
+            loss = total_loss + aux_loss
+
+            return {
+                'loss': loss,
+                'distill_loss': distill_loss / denom,    # for logging
+                'crossent_loss': crossent_loss / denom,  # for logging
+                'aux_loss': aux_loss,                    # mixture-of-experts balancing
+                'mtp_loss': loss,                        # final
+            }
+
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
         # Free previous tensors before we produce new ones
         # this is important, since cat_layer probs is a large tensor

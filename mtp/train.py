@@ -31,15 +31,20 @@ def create_optimizers(raw_model, cfg):
     optimizer = torch.optim.AdamW(
         raw_model.parameters(),
         lr=cfg.training.learning_rate,
+        betas=(.9, .95),
+        eps=1e-8,
         fused=True,
-        weight_decay=0.0,
+        weight_decay=0.1,
     )
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=cfg.training.num_iterations,
-        eta_min=cfg.training.learning_rate / 10
-    )
+    if cfg.training.use_scheduler:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=cfg.training.num_iterations,
+            eta_min=cfg.training.learning_rate / 10
+        )
+    else:
+        scheduler = None
 
     return optimizer, scheduler
 
@@ -102,7 +107,8 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
     optimizer.step()
-    scheduler.step()
+    if scheduler is not None:
+        scheduler.step()
 
     model.zero_grad(set_to_none=True)
 

@@ -31,8 +31,10 @@ def create_optimizers(raw_model, cfg):
     optimizer = torch.optim.AdamW(
         raw_model.parameters(),
         lr=cfg.training.learning_rate,
+        betas=(.9, .95),
+        eps=1e-8,
         fused=True,
-        weight_decay=0.0,
+        weight_decay=0.1,
     )
 
     if cfg.training.use_scheduler:

@@ -104,15 +104,17 @@ class MultiTokenLM(torch.nn.Module):
             xx: torch.Tensor,               # (B, S) input ids
             yy: torch.Tensor,               # (B, S) target ids
             teacher_probs: torch.Tensor,    # teacher distribution, shape (B, S', H, V) or (H, B, S', V)
-            alpha: float = 0.9,             # weight for KL-distillation
+            beta: float = 0.9,             # weight for KL-distillation
             gamma: float = 1.0,             # discount factor for each token in the multi-token block
         ) -> dict:
             r"""
+            Reference: https://arxiv.org/abs/2410.17765
+
             Fine-tuning forward pass that mixes KL-distillation from a teacher model
             and cross-entropy with ground-truth targets.
 
             The total loss for each predicted token k = 1..H is:
-                L_k = alpha * KL( p^c_k || p^d_k ) + (1 - alpha)* CE( p^d_k, x_{k} )
+                L_k = beta * KL( p^c_k || p^d_k ) + (1 - beta)* CE( p^d_k, x_{k} )
             possibly multiplied by a discount factor gamma^(k-1),
             and summed over all tokens.
 
@@ -125,7 +127,7 @@ class MultiTokenLM(torch.nn.Module):
             teacher_probs: teacher's token distributions,
                             e.g. shape (B, S', H, V) or (H, B, S', V)
                             must align with the same sliding windows as multi-token
-            alpha: float, factor for KL vs CE
+            beta: float, factor for KL vs CE
             gamma: float, discount factor for each successive token in the multi-token block
 
             Returns:
@@ -172,7 +174,7 @@ class MultiTokenLM(torch.nn.Module):
             sum_weight    = sum_weight.view(1, B_, S_, 1, R).squeeze(0).squeeze(3)
             # sum_weight now is (B, S', R).
 
-            # The final distribution p^d_k is sum_{alpha} w_alpha * exp(cat_log_probs[k, ...]),
+            # The final distribution p^d_k is sum_{beta} w_beta * exp(cat_log_probs[k, ...]),
             # shape: (B, S', V).
             # We can do this for each k in a loop, or vectorize. Let's do partial vector form:
             #   (B, S', 1, R) + broadcast with cat_log_probs[k,b,s,r,v]
@@ -231,9 +233,10 @@ class MultiTokenLM(torch.nn.Module):
                 # shape => (B, S')
                 idx_k = y_unfold[:, :, k]  # the gold token (B, S')
                 ce_part = -log_pdraft_k.gather(dim=-1, index=idx_k.unsqueeze(-1)).squeeze(-1)
+
                 #  -- combine
-                # L_k(b,s) = alpha * kl_part + (1-alpha)*ce_part
-                this_loss = alpha * kl_part + (1.0 - alpha) * ce_part
+                # L_k(b,s) = beta * kl_part + (1-beta)*ce_part
+                this_loss = beta * kl_part + (1.0 - beta) * ce_part
 
                 # Possibly discount by gamma^k
                 if gamma != 1.0:
@@ -250,8 +253,8 @@ class MultiTokenLM(torch.nn.Module):
             # total count is B*S' * H tokens if we sum them all
             denom = (B_ * S_)  # the # of positions in the sliding window
             total_loss = (
-                alpha * distill_loss
-                + (1.0 - alpha) * crossent_loss
+                beta * distill_loss
+                + (1.0 - beta) * crossent_loss
             ) / (denom * 1.0)
 
             # 4) Add mixture-of-experts balancing loss, e.g. L_aux if desired
@@ -271,6 +274,7 @@ class MultiTokenLM(torch.nn.Module):
                 'crossent_loss': crossent_loss / denom,  # for logging
                 'aux_loss': aux_loss,                    # mixture-of-experts balancing
                 'mtp_loss': loss,                        # final
+                'eq14_loss': this_loss                   # loss from Eq. 14 in https://arxiv.org/abs/2410.17765
             }
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):

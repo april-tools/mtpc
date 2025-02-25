@@ -6,7 +6,10 @@ batch_size: 512
 device_batch_size: 64
 sequence_length: 1024
 num_iterations: 15000
-learning_rate: 0.00005
+learning_rate: 0.00003
+# Default scheduler uses cosine annealing to LR/10
+# If no scheduler, we keep LR constant
+use_scheduler: false
 
 # Evaluation and logging hyperparams
 val_loss_every: 100

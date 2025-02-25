@@ -53,7 +53,7 @@ class LinearExpanderHead(torch.nn.Module):
 
     def __init__(self, n_embd: int, n_component: int):
         super().__init__()
-        self.n_embd = n_embd            # D
+        self.n_embd = n_embd  # D
         self.n_component = n_component  # R
         # Below is equivalent to R square linear layers
         self.Wr = torch.nn.Parameter(torch.zeros(self.n_component,
@@ -88,10 +88,10 @@ class LinearExpanderHead(torch.nn.Module):
 class MLPExpanderHead(torch.nn.Module):
     # Expand parametrisation for mixture model
 
-    def __init__(self, n_embd: int, n_component: int, n_layer: int=1):
+    def __init__(self, n_embd: int, n_component: int, n_layer: int = 1):
         super().__init__()
         assert n_layer >= 1
-        self.n_embd = n_embd            # D
+        self.n_embd = n_embd  # D
         self.n_component = n_component  # R
         self.n_layer = n_layer
         self.mlps = torch.nn.ModuleList([torch.nn.Sequential(*([ResBlock(self.n_embd)] * self.n_layer))
@@ -118,9 +118,10 @@ class MLPExpanderHead(torch.nn.Module):
 
 class ExpanderHead(torch.nn.Module):
     """Wrapper class of expanders to make running from config easier."""
-    def __init__(self, n_embd: int, n_component: int, n_layer: int=1, expander_type='linear'):
+
+    def __init__(self, n_embd: int, n_component: int, n_layer: int = 1, expander_type='linear'):
         super().__init__()
-        self.n_embd = n_embd            # D
+        self.n_embd = n_embd  # D
         self.n_component = n_component  # R
         assert expander_type in ['linear', 'mlp']
         if expander_type == 'linear':
@@ -155,7 +156,7 @@ class TransformerEncoderHead(torch.nn.Module):
         # Batch, Sentence Length, Embed Dim
         # B, S, D = xx.shape
 
-        xx = F.rms_norm(xx, (xx.size(-1),))
+        # xx = F.rms_norm(xx, (xx.size(-1),))
         for block in self.transformer:
             xx = block(xx)
         xx = F.rms_norm(xx, (xx.size(-1),))
@@ -196,22 +197,22 @@ class OutputHead(torch.nn.Module):
 
 class MultiTokenHead(torch.nn.Module):
     def __init__(
-        self,
-        token_head: OutputHead,
-        sum_weight_head: OutputHead,
-        vocab_size: int,
-        n_embd: int,
-        n_component: int = 1,
-        n_token: int = 3,
-        freeze_unembedding=False
+            self,
+            token_head: OutputHead,
+            sum_weight_head: OutputHead,
+            vocab_size: int,
+            n_embd: int,
+            n_component: int = 1,
+            n_token: int = 3,
+            freeze_unembedding=False
     ):
         super().__init__()
-        self.vocab_size = vocab_size           # V
+        self.vocab_size = vocab_size  # V
         self.token_head = token_head
         self.sum_weight_head = sum_weight_head
-        self.n_embd = n_embd                   # D
-        self.n_component = n_component         # R
-        self.n_token = n_token                 # H
+        self.n_embd = n_embd  # D
+        self.n_component = n_component  # R
+        self.n_token = n_token  # H
         self.freeze_unembedding = freeze_unembedding
 
         # Projection to the Categorical log probs

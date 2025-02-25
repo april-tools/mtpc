@@ -44,6 +44,7 @@ def create_optimizers(raw_model, cfg):
     return optimizer, scheduler
 
 
+@torch.no_grad()
 def validation_step(model, val_loader, val_steps, ctx):
     """Run validation."""
     model.eval()
@@ -75,7 +76,7 @@ def validation_step(model, val_loader, val_steps, ctx):
 def training_step(model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx):
     """Run single training step."""
     model.train()
-    for i in range(1, train_accumulation_steps+1):
+    for i in range(1, train_accumulation_steps + 1):
         x, y = train_loader.next_batch()
 
         with ctx:
@@ -109,6 +110,8 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 
 
 def name_exp(cfg):
+    if getattr(cfg.training, "expname", None) is not None:
+        return cfg.training.expname
     name = cfg.model.name
     if name == 'mtp':
         name = '%s-n=%d-r=%d' % (name, cfg.model.n_token, cfg.model.n_component)
@@ -119,7 +122,6 @@ def name_exp(cfg):
             config_path="../configs",
             config_name="config")
 def main(cfg: DictConfig):
-
     try:
 
         # NOTE: Below seems needed if freeze=false for some LLMs

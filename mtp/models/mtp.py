@@ -114,7 +114,7 @@ class MultiTokenLM(torch.nn.Module):
             and cross-entropy with ground-truth targets.
 
             The total loss for each predicted token k = 1..H is:
-                L_k = beta * KL( p^c_k || p^d_k ) + (1 - beta)* CE( p^d_k, x_{k} )
+                L_k = beta * KL( p^c_k || p^d_k ) + (1 - beta) * CE( p^d_k, x_{k} )
             possibly multiplied by a discount factor gamma^(k-1),
             and summed over all tokens.
 

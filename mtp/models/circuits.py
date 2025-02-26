@@ -158,6 +158,7 @@ class CircuitCP(torch.nn.Module):
         # NOTE: Below can be computed in parallel
         marginals = []
         for k in range(H):
+            # Compute P(x_{t+1}, x_{t+2}, .. , x_{t+k} | x_{<=t})
             # BS x V if with_logits else BS x 1
             marginal = self.autoregressive_marginal_at_k(k, yy=yy, with_logits=with_logits)
             marginals.append(marginal)
@@ -165,9 +166,21 @@ class CircuitCP(torch.nn.Module):
         # Go in reverse to avoid overwriting useful info.
         # Stop at 1, since conditional for ntp is just marginal
         for k in reversed(range(1, H)):
-            # autoregressive_marginal_at_k / autoregressive_marginal_at_{k-1}
+            # P(x_{t+k} | x_{t+1}, x_{t+2}, .. , x_{t+k-1}, x_{<=t}) =
+            # P(x_{t+1}, x_{t+2}, .. , x_{t+k} | x_{<=t}) /
+            # P(x_{t+1}, x_{t+2}, .. , x_{t+k-1} | x_{<=t})
             # we subtract since these are logprobs
-            marginals[k] = marginals[k] - marginals[k-1]
+            if with_logits is False:
+                marginals[k] = marginals[k] - marginals[k-1]
+            else:
+                # We have computed P(x_{t+1}, x_{t+2}, .. , x_{t+k} | x_{<=t})
+                # and we used specific values for x_{t+i}, i != k
+                # but expanded all choices for x_{t+k}. Therefore,
+                # for the prev_marginal we need to pick the value that we
+                # condition on. Hence we compute the value we condition on
+                prev_marginals = marginals[k-1][torch.arange(BS), yy[:, :, k-1].ravel()]
+                # Unsqueeze to broadcast
+                marginals[k] = marginals[k] - prev_marginals.unsqueeze(-1)
         # H, BS, V if with_logits else H, BS
         return marginals
 

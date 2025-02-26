@@ -1,8 +1,7 @@
 import torch
+import torch.nn.functional as F
 
 from torch import Tensor
-from cirkit.utils.scope import Scope
-from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
 
 from .lm import LM
 from .mtp_head import MultiTokenHead
@@ -41,18 +40,6 @@ class MultiTokenLM(torch.nn.Module):
         if self.init_from_lm_head:
             self.mt_head.set_unembedding_weights(lm.lm_head_weights)
         del lm.lm_head_weights
-
-        # Initializer the sampler and the marginalizer objects
-        self.sampler = SamplingQuery(self.circuit._circuit)
-        self.marginalizer = IntegrateQuery(self.circuit.circuit)
-
-        # Cache some constants used in self-speculative decoding
-        mar_scopes = list(
-            reversed([Scope(self.mt_head.n_token - i - 1 for i in range(t)) for t in range(self.mt_head.n_token)])
-        )
-        self.register_buffer(
-            "_autoregressive_mar_mask", IntegrateQuery.scopes_to_mask(self.circuit.circuit, mar_scopes)
-        )
 
     def forward(
         self,
@@ -278,6 +265,8 @@ class MultiTokenLM(torch.nn.Module):
             }
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
+        # TODO: Make this a parameterise function on the circuit
+
         # Free previous tensors before we produce new ones
         # this is important, since cat_layer probs is a large tensor
         self._cat_layer.log_probs = None
@@ -306,22 +295,81 @@ class MultiTokenLM(torch.nn.Module):
         # how good the model would be for just next token prediction
         #
         # yy: (B * S', 1, H)
-        # log_probs: (B * S', 1, 1)
-        log_probs = self.marginalizer(yy, integrate_vars=self._autoregressive_mar_mask[0])
+        # log_probs: (B * S')
+        log_probs = self.circuit.univariate_marginal_at_k(k=0, yy=yy, with_logits=False)
         stp_loss = -log_probs.mean()
+        # scalar
         return stp_loss
 
     @torch._dynamo.disable
+    def compute_all_next_token_losses(self, yy: Tensor) -> Tensor:
+        # We keep track of next token prediction loss too, in order to discern
+        # how good the model would be for just next token prediction
+        #
+        # yy: (B * S', 1, H)
+        # all_log_probs: (H, B * S')
+        all_log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
+        stp_losses = -all_log_probs.mean(dim=1)
+        # H dims
+        return stp_losses
+
+    @torch._dynamo.disable
     def compute_next_token_log_probs(self) -> Tensor:
-        ########## TODO: to be refactored #########
-        # Next token prediction - equivalent to marginalising out future tokens
-        # See https://arxiv.org/pdf/2410.17765, eq. 11
-        # (1, B * S', 1, V)
-        next_token_cats = torch.exp(self._cat_layer.log_probs[0, :, :, :])
-        # (B * S', V)
-        next_token_probs = (self._sum_layer.weight @ next_token_cats).squeeze(0, 2)
-        ############################################
-        return next_token_probs
+        next_token_log_probs = self.circuit.univariate_marginal_at_k(k=0, with_logits=True)
+        # BS, V
+        return next_token_log_probs
+
+    @torch._dynamo.disable
+    def compute_all_token_log_probs(self, yy: Tensor) -> Tensor:
+        all_token_log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
+        # H, BS, V
+        return all_token_log_probs
+
+    def compute_losses(self, yy, teacher_log_probs=None):
+        """ Compute losses per token. If teacher_log_probs is passed as an
+        argument, we compute both KL and CE losses for each token.
+        Otherwise, we compute only per token CE loss.
+
+        Args:
+            yy: shape (B * S', 1, H), the target token indices
+            teacher_log_probs: shape (B * S', H, V), the target token indices
+        """
+        BS, _, H = yy.shape
+
+        losses = dict(kl_loss=None, ce_loss=None)
+        if teacher_log_probs is not None:
+            assert teacher_log_probs.shape == (BS, H, self.circuit.vocab_size)
+            # Sample from the teacher model
+            teacher_probs = torch.exp(teacher_log_probs, dim=-1)
+            # multinomial wants a 1d or 2d tensor
+            teacher_probs = teacher_probs.flatten(0, 1)
+            teacher_samples = torch.multinomial(teacher_probs, num_samples=1)
+            teacher_samples = teacher_samples.reshape(BS, 1, H)
+            # Compute full logits by conditioning on teacher samples
+            log_probs = self.circuit.autoregressive_conditionals(yy=teacher_samples, with_logits=True)
+
+            kl_losses = torch.zeros(H, device=yy.device)
+            ce_losses = torch.zeros(H, device=yy.device)
+            for h in range(H):
+                # TODO: Consider forward or backward KL
+                kl_losses[h] = F.kl_div(log_probs[h], teacher_log_probs[:, h, :], log_target=True)
+                # NOTE: log_probs are logits, but not vice-versa
+                # NOTE 2: The CE loss acts as regularisation - if the teacher
+                # samples differ from the data, the ce loss nudges the model
+                # to also have high prob for the token in the data
+                ce_losses[h] = F.cross_entropy(log_probs[h], yy[:, :, h].ravel())
+            losses['kl_losses'] = kl_losses
+            losses['ce_losses'] = ce_losses
+        else:
+            ce_losses = torch.zeros(H, device=yy.device)
+            # We do not need to expand logits - this is more memory efficient
+            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
+            for h in range(H):
+                # Cross-entropy with one-hot targets == negative log-likelihood
+                # The circuit has only computed the log probs for the targets
+                ce_losses[h] = -log_probs[h].mean()
+            losses['ce_losses'] = ce_losses
+        return losses
 
     @torch.no_grad()
     def generate(self, inputs: Tensor, use_argmax: bool = False, mode: str = 'mtp') -> Tensor:
@@ -339,11 +387,11 @@ class MultiTokenLM(torch.nn.Module):
 
         if mode == 'mtp':
             # Sample the next tokens
-            tokens, _ = self.sampler(num_samples=1)
+            tokens, _ = self.circuit.sample(num_samples=1)
             # Remove extraneous channel dimension
             tokens = tokens.squeeze(dim=1)
         elif mode == 'stp':
-            next_token_probs = self.compute_next_token_log_probs()
+            next_token_probs = torch.exp(self.compute_next_token_log_probs())
             if use_argmax:
                 tokens = torch.argmax(next_token_probs, dim=1)
                 tokens = tokens.unsqueeze(dim=1)
@@ -366,7 +414,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Sample the next H tokens
         # tokens: (B=1, 1, H) -> (B=1, H)
-        tokens, _ = self.sampler(num_samples=1)
+        tokens, _ = self.circuit.sample(num_samples=1)
         tokens = tokens.squeeze(dim=1)
 
         # Concatenate the tokens with the current sequence,
@@ -392,8 +440,8 @@ class MultiTokenLM(torch.nn.Module):
         # q(x_{t+1}, ..., x_{t+n} \mid x_{\leq t})
         #
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
-        log_marginal_probs = self.marginalizer(
-            tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1), integrate_vars=self._autoregressive_mar_mask
+        log_marginal_probs = self.circuit.marginalizer(
+            tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1), integrate_vars=self.circuit._autoregressive_mar_mask
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
@@ -458,9 +506,9 @@ class MultiTokenLM(torch.nn.Module):
                 mtp_jp1th_token_log_probs = self.circuit(mtp_jp1th_tokens)
             else:
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
-                mtp_jp1th_token_log_probs = self.marginalizer(
+                mtp_jp1th_token_log_probs = self.circuit.marginalizer(
                     mtp_jp1th_tokens,
-                    integrate_vars=self._autoregressive_mar_mask[num_accepted_tokens],
+                    integrate_vars=self.circuit._autoregressive_mar_mask[num_accepted_tokens],
                 )
             # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
             mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)

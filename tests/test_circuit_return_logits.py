@@ -52,6 +52,31 @@ def test_circuit_conditionals_with_logits():
     assert torch.allclose(log_probs, match)
 
 
+def test_circuit_ntp_probs():
+    BS, H, R, V = 8, 4, 1, 5
+
+    cc = CircuitCP(V, H, R)
+
+    sum_layer = cc.circuit.layers[cc.sum_layer_idx]
+    cat_layer = cc.circuit.layers[cc.cat_layer_idx]
+
+    cat_layer.log_probs = torch.log_softmax(torch.randn(H, BS, R, V), dim=-1)
+    sum_layer.weight = torch.softmax(torch.randn(1, BS, 1, R), dim=-1)
+
+    # Compute probs using matmuls
+    # See https://arxiv.org/pdf/2410.17765, eq. 11
+    # (H, B * S', R, V)
+    next_token_cats = torch.exp(cat_layer.log_probs[0, :, :, :])
+    # sum_layer_weight is (1, B * S', 1, R)
+    # (B * S', V)
+    next_token_probs = (sum_layer.weight @ next_token_cats).squeeze(0, 2)
+
+    # Compute what Circuit returns
+    yy = torch.randint(V, (BS, 1, H))   # Note - yy doesn't matter here
+    next_token_log_probs = cc.univariate_marginal_at_k(0, yy, with_logits=True)
+    assert torch.allclose(next_token_probs, torch.exp(next_token_log_probs))
+
+
 def test_circuit_ntp_equals_univariate():
     BS, H, R, V = 8, 4, 2, 5
     marg_idx = 0

@@ -5,6 +5,7 @@ from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.circuit import Circuit
 from cirkit.symbolic.layers import HadamardLayer, SumLayer, CategoricalLayer
 from cirkit.utils.scope import Scope
+from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
 
 # from cirkit.templates import tensor_factorizations, utils
 from .pipeline import setup_pipeline_context
@@ -58,7 +59,10 @@ class CircuitCP(torch.nn.Module):
                 num_input_units=self.n_component, num_output_units=1, arity=1
             )
             self.symb_circuit = Circuit(
-                num_channels=1, layers=[cat, out], in_layers={out: [cat]}, outputs=[out]
+                num_channels=1,
+                layers=[cat, out],
+                in_layers={out: [cat]},
+                outputs=[out],
             )
             # We have no HadamardLayer in between
             self.cat_layer_idx = 0
@@ -69,10 +73,103 @@ class CircuitCP(torch.nn.Module):
         self._ctx: PipelineContext = setup_pipeline_context()
         self._circuit: TorchCircuit = self._ctx.compile(self.symb_circuit)
 
+        # Initializer the sampler and the marginalizer objects
+        self.sampler = SamplingQuery(self._circuit)
+        self.marginalizer = IntegrateQuery(self._circuit)
+
+        # Cache some constants used in self-speculative decoding
+        # Masks for marginalising all tokens after position t
+        mar_scopes = list(
+            reversed(
+                [
+                    Scope(self.n_token - i - 1 for i in range(t))
+                    for t in range(self.n_token)
+                ]
+            )
+        )
+        self.register_buffer(
+            "_autoregressive_mar_mask",
+            IntegrateQuery.scopes_to_mask(self._circuit, mar_scopes),
+        )
+
+        # Masks for marginalising all but one token
+        one_hot_mar_scopes = [
+            Scope([i for i in range(self.n_token) if i != t])
+            for t in range(self.n_token)
+        ]
+        self.register_buffer(
+            "_univariate_mar_mask",
+            IntegrateQuery.scopes_to_mask(self._circuit, one_hot_mar_scopes),
+        )
+
     @property
     def circuit(self) -> TorchCircuit:
         return self._circuit
 
     @torch._dynamo.disable
     def forward(self, yy):
-        return self._circuit(yy)
+        return self._circuit(yy).ravel()
+
+    def univariate_marginal_at_k(self, k, yy, with_logits=False):
+        assert 0 <= k <= self.n_token
+        assert len(yy.shape) == 3
+        BS, C, H = yy.shape
+        assert C == 1
+        assert H == self.n_token
+        if with_logits:
+            # In the circuit implementation if we see -1 for a categorical
+            # we expand to all possible realisations of that random variable
+            yy = yy.clone()
+            yy[:, :, k] = -1
+        log_probs = self.marginalizer(yy, integrate_vars=self._univariate_mar_mask[k])
+        if with_logits is True:
+            log_probs = log_probs.reshape(BS, self.vocab_size)
+        else:
+            log_probs = log_probs.reshape(BS)
+        # BS, V if with_logits else BS
+        return log_probs
+
+    def autoregressive_marginal_at_k(self, k, yy, with_logits=False):
+        # Marginalises out future tokens
+        assert len(yy.shape) == 3
+        BS, C, H = yy.shape
+        assert C == 1
+        assert H == self.n_token
+        assert 0 <= k <= self.n_token
+        if with_logits:
+            # In the circuit implementation if we see -1 for a categorical
+            # we expand to all possible realisations of that random variable
+            yy = yy.clone()
+            yy[:, :, k] = -1
+        log_probs = self.marginalizer(yy, integrate_vars=self._autoregressive_mar_mask[k])
+        if with_logits is True:
+            log_probs = log_probs.reshape(BS, self.vocab_size)
+        else:
+            log_probs = log_probs.reshape(BS)
+        # BS, V if with_logits else BS
+        return log_probs
+
+    def autoregressive_conditionals(self, yy, with_logits=False):
+        assert len(yy.shape) == 3
+        BS, C, H = yy.shape
+        assert C == 1
+        assert H == self.n_token
+
+        # NOTE: Below can be computed in parallel
+        marginals = []
+        for k in range(H):
+            # BS x V if with_logits else BS x 1
+            marginal = self.autoregressive_marginal_at_k(k, yy=yy, with_logits=with_logits)
+            marginals.append(marginal)
+        marginals = torch.stack(marginals)
+        # Go in reverse to avoid overwriting useful info.
+        # Stop at 1, since conditional for ntp is just marginal
+        for k in reversed(range(1, H)):
+            # autoregressive_marginal_at_k / autoregressive_marginal_at_{k-1}
+            # we subtract since these are logprobs
+            marginals[k] = marginals[k] - marginals[k-1]
+        # H, BS, V if with_logits else H, BS
+        return marginals
+
+    def sample(self, num_samples=1):
+        return self.sampler(num_samples=num_samples)

@@ -95,6 +95,30 @@ def test_circuit_joint():
     assert torch.allclose(joint_log_probs_from_cond, joint)
 
 
+def test_circuit_joint_with_logits():
+    BS, H, R, V = 8, 4, 2, 5
+
+    cc = CircuitCP(V, H, R)
+
+    sum_layer = cc.circuit.layers[cc.sum_layer_idx]
+    cat_layer = cc.circuit.layers[cc.cat_layer_idx]
+
+    cat_layer.log_probs = torch.log_softmax(torch.randn(H, BS, R, V), dim=-1)
+    sum_layer.weight = torch.softmax(torch.randn(1, BS, 1, R), dim=-1)
+
+    yy = torch.randint(V, (BS, 1, H))
+
+    # The product of the conditionals should be equal to the joint
+    cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)
+    match = torch.zeros(BS)
+    for i, clp in enumerate(cond_log_probs):
+        match += clp[torch.arange(BS), yy[:, :, i].ravel()]
+
+    joint = cc(yy)
+
+    assert torch.allclose(match, joint)
+
+
 def test_circuit_conditional_independence():
     # NOTE : we set R = 1, so this is just a product of categoricals
     BS, H, R, V = 8, 4, 1, 5
@@ -185,6 +209,7 @@ if __name__ == "__main__":
     test_circuit_conditionals_with_logits()
     test_circuit_ntp_equals_univariate()
     test_circuit_joint()
+    test_circuit_joint_with_logits()
     test_circuit_conditional_independence()
     test_circuit_dependence()
     test_circuit_conditional_independence_with_logits()

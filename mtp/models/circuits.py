@@ -121,7 +121,9 @@ class CircuitCP(torch.nn.Module):
             # we expand to all possible realisations of that random variable
             yy = yy.clone()
             yy[:, :, k] = -1
-        log_probs = self.marginalizer(yy, integrate_vars=self._univariate_mar_mask[k])
+        log_probs = self.marginalizer(
+            yy, integrate_vars=self._univariate_mar_mask[k]
+        )
         if with_logits is True:
             log_probs = log_probs.reshape(BS, self.vocab_size)
         else:
@@ -141,7 +143,9 @@ class CircuitCP(torch.nn.Module):
             # we expand to all possible realisations of that random variable
             yy = yy.clone()
             yy[:, :, k] = -1
-        log_probs = self.marginalizer(yy, integrate_vars=self._autoregressive_mar_mask[k])
+        log_probs = self.marginalizer(
+            yy, integrate_vars=self._autoregressive_mar_mask[k]
+        )
         if with_logits is True:
             log_probs = log_probs.reshape(BS, self.vocab_size)
         else:
@@ -160,7 +164,9 @@ class CircuitCP(torch.nn.Module):
         for k in range(H):
             # Compute P(x_{t+1}, x_{t+2}, .. , x_{t+k} | x_{<=t})
             # BS x V if with_logits else BS x 1
-            marginal = self.autoregressive_marginal_at_k(k, yy=yy, with_logits=with_logits)
+            marginal = self.autoregressive_marginal_at_k(
+                k, yy=yy, with_logits=with_logits
+            )
             marginals.append(marginal)
         marginals = torch.stack(marginals)
         # Go in reverse to avoid overwriting useful info.
@@ -171,14 +177,17 @@ class CircuitCP(torch.nn.Module):
             # P(x_{t+1}, x_{t+2}, .. , x_{t+k-1} | x_{<=t})
             # we subtract since these are logprobs
             if with_logits is False:
-                marginals[k] = marginals[k] - marginals[k-1]
+                marginals[k] = marginals[k] - marginals[k - 1]
             else:
-                # We have computed P(x_{t+1}, x_{t+2}, .. , x_{t+k} | x_{<=t})
-                # and we used specific values for x_{t+i}, i != k
-                # but expanded all choices for x_{t+k}. Therefore,
-                # for the prev_marginal we need to pick the value that we
-                # condition on. Hence we compute the value we condition on
-                prev_marginals = marginals[k-1][torch.arange(BS), yy[:, :, k-1].ravel()]
+                # NOTE: if we use with_logits, we have a slight complication:
+                # both marginals we use in the division have been evaluated for
+                # all possible settings of the last categorical variable,
+                # x_{t+k}, and x_{t+k-1}, respectively.
+                # Therefore, for the prev_marginal we need to pick the value
+                # that we condition on. Below we pick this value:
+                prev_marginals = marginals[k - 1][
+                    torch.arange(BS, device=yy.device), yy[:, :, k - 1].ravel()
+                ]
                 # Unsqueeze to broadcast
                 marginals[k] = marginals[k] - prev_marginals.unsqueeze(-1)
         # H, BS, V if with_logits else H, BS

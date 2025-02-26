@@ -110,17 +110,20 @@ class CircuitCP(torch.nn.Module):
     def forward(self, yy):
         return self._circuit(yy).ravel()
 
-    def univariate_marginal_at_k(self, k, yy, with_logits=False):
+    def univariate_marginal_at_k(self, k, yy=None, with_logits=False):
         assert 0 <= k <= self.n_token
-        assert len(yy.shape) == 3
-        BS, C, H = yy.shape
-        assert C == 1
-        assert H == self.n_token
         if with_logits:
-            # In the circuit implementation if we see -1 for a categorical
-            # we expand to all possible realisations of that random variable
-            yy = yy.clone()
+            if yy is not None:
+                raise ValueError('Expected yy=None, got: %s' % yy)
+            log_probs = self._circuit.layers[self.cat_layer_idx].log_probs
+            H, BS, R, V = log_probs.shape
+            yy = torch.zeros(BS, 1, V, device=log_probs.device)
             yy[:, :, k] = -1
+        else:
+            assert len(yy.shape) == 3
+            BS, C, H = yy.shape
+            assert C == 1
+            assert H == self.n_token
         log_probs = self.marginalizer(
             yy, integrate_vars=self._univariate_mar_mask[k]
         )

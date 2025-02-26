@@ -23,7 +23,7 @@ def test_circuit_marginalisation_with_logits():
     # SET MASK to get all logits for marg_idx
     v_idxs = yy[:, :, marg_idx].ravel().clone()
 
-    log_probs_all = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
+    log_probs_all = cc.univariate_marginal_at_k(marg_idx, with_logits=True)
     # Assert entries we get without all logits agree with all logits case
     assert torch.allclose(log_probs_all[torch.arange(BS), v_idxs], log_probs)
     # Assert we are getting prob distributions
@@ -72,8 +72,7 @@ def test_circuit_ntp_probs():
     next_token_probs = (sum_layer.weight @ next_token_cats).squeeze(0, 2)
 
     # Compute what Circuit returns
-    yy = torch.randint(V, (BS, 1, H))   # Note - yy doesn't matter here
-    next_token_log_probs = cc.univariate_marginal_at_k(0, yy, with_logits=True)
+    next_token_log_probs = cc.univariate_marginal_at_k(0, with_logits=True)
     assert torch.allclose(next_token_probs, torch.exp(next_token_log_probs))
 
 
@@ -92,7 +91,7 @@ def test_circuit_ntp_equals_univariate():
     yy = torch.randint(V, (BS, 1, H))
 
     # Just evaluate the idx
-    marg_log_probs = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
+    marg_log_probs = cc.univariate_marginal_at_k(marg_idx, with_logits=True)
 
     cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)[0]
     assert torch.allclose(marg_log_probs, cond_log_probs)
@@ -203,7 +202,7 @@ def test_circuit_conditional_independence_with_logits():
     cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)
     # Just evaluate the idx
     for marg_idx in range(H):
-        marg_log_probs = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
+        marg_log_probs = cc.univariate_marginal_at_k(marg_idx, with_logits=True)
         assert torch.allclose(marg_log_probs, cond_log_probs[marg_idx])
 
 
@@ -225,7 +224,7 @@ def test_circuit_dependence_with_logits():
     cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)
     # Start from second index, as first is actually the same
     for marg_idx in range(1, H):
-        marg_log_probs = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
+        marg_log_probs = cc.univariate_marginal_at_k(marg_idx, with_logits=True)
         assert not torch.allclose(marg_log_probs, cond_log_probs[marg_idx])
 
 

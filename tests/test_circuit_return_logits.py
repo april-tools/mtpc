@@ -189,7 +189,6 @@ def test_circuit_dependence():
 def test_circuit_conditional_independence_with_logits():
     # NOTE : we set R = 1, so this is just a product of categoricals
     BS, H, R, V = 8, 4, 1, 5
-    marg_idx = 1
 
     cc = CircuitCP(V, H, R)
 
@@ -201,10 +200,11 @@ def test_circuit_conditional_independence_with_logits():
 
     yy = torch.randint(V, (BS, 1, H))
 
+    cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)
     # Just evaluate the idx
-    marg_log_probs = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
-    cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)[marg_idx]
-    assert torch.allclose(marg_log_probs, cond_log_probs)
+    for marg_idx in range(H):
+        marg_log_probs = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
+        assert torch.allclose(marg_log_probs, cond_log_probs[marg_idx])
 
 
 def test_circuit_dependence_with_logits():
@@ -222,10 +222,11 @@ def test_circuit_dependence_with_logits():
 
     yy = torch.randint(V, (BS, 1, H))
 
-    # Just evaluate the idx
-    marg_log_probs = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
-    cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)[marg_idx]
-    assert not torch.allclose(marg_log_probs, cond_log_probs)
+    cond_log_probs = cc.autoregressive_conditionals(yy, with_logits=True)
+    # Start from second index, as first is actually the same
+    for marg_idx in range(1, H):
+        marg_log_probs = cc.univariate_marginal_at_k(marg_idx, yy, with_logits=True)
+        assert not torch.allclose(marg_log_probs, cond_log_probs[marg_idx])
 
 
 if __name__ == "__main__":

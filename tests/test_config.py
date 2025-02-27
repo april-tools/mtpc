@@ -37,8 +37,9 @@ def test_mtp_head_params_differ(expander):
                     assert torch.all(lp == torch.zeros_like(lp)) and torch.all(rp == torch.zeros_like(rp))
                 else:
                     assert not torch.allclose(lp, rp)
-            else:
-                assert not torch.allclose(lp, rp)
+            # Below is no longer true now that we switched to identity init
+            # else:
+            #     assert not torch.allclose(lp, rp)
 
 # Check that after training a single step, all params are updated
 @pytest.mark.parametrize("expander, freeze_lm", itertools.product(["linear", "mlp"], [True, False]))

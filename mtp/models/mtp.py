@@ -135,6 +135,18 @@ class MultiTokenLM(torch.nn.Module):
         #    shape -> (B, S, D)
         xx = self.lm.encoder(xx)['last_hidden_state']
 
+        # 2) Compute teacher log probs. We do this before truncating xx.
+        #  teacher_log_probs: shape (B * S', H, V)
+        compute_ce, compute_kl = beta < 1, beta > 0
+
+        if compute_kl:
+            # shape: (B, S', V)
+            logits = self.lm.head(xx)
+            teacher_log_probs = torch.log_softmax(logits, axis=-1)
+        else:
+            teacher_log_probs = None
+
+        # 3) Truncate the activations
         # For multi-token training, for each position, t, we predict the next
         # H tokens in one forward pass. This means we run out of future tokens
         # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
@@ -150,32 +162,21 @@ class MultiTokenLM(torch.nn.Module):
         history_idx = S - H + 1
         xx = xx[:, : history_idx]
 
-        # 2) Parameterize the circuit with our NN activations
+        # 4) Parameterize the circuit with our NN activations
         self.parameterize_circuit(xx)
 
-        # 3) Compute teacher log probs
-        #  teacher_log_probs: shape (B * S', H, V)
-        compute_ce, compute_kl = beta < 1, beta > 0
-
-        if compute_kl:
-            # shape: (B, S', V)
-            logits = self.lm.head(xx)
-            teacher_log_probs = torch.log_softmax(logits, axis=-1)
-        else:
-            teacher_log_probs = None
-
-        # 4) Compute CE loss per token and, optionally, KL loss
+        # 5) Compute CE loss per token and, optionally, KL loss
         losses = self.compute_per_token_losses(yy,
                                                teacher_log_probs,
                                                compute_ce=compute_ce,
                                                compute_kl=compute_kl)
 
-        # 5) Weigh the losses and optionally discount
+        # 6) Weigh the losses and optionally discount
         combined_loss = 0
         for k in range(H):
 
-            kl_loss = losses['kl_losses'][k]
-            ce_loss = losses['ce_losses'][k]
+            kl_loss = losses['kl_losses'][k] if compute_kl else 0.
+            ce_loss = losses['ce_losses'][k] if compute_ce else 0.
 
             # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
             combined_loss = beta * kl_loss + (1.0 - beta) * ce_loss
@@ -185,12 +186,13 @@ class MultiTokenLM(torch.nn.Module):
                 combined_loss += (gamma ** k) * combined_loss
         # TODO: We may want to divide combined_loss by sum of the gamma^k
 
+        # TODO: Compute losses for logging. Do not return combined_loss for all
         return {
             'loss': combined_loss,
             'distill_loss': None,
             'crossent_loss': None,
-            'mtp_loss': None,
-            'stp_loss': None,
+            'mtp_loss': combined_loss,
+            'stp_loss': combined_loss,
         }
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
@@ -254,12 +256,13 @@ class MultiTokenLM(torch.nn.Module):
         # H, BS, V
         return all_token_log_probs
 
+    @torch._dynamo.disable
     def compute_per_token_losses(self,
                                  yy: Tensor,
                                  teacher_log_probs: Tensor = None,
                                  compute_ce: bool = True,
                                  compute_kl: bool = False,
-                                 kl_type='forward'):
+                                 kl_type='reverse'):
         """ Compute losses per token. If teacher_log_probs is passed as an
         argument, we compute both KL and CE losses for each token.
         Otherwise, we compute only per token CE loss.
@@ -275,7 +278,7 @@ class MultiTokenLM(torch.nn.Module):
         assert (compute_ce, compute_kl) != (False, False)
         if compute_kl is True:
             assert teacher_log_probs is not None
-        assert kl_type in ('forward', 'backward')
+        assert kl_type in ('forward', 'reverse')
 
         H = self.mt_head.n_token
 

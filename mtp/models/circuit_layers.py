@@ -111,13 +111,12 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         expand_logits = torch.all(x == -1, dim=-1)
         if torch.any(expand_logits):
             assert expand_logits.sum() == 1
-            expand_idx = torch.arange(F, device=log_probs.device)[expand_logits].item()
             # Expand idx batch
             idx_batch = torch.repeat_interleave(idx_batch, V, dim=0)
             # Repeat batch dimension
             x = torch.repeat_interleave(x, V, dim=1)
             # Replace the -1 with torch.arange(V).num_categories)
-            x[expand_idx] = torch.tile(torch.arange(V, device=log_probs.device), (B,))
+            x[expand_logits] = torch.tile(torch.arange(V, device=log_probs.device), (B,))
         y = log_probs[idx_fold[:, None], idx_batch[None, :], :, x]
         return self.semiring.map_from(y, LSESumSemiring)
 

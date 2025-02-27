@@ -180,11 +180,11 @@ def main(cfg: DictConfig):
                 ckp.save()
         else:
             # Load the checkpoint to restore training from
+            logger(f"Restoring checkpoint {cfg.from_checkpoint}...")
             ckp = Checkpoint.load(cfg.from_checkpoint)
             global_step = ckp.global_step
             cfg = ckp.config
 
-            logger(f"Restoring checkpoint {cfg.from_checkpoint}...")
             # Restore the model, optimizer and scheduler from checkpoint
             ckp.restore(model=model, optimizer=optimizer, scheduler=scheduler)
 
@@ -220,8 +220,9 @@ def main(cfg: DictConfig):
             train_loader.seek(global_step * train_accumulation_steps)
 
         # ===================== BEGIN TRAINING LOOP ==========================
-        for step in range(1 + global_step, cfg.training.num_iterations + global_step + 1):
-            last_step = (step == (cfg.training.num_iterations + global_step))
+        for step in range(1 + global_step, cfg.training.num_iterations + 1):
+            first_step = (step == 1)
+            last_step = (step == cfg.training.num_iterations)
 
             # Below is needed for reproducibility if we use ops that
             # rely on random state. Need to have same seq of random nums.
@@ -242,7 +243,7 @@ def main(cfg: DictConfig):
             dt = time.time() - t0
 
             # Validation
-            if last_step or (cfg.training.val_loss_every > 0 and step % cfg.training.val_loss_every == 0):
+            if first_step or last_step or (step % cfg.training.val_loss_every == 0):
                 val_loss, val_stp_loss, val_mtp_loss = validation_step(optimized_model, val_loader, val_steps, ctx)
                 logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
                 if master_process:

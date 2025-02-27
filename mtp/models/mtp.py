@@ -163,11 +163,18 @@ class MultiTokenLM(torch.nn.Module):
 
         # 4) Compute teacher log probs
         #  teacher_log_probs: shape (B * S', H, V)
-        if True:
+        compute_ce, compute_kl = beta < 1, beta > 0
+
+        if compute_kl:
+            pass
+        else:
             teacher_log_probs = None
 
         # 5) Compute CE loss per token and, optionally, KL loss
-        losses = self.compute_per_token_losses(yy, teacher_log_probs)
+        losses = self.compute_per_token_losses(yy,
+                                               teacher_log_probs,
+                                               compute_ce=compute_ce,
+                                               compute_kl=compute_kl)
 
         # 6) Weigh the losses and optionally discount
         combined_loss = 0
@@ -253,7 +260,11 @@ class MultiTokenLM(torch.nn.Module):
         # H, BS, V
         return all_token_log_probs
 
-    def compute_per_token_losses(self, yy, teacher_log_probs=None):
+    def compute_per_token_losses(self,
+                                 yy: Tensor,
+                                 teacher_log_probs: Tensor = None,
+                                 compute_ce: bool = True,
+                                 compute_kl: bool = False):
         """ Compute losses per token. If teacher_log_probs is passed as an
         argument, we compute both KL and CE losses for each token.
         Otherwise, we compute only per token CE loss.
@@ -261,11 +272,18 @@ class MultiTokenLM(torch.nn.Module):
         Args:
             yy: shape (B * S', 1, H), the target token indices
             teacher_log_probs: shape (B * S', H, V), the target token indices
+            compute_ce: flags whether to compute cross-entropy loss
+            compute_kl: flags whether to compute KL loss.
+            KL requires teacher log probs.
         """
+        assert (compute_ce, compute_kl) != (False, False)
+        if compute_kl is True:
+            assert teacher_log_probs is not None
+
         BS, _, H = yy.shape
 
         losses = dict(kl_loss=None, ce_loss=None)
-        if teacher_log_probs is not None:
+        if compute_kl:
             assert teacher_log_probs.shape == (BS, H, self.circuit.vocab_size)
             # Sample from the teacher model
             teacher_probs = torch.exp(teacher_log_probs, dim=-1)
@@ -277,17 +295,20 @@ class MultiTokenLM(torch.nn.Module):
             log_probs = self.circuit.autoregressive_conditionals(yy=teacher_samples, with_logits=True)
 
             kl_losses = torch.zeros(H, device=yy.device)
-            ce_losses = torch.zeros(H, device=yy.device)
             for h in range(H):
                 # TODO: Consider forward or backward KL
                 kl_losses[h] = F.kl_div(log_probs[h], teacher_log_probs[:, h, :], log_target=True)
-                # NOTE: log_probs are logits, but not vice-versa
-                # NOTE 2: The CE loss acts as regularisation - if the teacher
-                # samples differ from the data, the ce loss nudges the model
-                # to also have high prob for the token in the data
-                ce_losses[h] = F.cross_entropy(log_probs[h], yy[:, :, h].ravel())
             losses['kl_losses'] = kl_losses
-            losses['ce_losses'] = ce_losses
+
+            if compute_ce:
+                ce_losses = torch.zeros(H, device=yy.device)
+                for h in range(H):
+                    # NOTE: log_probs are logits, but not vice-versa
+                    # NOTE 2: The CE loss acts as regularisation - if the teacher
+                    # samples differ from the data, the ce loss nudges the model
+                    # to also have high prob for the token in the data
+                    ce_losses[h] = F.cross_entropy(log_probs[h], yy[:, :, h].ravel())
+                losses['ce_losses'] = ce_losses
         else:
             ce_losses = torch.zeros(H, device=yy.device)
             # We do not need to expand logits - this is more memory efficient

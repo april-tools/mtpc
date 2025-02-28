@@ -90,8 +90,8 @@ class MultiTokenLM(torch.nn.Module):
             self,
             xx: torch.Tensor,               # (B, S) input ids
             yy: torch.Tensor,               # (B, S) target ids
-            beta: float = 0.9,             # weight for KL-distillation
-            gamma: float = 1.0,             # discount factor for each token
+            beta: float = .9,             # weight for KL-distillation
+            gamma: float = 1.,            # discount factor for each token
             return_log_probs: bool = False,
             return_stp_loss: bool = False) -> dict:
         r"""
@@ -140,9 +140,10 @@ class MultiTokenLM(torch.nn.Module):
         compute_ce, compute_kl = beta < 1, beta > 0
 
         if compute_kl:
-            # shape: (B, S', V)
-            logits = self.lm.head(xx)
-            teacher_log_probs = torch.log_softmax(logits, axis=-1)
+            with torch.no_grad():
+                # shape: (B, S', V)
+                logits = self.lm.head(xx)
+                teacher_log_probs = torch.log_softmax(logits, axis=-1)
         else:
             teacher_log_probs = None
 
@@ -181,9 +182,8 @@ class MultiTokenLM(torch.nn.Module):
             # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
             combined_loss = beta * kl_loss + (1.0 - beta) * ce_loss
 
-            # Possibly discount by gamma^k
-            if gamma != 1.0:
-                combined_loss += (gamma ** k) * combined_loss
+            # Possibly discount by gamma^k (no discount if gamma = 1.)
+            combined_loss += (gamma ** k) * combined_loss
         # TODO: We may want to divide combined_loss by sum of the gamma^k
 
         # TODO: Compute losses for logging. Do not return combined_loss for all
@@ -262,7 +262,7 @@ class MultiTokenLM(torch.nn.Module):
                                  teacher_log_probs: Tensor = None,
                                  compute_ce: bool = True,
                                  compute_kl: bool = False,
-                                 kl_type='reverse'):
+                                 kl_type: str = 'reverse'):
         """ Compute losses per token. If teacher_log_probs is passed as an
         argument, we compute both KL and CE losses for each token.
         Otherwise, we compute only per token CE loss.
@@ -273,7 +273,7 @@ class MultiTokenLM(torch.nn.Module):
             compute_ce: flags whether to compute cross-entropy loss
             compute_kl: flags whether to compute KL loss.
             KL requires teacher log probs.
-            kl_type:
+            kl_type: the type of KL to use, forward vs reverse.
         """
         assert (compute_ce, compute_kl) != (False, False)
         if compute_kl is True:

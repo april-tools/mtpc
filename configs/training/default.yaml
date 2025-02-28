@@ -15,3 +15,6 @@ use_scheduler: true
 val_loss_every: 100
 save_model_every: 500
 val_tokens: 1048576 # 8*64*1024
+
+# wandb
+expname: null

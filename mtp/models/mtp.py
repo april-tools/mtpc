@@ -21,14 +21,43 @@ class MultiTokenLM(torch.nn.Module):
     for the (circuit) output layer.
 
     3. A circuit which models the output tokens and encodes their dependencies.
+
+    init_from_lm_head: whether to initialise the unembedding matrix from the LM head.
+
+    beta: float, weighting for tradeing off KL loss vs CE loss.
+        0 means CE only, 1 means KL only, values in between trade-off.
+    gamma: float, discount factor for each successive token in the multi-token
+        block. 1 weighs all tokens the same.
+    kl_type: string, the type of KL to use, can be forward or reverse.
     """
 
-    def __init__(self, lm: LM, mt_head: MultiTokenHead, circuit: CircuitCP, init_from_lm_head: bool = True):
+    def __init__(self,
+                 lm: LM,
+                 mt_head: MultiTokenHead,
+                 circuit: CircuitCP,
+                 init_from_lm_head: bool = True,
+                 beta: float = .9,
+                 gamma: float = 1.,
+                 kl_type: str = 'reverse'):
         super().__init__()
         self.lm = lm
         self.mt_head = mt_head
         self.circuit = circuit
+
         self.init_from_lm_head = init_from_lm_head
+
+        # Below are the params for weighting the kl and ce losses.
+        # Keep these globally to avoid shooting ourselves in the foot
+        # by computing train and validation with different hyperparams
+        assert 0 <= beta <= 1
+        assert 0 <= gamma <= 1
+        assert kl_type in ('forward', 'reverse')
+        self.beta = beta
+        self.gamma = gamma
+        self.kl_type = kl_type
+
+        # Keep track of what we need to compute
+        self.compute_ce, self.compute_kl = self.beta < 1, self.beta > 0
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())
@@ -90,8 +119,6 @@ class MultiTokenLM(torch.nn.Module):
             self,
             xx: torch.Tensor,               # (B, S) input ids
             yy: torch.Tensor,               # (B, S) target ids
-            beta: float = .9,             # weight for KL-distillation
-            gamma: float = 1.,            # discount factor for each token
             return_log_probs: bool = False,
             return_stp_loss: bool = False) -> dict:
         r"""
@@ -112,9 +139,6 @@ class MultiTokenLM(torch.nn.Module):
           xx :      | t1 | t2 | t3 | t4 | t5 | t6 |
           yy :           | t2 | t3 | t4 | t5 | t6 | t7 |
 
-        beta: float, factor for KL vs CE
-        gamma: float, discount factor for each successive token in the multi-token block
-
         Returns:
         A dictionary with keys:
             'loss': the final scalar,
@@ -123,8 +147,6 @@ class MultiTokenLM(torch.nn.Module):
             'aux_loss': mixture-of-experts balancing loss,
             'mtp_loss': combined total (useful to log).
         """
-        assert 0 <= beta <= 1
-        assert 0 <= gamma <= 1
         H = self.mt_head.n_token
         # B = xx.shape[0]
         S = xx.shape[1]
@@ -137,9 +159,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # 2) Compute teacher log probs. We do this before truncating xx.
         #  teacher_log_probs: shape (B * S', H, V)
-        compute_ce, compute_kl = beta < 1, beta > 0
-
-        if compute_kl:
+        if self.compute_kl:
             with torch.no_grad():
                 # shape: (B, S', V)
                 logits = self.lm.head(xx)
@@ -167,23 +187,20 @@ class MultiTokenLM(torch.nn.Module):
         self.parameterize_circuit(xx)
 
         # 5) Compute CE loss per token and, optionally, KL loss
-        losses = self.compute_per_token_losses(yy,
-                                               teacher_log_probs,
-                                               compute_ce=compute_ce,
-                                               compute_kl=compute_kl)
+        losses = self.compute_per_token_losses(yy, teacher_log_probs)
 
         # 6) Weigh the losses and optionally discount
         combined_loss = 0
         for k in range(H):
 
-            kl_loss = losses['kl_losses'][k] if compute_kl else 0.
-            ce_loss = losses['ce_losses'][k] if compute_ce else 0.
+            kl_loss = losses['kl_losses'][k] if self.compute_kl else 0.
+            ce_loss = losses['ce_losses'][k] if self.compute_ce else 0.
 
             # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
-            combined_loss = beta * kl_loss + (1.0 - beta) * ce_loss
+            combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
 
             # Possibly discount by gamma^k (no discount if gamma = 1.)
-            combined_loss += (gamma ** k) * combined_loss
+            combined_loss += (self.gamma ** k) * combined_loss
         # TODO: We may want to divide combined_loss by sum of the gamma^k
 
         # TODO: Compute losses for logging. Do not return combined_loss for all
@@ -259,10 +276,8 @@ class MultiTokenLM(torch.nn.Module):
     @torch._dynamo.disable
     def compute_per_token_losses(self,
                                  yy: Tensor,
-                                 teacher_log_probs: Tensor = None,
-                                 compute_ce: bool = True,
-                                 compute_kl: bool = False,
-                                 kl_type: str = 'reverse'):
+                                 teacher_log_probs: Tensor = None
+                                 ):
         """ Compute losses per token. If teacher_log_probs is passed as an
         argument, we compute both KL and CE losses for each token.
         Otherwise, we compute only per token CE loss.
@@ -270,19 +285,13 @@ class MultiTokenLM(torch.nn.Module):
         Args:
             yy: shape (B, S'), the target token indices
             teacher_log_probs: shape (B, S', V), the target token indices
-            compute_ce: flags whether to compute cross-entropy loss
-            compute_kl: flags whether to compute KL loss.
-            KL requires teacher log probs.
-            kl_type: the type of KL to use, forward vs reverse.
         """
-        assert (compute_ce, compute_kl) != (False, False)
-        if compute_kl is True:
+        if self.compute_kl is True:
             assert teacher_log_probs is not None
-        assert kl_type in ('forward', 'reverse')
 
         H = self.mt_head.n_token
 
-        if compute_ce:
+        if self.compute_ce:
             # NOTE: We need yy in the code below both with/without KL
             # so compute it in one place to avoid repetition
             # Compute sliding window of ground-truth tokens for each t
@@ -293,7 +302,7 @@ class MultiTokenLM(torch.nn.Module):
             yy = yy.reshape(-1, 1, H)
 
         losses = dict(kl_losses=None, ce_losses=None)
-        if compute_kl:
+        if self.compute_kl:
             B, S, V = teacher_log_probs.shape
             assert V == self.circuit.vocab_size
             # Sample from the teacher model
@@ -323,7 +332,7 @@ class MultiTokenLM(torch.nn.Module):
 
             kl_losses = torch.zeros(H, device=teacher_log_probs.device)
             for h in range(H):
-                if kl_type == 'forward':
+                if self.kl_type == 'forward':
                     # For usual order: input, target, pt computes reverse KL.
                     # pp1 = torch.softmax(torch.randn(3, 5), dim=-1)
                     # pp2 = torch.softmax(torch.randn(3, 5), dim=-1)
@@ -342,7 +351,7 @@ class MultiTokenLM(torch.nn.Module):
                                             reduction='batchmean')
             losses['kl_losses'] = kl_losses
 
-            if compute_ce:
+            if self.compute_ce:
                 ce_losses = torch.zeros(H, device=yy.device)
                 for h in range(H):
                     # NOTE: log_probs are logits, but not vice-versa

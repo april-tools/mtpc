@@ -190,7 +190,7 @@ class MultiTokenLM(torch.nn.Module):
         losses = self.compute_per_token_losses(yy, teacher_log_probs)
 
         # 6) Weigh the losses and optionally discount
-        combined_loss = 0
+        sum_combined_loss = 0
         for k in range(H):
 
             kl_loss = losses['kl_losses'][k] if self.compute_kl else 0.
@@ -200,16 +200,16 @@ class MultiTokenLM(torch.nn.Module):
             combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
 
             # Possibly discount by gamma^k (no discount if gamma = 1.)
-            combined_loss += (self.gamma ** k) * combined_loss
+            sum_combined_loss += (self.gamma ** k) * combined_loss
         # TODO: We may want to divide combined_loss by sum of the gamma^k
 
         # TODO: Compute losses for logging. Do not return combined_loss for all
         return {
-            'loss': combined_loss,
+            'loss': sum_combined_loss,
             'distill_loss': None,
             'crossent_loss': None,
-            'mtp_loss': combined_loss,
-            'stp_loss': combined_loss,
+            'mtp_loss': sum_combined_loss,
+            'stp_loss': sum_combined_loss,
         }
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):

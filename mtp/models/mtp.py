@@ -49,9 +49,9 @@ class MultiTokenLM(torch.nn.Module):
         # Below are the params for weighting the kl and ce losses.
         # Keep these globally to avoid shooting ourselves in the foot
         # by computing train and validation with different hyperparams
-        assert 0 <= beta <= 1
-        assert 0 <= gamma <= 1
-        assert kl_type in ('forward', 'reverse')
+        assert 0 <= beta <= 1, 'Expected 0 <= beta <= 1, got: %.2f' % beta
+        assert 0 < gamma <= 1, 'Expected 0 <= gamma <= 1, got: %.2f' % gamma
+        assert kl_type in ('forward', 'reverse'), 'Unknown kl_type: %s' % kl_type 
         self.beta = beta
         self.gamma = gamma
         self.kl_type = kl_type
@@ -287,7 +287,7 @@ class MultiTokenLM(torch.nn.Module):
             teacher_log_probs: shape (B, S', V), the target token indices
         """
         if self.compute_kl is True:
-            assert teacher_log_probs is not None
+            assert teacher_log_probs is not None, 'Expected teacher_log_probs != None'
 
         H = self.mt_head.n_token
 
@@ -304,7 +304,7 @@ class MultiTokenLM(torch.nn.Module):
         losses = dict(kl_losses=None, ce_losses=None)
         if self.compute_kl:
             B, S, V = teacher_log_probs.shape
-            assert V == self.circuit.vocab_size
+            assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
             # Sample from the teacher model
             # shape: B, S', V
             teacher_probs = torch.exp(teacher_log_probs)

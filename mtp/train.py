@@ -5,6 +5,7 @@ import torch
 import torch.distributed as dist
 from torch import autocast
 from omegaconf import DictConfig, OmegaConf, open_dict
+from collections import defaultdict
 import time
 
 from mtp.data.dataloader import DistributedDataLoader
@@ -54,44 +55,41 @@ def validation_step(model, val_loader, val_steps, ctx):
     """Run validation."""
     model.eval()
     val_loader.reset()
-    val_loss, val_stp_loss, val_mtp_loss = 0.0, 0.0, 0.0
+    val_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
     for _ in range(val_steps):
         x_val, y_val = val_loader.next_batch()
         with ctx:
             results = model(x_val, y_val, return_stp_loss=True)
-            val_loss += results['loss'].detach()
-            val_stp_loss += results['stp_loss'].detach()
-            if 'mtp_loss' in results:
-                val_mtp_loss += results['mtp_loss'].detach()
+            val_loss += results.pop('loss').detach()
+            for k, v in results.items():
+                if '_loss_' in k:
+                    metrics[k] += v.detach()
             del results
 
     dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
-    dist.all_reduce(val_stp_loss, op=dist.ReduceOp.AVG)
     val_loss /= val_steps
-    val_stp_loss /= val_steps
 
-    if val_mtp_loss != 0.0:
-        dist.all_reduce(val_mtp_loss, op=dist.ReduceOp.AVG)
-        val_mtp_loss /= val_steps
-    else:
-        val_mtp_loss = None
-    return val_loss, val_stp_loss, val_mtp_loss
+    for k, v in list(metrics.items()):
+        dist.all_reduce(metrics[k], op=dist.ReduceOp.AVG)
+        metrics[k] /= val_steps
+    return val_loss, metrics
 
 
 def training_step(model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx):
     """Run single training step."""
     model.train()
+    train_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
     for i in range(1, train_accumulation_steps + 1):
         x, y = train_loader.next_batch()
 
         with ctx:
             results = model(x, y)
-            loss = results['loss']
-            train_loss = loss.detach()
-            if 'mtp_loss' in results:
-                train_mtp_loss = results['mtp_loss'].detach()
-            else:
-                train_mtp_loss = None
+            loss = results.pop('loss')
+            train_loss += loss.detach()
+            for k, v in results.items():
+                if '_loss_' in k:
+                    metrics[k] += v.detach()
+            del results
 
         if i < train_accumulation_steps and ctx.device == 'cuda':
             with model.no_sync():
@@ -112,7 +110,14 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 
     model.zero_grad(set_to_none=True)
 
-    return train_loss, train_mtp_loss
+    dist.all_reduce(train_loss, op=dist.ReduceOp.AVG)
+    train_loss /= train_accumulation_steps
+
+    for k, v in list(metrics.items()):
+        dist.all_reduce(metrics[k], op=dist.ReduceOp.AVG)
+        metrics[k] /= train_accumulation_steps
+
+    return train_loss, metrics
 
 
 def name_exp(cfg):
@@ -234,7 +239,7 @@ def main(cfg: DictConfig):
                 torch.cuda.synchronize()
 
             # Training step
-            train_loss, train_mtp_loss = training_step(
+            train_loss, train_metrics = training_step(
                 optimized_model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx
             )
 
@@ -244,14 +249,13 @@ def main(cfg: DictConfig):
 
             # Validation
             if first_step or last_step or (step % cfg.training.val_loss_every == 0):
-                val_loss, val_stp_loss, val_mtp_loss = validation_step(optimized_model, val_loader, val_steps, ctx)
+                val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)
                 logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
                 if master_process:
                     wandb.log({
+                        'global_step': step,
                         'valid/loss': val_loss,
-                        'valid/stp_loss': val_stp_loss,
-                        'valid/mtp_loss': val_mtp_loss,
-                        'global_step': step
+                        **{('valid/%s' % k): v for k, v in val_metrics.items()},
                     })
 
             # Logging and model saving
@@ -263,9 +267,9 @@ def main(cfg: DictConfig):
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.10f} time/step:{dt:.2f}s")
                 wandb.log({
+                    'global_step': step,
                     'train/loss': train_loss,
-                    'train/mtp_loss': train_mtp_loss,
-                    'global_step': step
+                    **{('train/%s' % k): v for k, v in train_metrics.items()},
                 })
     finally:
         dist.destroy_process_group()

@@ -126,6 +126,9 @@ if __name__ == "__main__":
     stats['ntoken'] = n_token
     stats['ncomponent'] = n_component
     stats['speculative'] = args.speculative
+    stats['beta'] = cfg.model.model.beta
+    stats['gamma'] = cfg.model.model.gamma
+    stats['kl_type'] = cfg.model.model.kl_type
     if args.speculative:
         num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)

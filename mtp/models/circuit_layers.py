@@ -92,13 +92,31 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
             x = x.long()  # The input to Categorical should be discrete
         # x: (F, C, B, 1) -> (F, B)
         x = x.squeeze(dim=3).squeeze(dim=1)
-        # log_probs: (F, B, K, N)
+        F, B = x.shape
+        V = self.num_categories
+
+        # log_probs: (F, B, K, V)
         log_probs = self.log_probs
-        idx_fold = torch.arange(x.shape[0], device=log_probs.device)
-        idx_batch = torch.arange(x.shape[1], device=log_probs.device)
+        idx_fold = torch.arange(F, device=log_probs.device)
+        idx_batch = torch.arange(B, device=log_probs.device)
         # y: (F, B, K)
-        if log_probs.shape[1] != x.shape[1]:
-            log_probs = log_probs.broadcast_to(-1, x.shape[1], -1, -1)
+        if log_probs.shape[1] != B:
+            log_probs = log_probs.broadcast_to(-1, B, -1, -1)
+
+        # While expensive, we can compute the probability for all realisations
+        # of a single categorical variable. We need this for some losses,
+        # such as KL, where we need the whole categorical distribution.
+        # If we want to do this, we set the value of x for all entries in that
+        # fold to -1. Let's check if we have fold that is all negative ones.
+        expand_logits = torch.all(x == -1, dim=-1)
+        if torch.any(expand_logits):
+            assert expand_logits.sum() == 1
+            # Expand idx batch
+            idx_batch = torch.repeat_interleave(idx_batch, V, dim=0)
+            # Repeat batch dimension
+            x = torch.repeat_interleave(x, V, dim=1)
+            # Replace the -1 with torch.arange(V).num_categories)
+            x[expand_logits] = torch.tile(torch.arange(V, device=log_probs.device), (B,))
         y = log_probs[idx_fold[:, None], idx_batch[None, :], :, x]
         return self.semiring.map_from(y, LSESumSemiring)
 
@@ -108,7 +126,7 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         )
 
     def sample(self, num_samples: int = 1) -> Tensor:
-        # log_probs: (F, B, K, N)
+        # log_probs: (F, B, K, V)
         log_probs = self.log_probs
         probs = torch.exp(log_probs)
         dist = distributions.Categorical(probs=probs)
@@ -189,7 +207,13 @@ class TorchBatchedSumLayer(TorchInnerLayer):
         # x: (F, H, B, Ki) -> (F, B, H * Ki)
         x = x.permute(0, 2, 1, 3).flatten(start_dim=2)
         # weight: (F, B, Ko, H * Ki)
-        weight = self.weight
+        # If we expanded logits in the categorical
+        # we need to expand the weights along the B axis here too
+        if self.weight.shape[1] != x.shape[1]:
+            V = x.shape[1] // self.weight.shape[1]
+            weight = torch.repeat_interleave(self.weight, V, dim=1)
+        else:
+            weight = self.weight
         return self.semiring.einsum(
             "fbi,fboi->fbo", inputs=(x,), operands=(weight,), dim=-1, keepdim=True
         )  # shape (F, B, Ko).

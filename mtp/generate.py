@@ -15,6 +15,9 @@ from torch import autocast
 from .train import set_deterministic
 
 
+BATCH_SIZE = 1
+
+
 def load_vocabs(path):
     with open(path, 'rb') as f:
         vocabs = pickle.load(f)
@@ -24,8 +27,15 @@ def load_vocabs(path):
 
 # TODO: Maybe avoid loading vocabs twice (here and decode)
 def encode(text, cfg, device):
-    if cfg.lm.model.from_huggingface is not None:
-        tokeniser = AutoTokenizer.from_pretrained(cfg.lm.model.from_huggingface)
+    hf_model = cfg.lm.model.from_huggingface
+    if hf_model is not None:
+        tokeniser = AutoTokenizer.from_pretrained(hf_model)
+        tokeniser.add_bos_token = True
+        # TODO: Get reply about what is going on with BOS
+        # NOTE: for this model we need a prompt
+        # BOS is not added by default by the tokenizer
+        if hf_model.endswith('ablation-model-fineweb-edu'):
+            assert text != '', 'Empty prompt is not supported for %s, use a prompt.' % hf_model
         x = tokeniser.encode(text, return_tensors='pt').to(device)
     else:
         # Below works for char level model only
@@ -75,7 +85,6 @@ if __name__ == "__main__":
 
     set_deterministic(args.random_seed)
 
-    BATCH_SIZE = 1
     os.environ['DEVICE'] = args.device
 
     # Initialize training context
@@ -98,7 +107,7 @@ if __name__ == "__main__":
         cfg = ckp.config
     model.eval()
 
-    x = encode(args.prompt, cfg, args.device)
+    x = encode(args.prompt or '', cfg, args.device)
 
     # Init model in case loading takes additional time - do not use this output
     with ctx:

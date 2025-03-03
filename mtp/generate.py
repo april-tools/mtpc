@@ -9,6 +9,9 @@ import argparse
 import numpy as np
 
 from mtp.utils.checkpoint import Checkpoint
+from transformers import AutoTokenizer
+from torch import autocast
+
 from .train import set_deterministic
 
 
@@ -17,6 +20,35 @@ def load_vocabs(path):
         vocabs = pickle.load(f)
     return dict(encode=lambda x: [vocabs['stoi'][s] for s in x],
                 decode=lambda x: ''.join([vocabs['itos'][i] for i in x]))
+
+
+# TODO: Maybe avoid loading vocabs twice (here and decode)
+def encode(text, cfg, device):
+    if cfg.lm.model.from_huggingface is not None:
+        tokeniser = AutoTokenizer.from_pretrained(cfg.lm.model.from_huggingface)
+        x = tokeniser.encode(text, return_tensors='pt').to(device)
+    else:
+        # Below works for char level model only
+        # TODO: Make below BOS - unsure what it is for the encoded docs
+        if text is None:
+            BOS = 1
+            x = torch.full(size=(BATCH_SIZE, 1), fill_value=BOS, dtype=torch.int64, device=device)
+        else:
+            vocabs = load_vocabs(cfg.data.vocabs)
+            # TODO: Need tokenizer here for token models
+            x = torch.tensor(vocabs['encode'](text), dtype=torch.int, device=device)
+            x = x.unsqueeze(0)
+    return x
+
+
+def decode(xx, cfg):
+    if cfg.lm.model.from_huggingface is not None:
+        tokeniser = AutoTokenizer.from_pretrained(cfg.lm.model.from_huggingface)
+        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=True)[0]
+    else:
+        vocabs = load_vocabs(cfg.data.vocabs)
+        text = vocabs['decode'](xx.ravel().tolist())
+    return text
 
 
 if __name__ == "__main__":
@@ -43,9 +75,11 @@ if __name__ == "__main__":
 
     set_deterministic(args.random_seed)
 
-    # TODO: Do we care about changing this?
     BATCH_SIZE = 1
     os.environ['DEVICE'] = args.device
+
+    # Initialize training context
+    ctx = autocast(device_type=args.device, dtype=torch.bfloat16)
 
     # If we do not pass in a checkpoint, read config and allow overrides
     if args.checkpoint is None:
@@ -62,22 +96,13 @@ if __name__ == "__main__":
             ckp.config.lm.model.encoder_only = False
         model = ckp.model
         cfg = ckp.config
-
     model.eval()
 
-    vocabs = load_vocabs(cfg.data.vocabs)
-
-    # TODO: Make below BOS - unsure what it is for the encoded docs
-    if args.prompt is None:
-        BOS = 1
-        x = torch.full(size=(BATCH_SIZE, 1), fill_value=BOS, dtype=torch.int64, device=args.device)
-    else:
-        # TODO: Need tokenizer here for token models
-        x = torch.tensor(vocabs['encode'](args.prompt), dtype=torch.int, device=args.device)
-        x = x.unsqueeze(0)
+    x = encode(args.prompt, cfg, args.device)
 
     # Init model in case loading takes additional time - do not use this output
-    tokens = model.generate(x, mode=args.mode)
+    with ctx:
+        tokens = model.generate(x, mode=args.mode)
 
     n_token = 1
     n_component = 1
@@ -112,13 +137,15 @@ if __name__ == "__main__":
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
             if args.speculative:
-                tokens = model.self_speculative_generate(x)
+                with ctx:
+                    tokens = model.self_speculative_generate(x)
                 # The current self-speculative decoding implementation always returns
                 # at least one extra token. So, we subtract 1 to get the number of accepted
                 # tokens from the draft/circuit model
                 num_accepted_tokens.append(tokens.shape[1] - 1)
             else:
-                tokens = model.generate(x, mode=args.mode)
+                with ctx:
+                    tokens = model.generate(x, mode=args.mode)
             x = torch.cat([x, tokens], dim=1)
             pbar.update(tokens.shape[1])
 
@@ -132,7 +159,7 @@ if __name__ == "__main__":
     else:
         raise ValueError('Unexpected device %s' % args.device)
 
-    print('Generation:\n\n', vocabs['decode'](x.ravel().tolist()))
+    print('Generation:\n\n', decode(x, cfg))
 
     tps = args.num_tokens / elapsed_time
 

@@ -3,11 +3,13 @@ import json
 import time
 import tqdm
 import torch
+import hydra
 import pickle
 import argparse
 import numpy as np
 
 from mtp.utils.checkpoint import Checkpoint
+from .train import set_deterministic
 
 
 def load_vocabs(path):
@@ -20,7 +22,7 @@ def load_vocabs(path):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint', required=True, type=str,
+    parser.add_argument('--checkpoint', default=None, type=str,
                         help='The checkpointed model (.pth file) to use for generation or '
                         'a .yaml config file if we want to initialise a random model.')
     parser.add_argument('--num-tokens', default=1000, type=int,
@@ -36,21 +38,33 @@ if __name__ == "__main__":
     parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
                         help='Single Token Prediction (stp) is available both for MTP and autoregressive models. '
                         'MTP is available only for MTP models')
+    parser.add_argument('overrides', nargs="*")
     args = parser.parse_args()
 
-    torch.manual_seed(args.random_seed)
+    set_deterministic(args.random_seed)
 
     # TODO: Do we care about changing this?
     BATCH_SIZE = 1
     os.environ['DEVICE'] = args.device
 
-    ckp = Checkpoint.load(args.checkpoint)
-    if args.speculative:
-        ckp.config.lm.model.encoder_only = False
-    model = ckp.model
+    # If we do not pass in a checkpoint, read config and allow overrides
+    if args.checkpoint is None:
+        with hydra.initialize(version_base=None, config_path="../configs", job_name=None):
+            ckp = hydra.compose(config_name="config", overrides=args.overrides)
+        if args.speculative:
+            ckp.lm.model.encoder_only = False
+        model = hydra.utils.instantiate(ckp.model).model
+        model.to(args.device)
+        cfg = ckp
+    else:
+        ckp = Checkpoint.load(args.checkpoint)
+        if args.speculative:
+            ckp.config.lm.model.encoder_only = False
+        model = ckp.model
+        cfg = ckp.config
+
     model.eval()
 
-    cfg = ckp.config
     vocabs = load_vocabs(cfg.data.vocabs)
 
     # TODO: Make below BOS - unsure what it is for the encoded docs
@@ -141,7 +155,7 @@ if __name__ == "__main__":
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
     stats['mode'] = args.mode
-    stats['checkpoint'] = repr(ckp)
+    stats['checkpoint'] = '%s@0' % ckp.name if args.checkpoint is None else repr(ckp)
 
     result = json.dumps(stats)
 

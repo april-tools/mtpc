@@ -9,21 +9,21 @@ mkdir -p $MTP_ROOT/outputs/results
 device=cuda
 seed=12
 dataset=finewebedu10B
-model=basharin
 lm=finewebedu
+model=basharin
 
-# TODO: Fix below to be just the LM
-# torchrun -m mtp.generate \
-# 	--mode stp \
-# 	--random-seed $seed \
-# 	--num-tokens 1000 \
-# 	--device $device \
-# 	--prompt 'A polytope' \
-# 	data=$dataset \
-# 	lm=$lm \
-# 	model=$model \
-# 	| tail -n 1 \
-# 	>> $MTP_ROOT/outputs/results/throughput.jsonl
+torchrun -m mtp.generate \
+	--mode stp \
+	--random-seed $seed \
+	--num-tokens 1000 \
+	--device $device \
+	--prompt 'A polytope' \
+	data=$dataset \
+	lm=$lm \
+	model=stp \
+	lm.model.encoder_only=false \
+	| tail -n 1 \
+	>> $MTP_ROOT/outputs/results/throughput.jsonl
 for n in 2 3 4;
 do
 	for r in 1 2 4;

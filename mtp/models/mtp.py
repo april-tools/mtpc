@@ -59,6 +59,9 @@ class MultiTokenLM(torch.nn.Module):
         # Keep track of what we need to compute
         self.compute_ce, self.compute_kl = self.beta < 1, self.beta > 0
 
+        if self.compute_kl:
+            assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
+
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())
         self._cat_layer: TorchBatchedCategoricalLayer = layers[self.circuit.cat_layer_idx]

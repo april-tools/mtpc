@@ -122,8 +122,7 @@ class MultiTokenLM(torch.nn.Module):
             self,
             xx: torch.Tensor,               # (B, S) input ids
             yy: torch.Tensor,               # (B, S) target ids
-            return_log_probs: bool = False,
-            return_stp_loss: bool = False) -> dict:
+            return_log_probs: bool = False) -> dict:
         r"""
         Reference: https://arxiv.org/abs/2410.17765 , Eq 14.
 
@@ -144,11 +143,9 @@ class MultiTokenLM(torch.nn.Module):
 
         Returns:
         A dictionary with keys:
-            'loss': the final scalar,
-            'distill_loss': the sum of distillation terms,
-            'crossent_loss': the sum of cross-entropy terms,
-            'aux_loss': mixture-of-experts balancing loss,
-            'mtp_loss': combined total (useful to log).
+            'loss': the combined loss used for training
+            'kl_loss_at_h': the kl loss for token h (for h in H)
+            'ce_loss_at_h': the cross entropy loss for token h (for h in H)
         """
         H = self.mt_head.n_token
         # B = xx.shape[0]

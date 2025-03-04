@@ -18,6 +18,13 @@ from .train import set_deterministic
 BATCH_SIZE = 1
 
 
+def get_huggingface_model(cfg):
+    hf_model = None
+    if 'lm' in cfg:
+        hf_model = cfg.lm.model.from_huggingface
+    return hf_model
+
+
 def load_vocabs(path):
     with open(path, 'rb') as f:
         vocabs = pickle.load(f)
@@ -27,7 +34,7 @@ def load_vocabs(path):
 
 # TODO: Maybe avoid loading vocabs twice (here and decode)
 def encode(text, cfg, device):
-    hf_model = cfg.lm.model.from_huggingface
+    hf_model = get_huggingface_model(cfg)
     if hf_model is not None:
         tokeniser = AutoTokenizer.from_pretrained(hf_model)
         tokeniser.add_bos_token = True
@@ -52,8 +59,9 @@ def encode(text, cfg, device):
 
 
 def decode(xx, cfg):
-    if cfg.lm.model.from_huggingface is not None:
-        tokeniser = AutoTokenizer.from_pretrained(cfg.lm.model.from_huggingface)
+    hf_model = get_huggingface_model(cfg)
+    if hf_model is not None:
+        tokeniser = AutoTokenizer.from_pretrained(hf_model)
         text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=True)[0]
     else:
         vocabs = load_vocabs(cfg.data.vocabs)
@@ -177,12 +185,6 @@ if __name__ == "__main__":
     stats['ntoken'] = n_token
     stats['ncomponent'] = n_component
     stats['speculative'] = args.speculative
-    stats['beta'] = cfg.model.model.beta
-    stats['gamma'] = cfg.model.model.gamma
-    stats['kl_type'] = cfg.model.model.kl_type
-    stats['token_head_type'] = cfg.model.token_head.expander.expander_type
-    stats['token_head_num_transformer_layers'] = cfg.model.token_head.encoder.n_layer
-    stats['sum_weight_num_transformer_layers'] = cfg.model.sum_weight_head.encoder.n_layer
     if args.speculative:
         num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)
@@ -196,6 +198,14 @@ if __name__ == "__main__":
     stats['tokens_per_second'] = tps
     stats['mode'] = args.mode
     stats['checkpoint'] = '%s-%s@0' % (ckp.model.name, ckp.lm.name) if args.checkpoint is None else repr(ckp)
+    # Below attributes only exist for MTP
+    if 'stp' not in stats['model']:
+        stats['beta'] = cfg.model.model.beta
+        stats['gamma'] = cfg.model.model.gamma
+        stats['kl_type'] = cfg.model.model.kl_type
+        stats['token_head_type'] = cfg.model.token_head.expander.expander_type
+        stats['token_head_num_transformer_layers'] = cfg.model.token_head.encoder.n_layer
+        stats['sum_weight_num_transformer_layers'] = cfg.model.sum_weight_head.encoder.n_layer
 
     result = json.dumps(stats)
 

@@ -15,4 +15,4 @@ model:
     from_huggingface: null
     ref_enc: encoder
     ref_head: head
-    freeze: true
+    freeze: false

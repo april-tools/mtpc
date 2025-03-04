@@ -86,10 +86,9 @@ class GPT(nn.Module):
         self.apply(_init_weights)
 
     def forward(
-        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True, return_stp_loss: bool = True
+        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True
     ) -> tuple[Tensor | None, None]:
         assert self.head is not None, "The forward of GPT can only be called if encoder_only=False"
-        assert return_stp_loss, "The forward of GPT always computes the single-token loss"
 
         # forward the GPT model itself
         x = self.encoder(idx)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
@@ -107,7 +106,7 @@ class GPT(nn.Module):
         if not return_logits:
             logits = None
 
-        return dict(logits=logits, loss=loss, stp_loss=loss)
+        return dict(logits=logits, loss=loss)
 
     @torch.no_grad()
     def generate(self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = 'stp') -> Tensor:

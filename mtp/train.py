@@ -59,7 +59,7 @@ def validation_step(model, val_loader, val_steps, ctx):
     for _ in range(val_steps):
         x_val, y_val = val_loader.next_batch()
         with ctx:
-            results = model(x_val, y_val, return_stp_loss=True)
+            results = model(x_val, y_val)
             val_loss += results.pop('loss').detach()
             for k, v in results.items():
                 if '_loss_' in k:

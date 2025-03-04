@@ -99,26 +99,22 @@ class LM(nn.Module):
 
     def forward(
         self,
-        idx: Tensor,
-        targets: Tensor | None = None,
+        xx: Tensor,
+        yy: Tensor | None = None,
         return_logits: bool = True,
-        return_stp_loss: bool = True,
     ) -> tuple[Tensor | None, None]:
         assert (
             self.head is not None
         ), "The forward of GPT can only be called if encoder_only=False"
-        assert (
-            return_stp_loss
-        ), "The forward of GPT always computes the single-token loss"
 
-        # forward the GPT model itself
-        x = self.encoder(idx)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
+        # forward the encoder
+        x = self.encoder(xx)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
 
-        if targets is not None:
+        if yy is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.head(x)
             loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
+                logits.view(-1, logits.size(-1)), yy.view(-1), ignore_index=-1
             )
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
@@ -131,7 +127,7 @@ class LM(nn.Module):
         if not return_logits:
             logits = None
 
-        return dict(logits=logits, loss=loss, stp_loss=loss)
+        return dict(logits=logits, loss=loss)
 
     @torch.no_grad()
     def generate(

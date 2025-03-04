@@ -1,0 +1,18 @@
+name: nanogpt
+n_embd: 768
+n_head: 6
+n_layer: 12
+model:
+    _target_: mtp.models.lm.LM
+    lm:
+        _target_: mtp.models.gpt.GPT
+        vocab_size: ${data.vocab_size}
+        n_embd: ${model.n_embd}
+        n_head: ${model.n_head}
+        n_layer: ${model.n_layer}
+    encoder_only: false
+    from_checkpoint: null
+    from_huggingface: null
+    ref_enc: encoder
+    ref_head: head
+    freeze: false

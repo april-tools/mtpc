@@ -65,12 +65,12 @@ class LM(nn.Module):
             # Assume that if we can find the conf, we saved the checkpoint
             try:
                 cp = Checkpoint.load(self.from_checkpoint)
-                lm = cp.model
+                lm = cp.model.lm
             # otherwise try loading as default pt
             except Exception:
                 lm = torch.load(self.from_checkpoint,
                                 weights_only=False,
-                                map_location=get_local_device())
+                                map_location=get_local_device()).lm
         elif self.from_huggingface is not None:
             lm = AutoModelForCausalLM.from_pretrained(self.from_huggingface,
                                                       attn_implementation="flash_attention_2",

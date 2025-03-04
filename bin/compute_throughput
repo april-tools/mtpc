@@ -8,21 +8,22 @@ mkdir -p $MTP_ROOT/outputs/results
 
 device=cuda
 seed=12
-dataset=shakespeare_char
+dataset=finewebedu10B
 model=basharin
 lm=finewebedu
 
-torchrun -m mtp.generate \
-	--mode stp \
-	--random-seed $seed \
-	--num-tokens 1000 \
-	--device $device \
-	--prompt 'A polytope' \
-	data=$dataset \
-	lm=$lm \
-	model=$model \
-	| tail -n 1 \
-	>> $MTP_ROOT/outputs/results/throughput.jsonl
+# TODO: Fix below to be just the LM
+# torchrun -m mtp.generate \
+# 	--mode stp \
+# 	--random-seed $seed \
+# 	--num-tokens 1000 \
+# 	--device $device \
+# 	--prompt 'A polytope' \
+# 	data=$dataset \
+# 	lm=$lm \
+# 	model=$model \
+# 	| tail -n 1 \
+# 	>> $MTP_ROOT/outputs/results/throughput.jsonl
 for n in 2 3 4;
 do
 	for r in 1 2 4;
@@ -33,6 +34,10 @@ do
 			do
 				for n_enc_sum in 0 1 2;
 				do
+					if (( $r == 1 )) && (( $n_enc_sum > 0 ));
+					then
+						continue
+					fi
 					python -m mtp.generate \
 						--mode mtp \
 						--random-seed $seed \
@@ -49,23 +54,23 @@ do
 						model.token_head.encoder.n_layer=$n_enc_token \
 						| tail -n 1 \
 						>> $MTP_ROOT/outputs/results/throughput.jsonl
-					python -m mtp.generate \
-						--mode mtp \
-						--speculative \
-						--random-seed $seed \
-						--num-tokens 1000 \
-						--device $device \
-						--prompt 'A polytope' \
-						data=$dataset \
-						lm=$lm \
-						model=$model \
-						model.n_token=$n_token \
-						model.n_component=$n_component \
-						model.token_head.expander.expander_type=$exp \
-						model.sum_weight_head.encoder.n_layer=$n_enc_sum \
-						model.token_head.encoder.n_layer=$n_enc_token \
-						| tail -n 1 \
-						>> $MTP_ROOT/outputs/results/throughput.jsonl
+					# python -m mtp.generate \
+					# 	--mode mtp \
+					# 	--speculative \
+					# 	--random-seed $seed \
+					# 	--num-tokens 1000 \
+					# 	--device $device \
+					# 	--prompt 'A polytope' \
+					# 	data=$dataset \
+					# 	lm=$lm \
+					# 	model=$model \
+					# 	model.n_token=$n \
+					# 	model.n_component=$r \
+					# 	model.token_head.expander.expander_type=$exp \
+					# 	model.sum_weight_head.encoder.n_layer=$n_enc_sum \
+					# 	model.token_head.encoder.n_layer=$n_enc_token \
+					# 	| tail -n 1 \
+					# 	>> $MTP_ROOT/outputs/results/throughput.jsonl
 				done
 			done
 		done

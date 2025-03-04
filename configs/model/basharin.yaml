@@ -51,4 +51,4 @@ model:
     # Loss weighing
     kl_type: reverse    # Can be forward or reverse
     beta: .9            # Interpolate losses. 0. means CE only and 1. is only KL
-    gamma: 1.           # Exp. future token discount. 1. Means all tokens contribute equally
+    gamma: .8           # Exp. future token discount. 1. Means all tokens contribute equally

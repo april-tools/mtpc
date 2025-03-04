@@ -105,6 +105,7 @@ if __name__ == "__main__":
             ckp.config.lm.model.encoder_only = False
         model = ckp.model
         cfg = ckp.config
+    model = torch.compile(model)
     model.eval()
 
     x = encode(args.prompt or '', cfg, args.device)
@@ -179,6 +180,9 @@ if __name__ == "__main__":
     stats['beta'] = cfg.model.model.beta
     stats['gamma'] = cfg.model.model.gamma
     stats['kl_type'] = cfg.model.model.kl_type
+    stats['token_head_type'] = cfg.model.token_head.expander.expander_type
+    stats['token_head_num_transformer_layers'] = cfg.model.token_head.encoder.n_layer
+    stats['sum_weight_num_transformer_layers'] = cfg.model.sum_weight_head.encoder.n_layer
     if args.speculative:
         num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)
@@ -191,7 +195,7 @@ if __name__ == "__main__":
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
     stats['mode'] = args.mode
-    stats['checkpoint'] = '%s@0' % ckp.name if args.checkpoint is None else repr(ckp)
+    stats['checkpoint'] = '%s-%s@0' % (ckp.model.name, ckp.lm.name) if args.checkpoint is None else repr(ckp)
 
     result = json.dumps(stats)
 

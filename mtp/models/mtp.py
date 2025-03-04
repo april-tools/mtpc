@@ -209,7 +209,11 @@ class MultiTokenLM(torch.nn.Module):
 
             if self.compute_ce:
                 loss_for_log['ce_loss_at_%d' % (k+1)] = ce_loss
-        # TODO: We may want to divide combined_loss by sum of the gamma^k
+
+        # We the loss to stay on same scale for more tokens
+        # and for change of gamma - gamma should only scale relatively
+        sum_combined_loss = sum_combined_loss / sum([self.gamma ** k
+                                                     for k in range(H)])
 
         return {
             'loss': sum_combined_loss,

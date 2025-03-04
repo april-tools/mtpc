@@ -83,6 +83,8 @@ if __name__ == "__main__":
                         help='Prompt to use for generation.')
     parser.add_argument('--speculative', action='store_true',
                         help='Whether to use speculative decoding.')
+    parser.add_argument('--use-cache', action='store_true',
+                        help='Whether to use a kv cache.')
     parser.add_argument('--random-seed', default=13, type=int,
                         help='The random seed to use for sampling.')
     parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
@@ -120,7 +122,7 @@ if __name__ == "__main__":
 
     # Init model in case loading takes additional time - do not use this output
     with ctx:
-        tokens = model.generate(x, mode=args.mode)
+        tokens = model.generate(x, mode=args.mode, use_cache=args.use_cache)['tokens']
 
     n_token = 1
     n_component = 1
@@ -151,19 +153,25 @@ if __name__ == "__main__":
 
     init_length = x.shape[1]
 
+    past_key_values = None
     with tqdm.tqdm(total=args.num_tokens) as pbar:
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
             if args.speculative:
                 with ctx:
-                    tokens = model.self_speculative_generate(x)
+                    outputs = model.self_speculative_generate(x, use_cache=args.use_cache, past_key_values=past_key_values)
+                tokens, past_key_values = outputs['tokens'], outputs['past_key_values']
                 # The current self-speculative decoding implementation always returns
                 # at least one extra token. So, we subtract 1 to get the number of accepted
                 # tokens from the draft/circuit model
                 num_accepted_tokens.append(tokens.shape[1] - 1)
             else:
                 with ctx:
-                    tokens = model.generate(x, mode=args.mode)
+                    outputs = model.generate(x,
+                                             mode=args.mode,
+                                             use_cache=args.use_cache,
+                                             past_key_values=past_key_values)
+                tokens, past_key_values = outputs['tokens'], outputs['past_key_values']
             x = torch.cat([x, tokens], dim=1)
             pbar.update(tokens.shape[1])
 
@@ -185,6 +193,7 @@ if __name__ == "__main__":
     stats['ntoken'] = n_token
     stats['ncomponent'] = n_component
     stats['speculative'] = args.speculative
+    stats['use_kv_cache'] = args.use_cache
     if args.speculative:
         num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)

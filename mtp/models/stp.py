@@ -15,23 +15,31 @@ class SingleTokenLM(torch.nn.Module):
 
     """
 
-    def __init__(self,
-                 lm: LM):
+    def __init__(self, lm: LM):
         super().__init__()
         self.lm = lm
 
     def forward(
-            self,
-            xx: torch.Tensor,               # (B, S) input ids
-            yy: torch.Tensor,               # (B, S) target ids
-            return_logits: bool = False
-            ) -> dict:
-        return self.lm(xx=xx,
-                       yy=yy,
-                       return_logits=return_logits)
+        self,
+        xx: torch.Tensor,  # (B, S) input ids
+        yy: torch.Tensor,  # (B, S) target ids
+        return_logits: bool = False,
+    ) -> dict:
+        return self.lm(xx=xx, yy=yy, return_logits=return_logits)
 
     @torch.no_grad()
     def generate(
-        self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = "stp"
+        self,
+        inputs: torch.Tensor,
+        use_argmax: bool = False,
+        mode: str = "stp",
+        use_cache: bool = True,
+        past_key_values: Tensor = None,
     ) -> Tensor:
-        return self.lm.generate(inputs, use_argmax=use_argmax, mode=mode)
+        return self.lm.generate(
+            inputs,
+            use_argmax=use_argmax,
+            mode=mode,
+            use_cache=use_cache,
+            past_key_values=past_key_values,
+        )

@@ -12,7 +12,7 @@ dataset=finewebedu10B
 lm=finewebedu
 model=basharin
 
-torchrun -m mtp.generate \
+python -m mtp.generate \
 	--mode stp \
 	--random-seed $seed \
 	--num-tokens 1000 \

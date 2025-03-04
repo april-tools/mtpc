@@ -107,16 +107,16 @@ class GPT(nn.Module):
             logits = None
 
         return dict(logits=logits, loss=loss)
-
-    @torch.no_grad()
-    def generate(self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = 'stp') -> Tensor:
-        if mode != 'stp':
-            raise ValueError('Only single token generation is supported')
-        results = self.forward(inputs, return_logits=True)
-        logits = results['logits']
-        if use_argmax:
-            toks = torch.argmax(logits, dim=2)
-        else:
-            probs = torch.softmax(logits, dim=2)
-            toks = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
-        return toks
+    #
+    # @torch.no_grad()
+    # def generate(self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = 'stp') -> Tensor:
+    #     if mode != 'stp':
+    #         raise ValueError('Only single token generation is supported')
+    #     results = self.forward(inputs, return_logits=True)
+    #     logits = results['logits']
+    #     if use_argmax:
+    #         toks = torch.argmax(logits, dim=2)
+    #     else:
+    #         probs = torch.softmax(logits, dim=2)
+    #         toks = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
+    #     return toks

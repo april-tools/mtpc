@@ -34,8 +34,14 @@ class LM(nn.Module):
         # Whether to freeze the lm or not
         self.freeze = freeze
 
-        noneness = (lm is None, from_checkpoint is None, from_huggingface is None)
-        assert noneness in set([(False, True, True), (True, False, True), (True, True, False)])
+        noneness = (
+            lm is None,
+            from_checkpoint is None,
+            from_huggingface is None,
+        )
+        assert noneness in set(
+            [(False, True, True), (True, False, True), (True, True, False)]
+        )
 
         # We only save weights if a) the model is not frozen
         # or b) if we initialised a model that does not have a checkpoint
@@ -45,7 +51,7 @@ class LM(nn.Module):
 
         # Keep track of the keys which we set to None if save_weights=False
         # we need to do this before we drop the head
-        self.none_keys = set('lm.%s' % k for k in self.lm.state_dict().keys())
+        self.none_keys = set("lm.%s" % k for k in self.lm.state_dict().keys())
 
         # Keep lm head weights in case we want to use them during init
         # We delete this in MultiTokenLM when we do not need it
@@ -68,13 +74,17 @@ class LM(nn.Module):
                 lm = cp.model.lm
             # otherwise try loading as default pt
             except Exception:
-                lm = torch.load(self.from_checkpoint,
-                                weights_only=False,
-                                map_location=get_local_device()).lm
+                lm = torch.load(
+                    self.from_checkpoint,
+                    weights_only=False,
+                    map_location=get_local_device(),
+                ).lm
         elif self.from_huggingface is not None:
-            lm = AutoModelForCausalLM.from_pretrained(self.from_huggingface,
-                                                      attn_implementation="flash_attention_2",
-                                                      torch_dtype=torch.bfloat16)
+            lm = AutoModelForCausalLM.from_pretrained(
+                self.from_huggingface,
+                attn_implementation="flash_attention_2",
+                torch_dtype=torch.bfloat16,
+            )
         return lm
 
     def state_dict(self, *args, **kwargs):
@@ -84,8 +94,8 @@ class LM(nn.Module):
         if not self.save_weights:
             # NOTE: The complication here is that when we created none_keys
             # we were not prefixing with the current modules prefix
-            prefix = kwargs.pop('prefix')
-            new_state = {('%s%s' % (prefix, k)): None for k in self.none_keys}
+            prefix = kwargs.pop("prefix")
+            new_state = {("%s%s" % (prefix, k)): None for k in self.none_keys}
             state.update(new_state)
         return state
 
@@ -108,18 +118,18 @@ class LM(nn.Module):
         ), "The forward of GPT can only be called if encoder_only=False"
 
         # forward the encoder
-        x = self.encoder(xx)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
+        xx = self.encoder(xx)["last_hidden_state"]  # token embeddings of shape (b, t, n_embd)
 
         if yy is not None:
             # if we are given some desired targets also calculate the loss
-            logits = self.head(x)
+            logits = self.head(xx)
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)), yy.view(-1), ignore_index=-1
             )
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.head(
-                x[:, [-1], :]
+                xx[:, [-1], :]
             )  # note: using list [-1] to preserve the time dim
             loss = None
 
@@ -131,15 +141,30 @@ class LM(nn.Module):
 
     @torch.no_grad()
     def generate(
-        self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = "stp"
+        self,
+        inputs: torch.Tensor,
+        use_argmax: bool = False,
+        mode: str = "stp",
+        use_cache: bool = True,
+        past_key_values: Tensor = None,
     ) -> Tensor:
+        self.eval()
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
-        results = self.forward(inputs, return_logits=True)
-        logits = results["logits"]
+        if use_cache:
+            # We only pass in the unseen inputs, because we are using cache
+            seen_tokens = past_key_values._seen_tokens if past_key_values is not None else 0
+            outputs = self.encoder(input_ids=inputs[:, seen_tokens:], use_cache=use_cache, past_key_values=past_key_values)
+            xx = outputs["last_hidden_state"]  # token embeddings of shape (b, t, n_embd)
+            past_key_values = outputs['past_key_values']
+            print(inputs.shape, past_key_values._seen_tokens)
+        else:
+            xx = self.encoder(inputs)["last_hidden_state"]
+
+        logits = self.head(xx[:, [-1], :])  # note: using list [-1] to preserve the time dim
         if use_argmax:
-            toks = torch.argmax(logits, dim=2)
+            tokens = torch.argmax(logits, dim=2)
         else:
             probs = torch.softmax(logits, dim=2)
-            toks = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
-        return toks
+            tokens = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
+        return dict(tokens=tokens, past_key_values=past_key_values)

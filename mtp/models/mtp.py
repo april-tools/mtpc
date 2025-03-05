@@ -38,7 +38,7 @@ class MultiTokenLM(torch.nn.Module):
                  init_from_lm_head: bool = True,
                  beta: float = .9,
                  gamma: float = 1.,
-                 kl_type: str = 'reverse'):
+                 kl_type: str = 'forward'):
         super().__init__()
         self.lm = lm
         self.mt_head = mt_head
@@ -341,20 +341,22 @@ class MultiTokenLM(torch.nn.Module):
             kl_losses = torch.zeros(H, device=teacher_log_probs.device)
             for h in range(H):
                 if self.kl_type == 'forward':
-                    # For usual order: input, target, pt computes reverse KL.
-                    # pp1 = torch.softmax(torch.randn(3, 5), dim=-1)
-                    # pp2 = torch.softmax(torch.randn(3, 5), dim=-1)
-                    # kl_f = (pp1 * torch.log(pp1 / pp2)).sum(axis=1).mean()
-                    # kl_f_pt = F.kl_div(torch.log(pp2), torch.log(pp1), log_target=True, reduction='batchmean')
+                    # We want to compute KL(target_model || draft_model)
+                    # For usual order: input, target, pt computes forward KL.
+                    # target = torch.softmax(torch.randn(3, 5), dim=-1)
+                    # draft = torch.softmax(torch.randn(3, 5), dim=-1)
+                    # kl_f = (target * torch.log(target / draft)).sum(axis=1).mean()
+                    # # NOTE: the flip in order arguments for pt below
+                    # kl_f_pt = F.kl_div(torch.log(draft), torch.log(target), log_target=True, reduction='batchmean')
                     # assert torch.allclose(kl_f, kl_f_pt)
-
-                    kl_losses[h] = F.kl_div(teacher_log_probs[h],
-                                            log_probs[h],
+                    # So we do draft, target order for forward KL:
+                    kl_losses[h] = F.kl_div(log_probs[h],
+                                            teacher_log_probs[h],
                                             log_target=True,
                                             reduction='batchmean')
                 else:
-                    kl_losses[h] = F.kl_div(log_probs[h],
-                                            teacher_log_probs[h],
+                    kl_losses[h] = F.kl_div(teacher_log_probs[h],
+                                            log_probs[h],
                                             log_target=True,
                                             reduction='batchmean')
             losses['kl_losses'] = kl_losses

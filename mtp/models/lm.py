@@ -118,7 +118,9 @@ class LM(nn.Module):
         ), "The forward of GPT can only be called if encoder_only=False"
 
         # forward the encoder
-        xx = self.encoder(xx)["last_hidden_state"]  # token embeddings of shape (b, t, n_embd)
+        xx = self.encoder(xx)[
+            "last_hidden_state"
+        ]  # token embeddings of shape (b, t, n_embd)
 
         if yy is not None:
             # if we are given some desired targets also calculate the loss
@@ -153,15 +155,23 @@ class LM(nn.Module):
             raise ValueError("Only single token generation is supported")
         if use_cache:
             # We only pass in the unseen inputs, because we are using cache
-            seen_tokens = past_key_values._seen_tokens if past_key_values is not None else 0
-            outputs = self.encoder(input_ids=inputs[:, seen_tokens:], use_cache=use_cache, past_key_values=past_key_values)
-            xx = outputs["last_hidden_state"]  # token embeddings of shape (b, t, n_embd)
-            past_key_values = outputs['past_key_values']
-            print(inputs.shape, past_key_values._seen_tokens)
+            seen_tokens = 0
+            if past_key_values is not None:
+                seen_tokens = past_key_values.get_seq_length()
+            outputs = self.encoder(
+                input_ids=inputs[:, seen_tokens:],
+                use_cache=use_cache,
+                past_key_values=past_key_values,
+            )
+            # token embeddings of shape (b, t, n_embd)
+            xx = outputs["last_hidden_state"]
+            past_key_values = outputs["past_key_values"]
         else:
             xx = self.encoder(inputs)["last_hidden_state"]
 
-        logits = self.head(xx[:, [-1], :])  # note: using list [-1] to preserve the time dim
+        logits = self.head(
+            xx[:, [-1], :]
+        )  # note: using list [-1] to preserve the time dim
         if use_argmax:
             tokens = torch.argmax(logits, dim=2)
         else:

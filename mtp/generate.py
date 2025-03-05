@@ -153,25 +153,37 @@ if __name__ == "__main__":
 
     init_length = x.shape[1]
 
-    past_key_values = None
+    past_key_values, past_last_hidden_states = None, None
     with tqdm.tqdm(total=args.num_tokens) as pbar:
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
             if args.speculative:
                 with ctx:
-                    outputs = model.self_speculative_generate(x, use_cache=args.use_cache, past_key_values=past_key_values)
-                tokens, past_key_values = outputs['tokens'], outputs['past_key_values']
-                # The current self-speculative decoding implementation always returns
-                # at least one extra token. So, we subtract 1 to get the number of accepted
-                # tokens from the draft/circuit model
+                    outputs = model.self_speculative_generate(
+                        x,
+                        use_cache=args.use_cache,
+                        past_key_values=past_key_values,
+                        past_last_hidden_states=past_last_hidden_states
+                    )
+                tokens = outputs['tokens']
+                past_key_values = outputs['past_key_values']
+                past_last_hidden_states = outputs['past_last_hidden_states']
+                # The current self-speculative decoding implementation always
+                # returns at least one extra token. So, we subtract 1 to get
+                # the number of accepted tokens from the draft/circuit model
                 num_accepted_tokens.append(tokens.shape[1] - 1)
             else:
                 with ctx:
-                    outputs = model.generate(x,
-                                             mode=args.mode,
-                                             use_cache=args.use_cache,
-                                             past_key_values=past_key_values)
-                tokens, past_key_values = outputs['tokens'], outputs['past_key_values']
+                    outputs = model.generate(
+                        x,
+                        mode=args.mode,
+                        use_cache=args.use_cache,
+                        past_key_values=past_key_values,
+                        past_last_hidden_states=past_last_hidden_states
+                    )
+                tokens = outputs['tokens']
+                past_key_values = outputs['past_key_values']
+                past_last_hidden_states = outputs['past_last_hidden_states']
             x = torch.cat([x, tokens], dim=1)
             pbar.update(tokens.shape[1])
 
@@ -180,7 +192,8 @@ if __name__ == "__main__":
         elapsed_time = end_time - start_time
     elif args.device == 'cuda':
         end.record(torch.cuda.current_stream(args.device))
-        torch.cuda.synchronize(args.device)  # Synchronize CUDA Kernels before measuring time
+        # Synchronize CUDA Kernels before measuring time
+        torch.cuda.synchronize(args.device)
         elapsed_time = start.elapsed_time(end) * 1e-3   # CUDA returns ms
     else:
         raise ValueError('Unexpected device %s' % args.device)

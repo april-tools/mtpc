@@ -16,7 +16,8 @@ do
 			model.n_token=$n \
 			model.n_component=$r \
 			training.device_batch_size=8 \
-			training.val_loss_every=20 \
-			training.save_model_every=100
+			training.val_loss_every=200 \
+			training.save_model_every=5000 \
+			training.expname="basharin-n-$n-r-$r"
 	done
 done

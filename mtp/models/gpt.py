@@ -57,7 +57,7 @@ class GPTEncoder(nn.Module):
         )
         self.apply(_init_weights)
 
-    def forward(self, xx: Tensor) -> Tensor:
+    def forward(self, xx: Tensor, **kwargs) -> Tensor:
         xx = self.transformer.wte(xx)  # token embeddings of shape (B, S, n_embd)
         # TODO: Decide RMS_NORM positioning
         xx = F.rms_norm(xx, (xx.size(-1),))
@@ -86,10 +86,9 @@ class GPT(nn.Module):
         self.apply(_init_weights)
 
     def forward(
-        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True, return_stp_loss: bool = True
+        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True
     ) -> tuple[Tensor | None, None]:
         assert self.head is not None, "The forward of GPT can only be called if encoder_only=False"
-        assert return_stp_loss, "The forward of GPT always computes the single-token loss"
 
         # forward the GPT model itself
         x = self.encoder(idx)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
@@ -107,17 +106,17 @@ class GPT(nn.Module):
         if not return_logits:
             logits = None
 
-        return dict(logits=logits, loss=loss, stp_loss=loss)
-
-    @torch.no_grad()
-    def generate(self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = 'stp') -> Tensor:
-        if mode != 'stp':
-            raise ValueError('Only single token generation is supported')
-        results = self.forward(inputs, return_logits=True)
-        logits = results['logits']
-        if use_argmax:
-            toks = torch.argmax(logits, dim=2)
-        else:
-            probs = torch.softmax(logits, dim=2)
-            toks = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
-        return toks
+        return dict(logits=logits, loss=loss)
+    #
+    # @torch.no_grad()
+    # def generate(self, inputs: torch.Tensor, use_argmax: bool = False, mode: str = 'stp') -> Tensor:
+    #     if mode != 'stp':
+    #         raise ValueError('Only single token generation is supported')
+    #     results = self.forward(inputs, return_logits=True)
+    #     logits = results['logits']
+    #     if use_argmax:
+    #         toks = torch.argmax(logits, dim=2)
+    #     else:
+    #         probs = torch.softmax(logits, dim=2)
+    #         toks = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
+    #     return toks

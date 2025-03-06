@@ -387,7 +387,7 @@ class MultiTokenLM(torch.nn.Module):
     def generate(self, inputs: Tensor,
                  use_argmax: bool = False,
                  mode: str = 'mtp',
-                 use_cache: bool = True,
+                 use_cache: bool = False,
                  past_key_values: Tensor = None,
                  past_last_hidden_states: Tensor = None) -> Tensor:
         if mode == 'mtp' and use_argmax:
@@ -435,7 +435,7 @@ class MultiTokenLM(torch.nn.Module):
     # TODO: Refactor to bring for-loop into function as per Edoardo's comment
     @torch.no_grad()
     def self_speculative_generate(self, seq: Tensor,
-                                  use_cache: bool = True,
+                                  use_cache: bool = False,
                                   past_key_values: Tensor = None,
                                   past_last_hidden_states: Tensor = None) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:

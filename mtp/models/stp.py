@@ -33,7 +33,7 @@ class SingleTokenLM(torch.nn.Module):
         inputs: torch.Tensor,
         use_argmax: bool = False,
         mode: str = "stp",
-        use_cache: bool = True,
+        use_cache: bool = False,
         past_key_values: Tensor = None,
     ) -> Tensor:
         return self.lm.generate(

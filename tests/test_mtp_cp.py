@@ -64,7 +64,7 @@ def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     num_seqs, max_seq_length = 2 ** 17, mtp_cp.mt_head.n_token * num_steps + 1
     seqs = torch.full(size=(num_seqs, 1), fill_value=BOS, dtype=torch.int64)
     for _ in range(num_steps):
-        toks = mtp_cp.generate(seqs)
+        toks = mtp_cp.generate(seqs)['tokens']
         assert toks.shape == (num_seqs, mtp_cp.mt_head.n_token)
         seqs = torch.cat([seqs, toks], dim=1)
     assert torch.all(torch.isin(seqs, torch.tensor(list(range(mtp_cp.lm.lm.vocab_size)))))
@@ -104,7 +104,7 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     for i in range(num_seqs):
         seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
         while seq.shape[1] < max_seq_length:
-            toks = mtp_cp.self_speculative_generate(seq)
+            toks = mtp_cp.self_speculative_generate(seq)['tokens']
             assert len(toks.shape) == 2 and toks.shape[0] == 1
             assert 1 <= toks.shape[1] <= mtp_cp.mt_head.n_token + 1
             seq = torch.concat([seq, toks], dim=1)

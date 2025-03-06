@@ -1,6 +1,8 @@
 name: mtp
 n_component: 1
 n_token: 4
+beta: .9
+gamma: .8
 
 token_head:
     _target_: mtp.models.mtp_head.OutputHead
@@ -49,6 +51,6 @@ model:
     circuit: ${model.circuit}
     init_from_lm_head: true
     # Loss weighing
-    kl_type: forward    # Can be forward or reverse
-    beta: .9            # Interpolate losses. 0. means CE only and 1. is only KL
-    gamma: .8           # Exp. future token discount. 1. Means all tokens contribute equally
+    kl_type: forward             # Can be forward or reverse
+    beta: ${model.beta}          # Interpolate losses. 0. means CE only and 1. is only KL
+    gamma: ${model.gamma}        # Exp. future token discount. 1. Means all tokens contribute equally

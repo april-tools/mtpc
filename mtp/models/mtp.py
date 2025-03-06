@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 
 from torch import Tensor
+from copy import deepcopy
 
 from .lm import LM
 from .mtp_head import MultiTokenHead
@@ -58,6 +59,9 @@ class MultiTokenLM(torch.nn.Module):
 
         # Keep track of what we need to compute
         self.compute_ce, self.compute_kl = self.beta < 1, self.beta > 0
+
+        if self.compute_kl:
+            assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())
@@ -119,8 +123,7 @@ class MultiTokenLM(torch.nn.Module):
             self,
             xx: torch.Tensor,               # (B, S) input ids
             yy: torch.Tensor,               # (B, S) target ids
-            return_log_probs: bool = False,
-            return_stp_loss: bool = False) -> dict:
+            return_log_probs: bool = False) -> dict:
         r"""
         Reference: https://arxiv.org/abs/2410.17765 , Eq 14.
 
@@ -141,11 +144,9 @@ class MultiTokenLM(torch.nn.Module):
 
         Returns:
         A dictionary with keys:
-            'loss': the final scalar,
-            'distill_loss': the sum of distillation terms,
-            'crossent_loss': the sum of cross-entropy terms,
-            'aux_loss': mixture-of-experts balancing loss,
-            'mtp_loss': combined total (useful to log).
+            'loss': the combined loss used for training
+            'kl_loss_at_h': the kl loss for token h (for h in H)
+            'ce_loss_at_h': the cross entropy loss for token h (for h in H)
         """
         H = self.mt_head.n_token
         # B = xx.shape[0]
@@ -383,15 +384,34 @@ class MultiTokenLM(torch.nn.Module):
         return losses
 
     @torch.no_grad()
-    def generate(self, inputs: Tensor, use_argmax: bool = False, mode: str = 'mtp') -> Tensor:
+    def generate(self, inputs: Tensor,
+                 use_argmax: bool = False,
+                 mode: str = 'mtp',
+                 use_cache: bool = False,
+                 past_key_values: Tensor = None,
+                 past_last_hidden_states: Tensor = None) -> Tensor:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
         if use_argmax and mode != 'stp':
             raise ValueError('Argmax is only supported for single token prediction')
 
-        # Calling forward with no targets simply sets the parameters to the circuit
-        # xx: (B, S, D)
-        xx = self.lm.encoder(inputs)['last_hidden_state']
+        if use_cache:
+            seen_tokens = 0
+            if past_key_values is not None:
+                seen_tokens = past_key_values.get_seq_length()
+            outputs = self.lm.encoder(
+                inputs[:, seen_tokens:],
+                use_cache=use_cache,
+                past_key_values=past_key_values
+            )
+            if past_last_hidden_states is None:
+                # xx: (B, S, D)
+                xx = outputs['last_hidden_state']
+            else:
+                xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
+            past_key_values = outputs['past_key_values']
+        else:
+            xx = self.lm.encoder(inputs)['last_hidden_state']
 
         # Parameterize the circuit
         self.parameterize_circuit(xx, generate=True)
@@ -408,18 +428,42 @@ class MultiTokenLM(torch.nn.Module):
                 tokens = tokens.unsqueeze(dim=1)
             else:
                 tokens = torch.multinomial(next_token_probs, num_samples=1)
-        return tokens
+        return dict(tokens=tokens,
+                    past_key_values=past_key_values,
+                    past_last_hidden_states=xx)
 
+    # TODO: Refactor to bring for-loop into function as per Edoardo's comment
     @torch.no_grad()
-    def self_speculative_generate(self, seq: Tensor) -> Tensor:
+    def self_speculative_generate(self, seq: Tensor,
+                                  use_cache: bool = False,
+                                  past_key_values: Tensor = None,
+                                  past_last_hidden_states: Tensor = None) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
             raise NotImplementedError("Multi-batch self-speculative decoding not implemented yet")
             # seq: (B, S), with B = 1 and also possibly S = 1
 
         # Compute the embeddings
-        # xx: (B, S, D)
-        xx = self.lm.encoder(seq)['last_hidden_state']
+        if use_cache:
+            # NOTE: keep track of old values, needed for second lm eval
+            old_past_key_values = deepcopy(past_key_values)
+            seen_tokens = 0
+            if past_key_values is not None:
+                seen_tokens = past_key_values.get_seq_length()
+            outputs = self.lm.encoder(
+                seq[:, seen_tokens:],
+                use_cache=use_cache,
+                past_key_values=past_key_values
+            )
+            # xx: (B, S, D)
+            if past_last_hidden_states is None:
+                xx = outputs['last_hidden_state']
+            else:
+                xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
+            past_key_values = outputs['past_key_values']
+        else:
+            xx = self.lm.encoder(seq)["last_hidden_state"]
 
+        assert xx.shape[1] == seq.shape[1]
         # Set the circuit parameters, based on the last embeddings
         self.parameterize_circuit(xx, generate=True)
 
@@ -434,8 +478,11 @@ class MultiTokenLM(torch.nn.Module):
         gen_seq = torch.cat([seq, tokens], dim=1)
 
         # Compute the next-token probabilities in parallel
-        # zz: (B, S + H, D) -> (B, H + 1, D)
-        zz = self.lm.encoder(gen_seq)['last_hidden_state']
+        if use_cache:
+            # zz: (B, S + H, D) -> (B, H + 1, D)
+            zz = self.lm.encoder(gen_seq[:, seen_tokens:], use_cache=use_cache, past_key_values=old_past_key_values)['last_hidden_state']
+        else:
+            zz = self.lm.encoder(gen_seq)['last_hidden_state']
 
         zz = zz[:, -tokens.shape[1] - 1 :]
         # logits: (B, H + 1, V)
@@ -535,4 +582,6 @@ class MultiTokenLM(torch.nn.Module):
 
         # Retrieve the accepted tokens, plus the last one
         tokens = torch.cat([tokens[:, :num_accepted_tokens], last_token], dim=1)
-        return tokens
+        return dict(tokens=tokens,
+                    past_key_values=past_key_values,
+                    past_last_hidden_states=xx)

@@ -23,6 +23,7 @@ def test_mtp_head_params_differ(expander):
                         'lm.n_embd=32',
                         'model.n_component=2',
                         'model.n_token=3',
+                        'model.beta=0',
                         'model.token_head.expander.expander_type=%s' % expander])
 
     token_heads = mt.mt_head.token_heads
@@ -52,6 +53,7 @@ def test_mtp_train_params_differ(expander, freeze_lm):
                            'lm.n_embd=32',
                            'model.n_component=2',
                            'model.n_token=3',
+                           'model.beta=0',
                            'lm.model.freeze=%s' % freeze_lm,
                            'model.token_head.expander.expander_type=%s' % expander])
     mcopy = copy.deepcopy(model)
@@ -91,6 +93,7 @@ def test_zero_layer_encoder(expander, th_nlayer: int, swh_nlayer: int):
                            'lm.n_embd=32',
                            'model.n_component=2',
                            'model.n_token=1',
+                           'model.beta=0',
                            'model.token_head.encoder.n_layer=%s' % th_nlayer,
                            'model.sum_weight_head.encoder.n_layer=%s' % swh_nlayer,
                            'model.token_head.expander.expander_type=%s' % expander])

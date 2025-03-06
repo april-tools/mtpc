@@ -169,7 +169,8 @@ def main(cfg: DictConfig):
             if master_process:
                 expname = name_exp(cfg)
                 # Setup Wandb
-                run = wandb.init(project='mtp',
+                run = wandb.init(entity="circuit-mtp",
+                                 project='mtp',
                                  name=expname,
                                  # entity=os.environ['USER'],
                                  tags=[cfg.data.name, os.environ['USER']],
@@ -197,7 +198,8 @@ def main(cfg: DictConfig):
 
             if master_process:
                 # Setup Wandb to resume run by passing wandb id
-                run = wandb.init(project='mtp',
+                run = wandb.init(entity="circuit-mtp",
+                                 project='mtp',
                                  name=cfg.expname,
                                  # entity=os.environ['USER'],
                                  tags=[cfg.data.name, os.environ['USER']],

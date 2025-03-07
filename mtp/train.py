@@ -154,10 +154,10 @@ def main(cfg: DictConfig):
         # as this is current pytorch recommendation for saving compiled models
         # https://pytorch.org/get-started/pytorch-2.0/#serialization
         model = hydra.utils.instantiate(cfg.model).model
+        logger("Setting up model... compile=%r..." % cfg.compile)
         optimized_model = wrap_model_distributed(model, local_rank, cfg.compile)
 
         # Initialize optimizers and schedulers
-        logger("Setting up/compiling model...")
         optimizer, scheduler = create_optimizers(optimized_model, cfg)
 
         # Initialize training context

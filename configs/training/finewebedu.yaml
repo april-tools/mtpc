@@ -5,7 +5,7 @@ random_seed: 13
 batch_size: 512
 device_batch_size: 8
 sequence_length: 256
-num_iterations: 15000
+num_iterations: 5000
 learning_rate: 0.00003
 # Default scheduler uses cosine annealing to LR/10
 # If no scheduler, we keep LR constant
@@ -16,8 +16,8 @@ use_scheduler: false
 save_model: true
 # Whether to save the optimizer and scheduler at checkpoints
 save_optimizer: false
-save_model_every: 1000
-val_loss_every: 200
+save_model_every: 500
+val_loss_every: 100
 val_tokens: 1048576 # 8*64*1024
 
 # wandb

@@ -15,7 +15,7 @@ use_scheduler: false
 # Whether to save model at checkpoints
 save_model: true
 # Whether to save the optimizer and scheduler at checkpoints
-save_optimizer: false
+save_optimizer: true
 save_model_every: 500
 val_loss_every: 100
 val_tokens: 1048576 # 8*64*1024

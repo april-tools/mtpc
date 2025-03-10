@@ -30,13 +30,13 @@ curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="uv" sh
 cd nanoGPT
 git checkout eidf-setup
 
-echo "Syncing dependencies..."
+echo "Installing dependencies..."
 
-uv venv --python 3.10
+../uv/uv venv --python 3.10
 source .venv/bin/activate
-uv pip install --upgrade pip setuptools wheel psutil
-uv pip install -r requirements.txt
-uv pip install flash-attn --no-build-isolation
+../uv/uv pip install --upgrade pip setuptools wheel psutil
+../uv/uv pip install -r requirements.txt
+../uv/uv pip install flash-attn --no-build-isolation
 
 # Source the env variables
 . env.sh

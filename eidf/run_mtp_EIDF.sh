@@ -23,10 +23,6 @@ git clone https://github.com/PiotrNawrot/nanoGPT.git
 echo "Installing uv..."
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="uv" sh
 
-# cd uv
-# ls
-# cd ..
-
 cd nanoGPT
 git checkout eidf-setup
 
@@ -39,11 +35,12 @@ source .venv/bin/activate
 ../uv/uv pip install flash-attn --no-build-isolation
 
 # Source the env variables
-. env.sh
+chmod +x env.sh
+./env.sh
 
 # Override some env variables
 export GPUS=2
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 export WANDB_MODE=online
 
 # Run the script

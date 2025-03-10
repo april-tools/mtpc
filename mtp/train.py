@@ -1,6 +1,7 @@
 import os
 import wandb
 import hydra
+print(os.environ['CUDA_VISIBLE_DEVICES'])
 import torch
 import torch.distributed as dist
 from torch import autocast

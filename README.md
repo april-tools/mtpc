@@ -8,7 +8,7 @@ The code is based on the [KellerJordan/modded-nanogpt](https://github.com/Keller
 ## Download code
 
 ```bash
-git clone git@github.com:PiotrNawrot/nanoGPT.git
+git clone git@github.com:PiotrNawrot/nanoGPT.git && cd nanoGPT
 ```
 
 ### Prepare package installation

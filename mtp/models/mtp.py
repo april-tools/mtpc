@@ -360,24 +360,28 @@ class MultiTokenLM(torch.nn.Module):
         else:
             ce_losses = torch.zeros(H, device=yy.device)
 
-            # If gamma == 1, we are not using discounting, so we can just use
-            # the original joint distribution, which is more efficient
-            if self.gamma == 1.:
-                log_probs = self.circuit(yy)
+            # # NOTE: We can comment out below for faster implementation when gamma=1
+            # # however we get logging only of avg. loss for each token.
 
-                # The loss is the negated average conditional log-likelihood
-                # Divide by H as we are computing per token loss, we
-                # will sum across tokens in the calling function
-                loss = -log_probs.mean() / H
-                losses['ce_losses'] = ce_losses + loss
-            else:
-                # We do not need to expand logits - this is more memory efficient
-                log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
-                for h in range(H):
-                    # Cross-entropy with one-hot targets == negative log-likelihood
-                    # The circuit has only computed the log probs for the targets
-                    ce_losses[h] = -log_probs[h].mean()
-                losses['ce_losses'] = ce_losses
+            # # If gamma == 1, we are not using discounting, so we can just use
+            # # the original joint distribution, which is more efficient
+            # if self.gamma == 1.:
+            #     log_probs = self.circuit(yy)
+            #
+            #     # The loss is the negated average conditional log-likelihood
+            #     # Divide by H as we are computing per token loss, we
+            #     # will sum across tokens in the calling function
+            #     loss = -log_probs.mean() / H
+            #     losses['ce_losses'] = ce_losses + loss
+            # else:
+
+            # We do not need to expand logits - this is more memory efficient
+            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
+            for h in range(H):
+                # Cross-entropy with one-hot targets == negative log-likelihood
+                # The circuit has only computed the log probs for the targets
+                ce_losses[h] = -log_probs[h].mean()
+            losses['ce_losses'] = ce_losses
         return losses
 
     @torch.no_grad()

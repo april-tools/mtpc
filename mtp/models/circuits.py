@@ -171,7 +171,6 @@ class CircuitCP(torch.nn.Module):
                 k, yy=yy, with_logits=with_logits
             )
             marginals.append(marginal)
-        marginals = torch.stack(marginals)
         # Go in reverse to avoid overwriting useful info.
         # Stop at 1, since conditional for ntp is just marginal
         for k in reversed(range(1, H)):

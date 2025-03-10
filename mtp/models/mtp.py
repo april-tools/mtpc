@@ -62,6 +62,10 @@ class MultiTokenLM(torch.nn.Module):
 
         if self.compute_kl:
             assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
+            assert self.lm.encoder_only is False, 'We need the LM head to compute KL'
+        else:
+            assert self.lm.encoder_only is True, 'We do not need the LM head since we are not computing KL'
+
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())
@@ -300,36 +304,22 @@ class MultiTokenLM(torch.nn.Module):
 
         H = self.mt_head.n_token
 
-        if self.compute_ce:
-            # NOTE: We need yy in the code below both with/without KL
-            # so compute it in one place to avoid repetition
-            # Compute sliding window of ground-truth tokens for each t
-            # from yy: (B, S') to yy: (B, S', H)
-            yy = yy.unfold(dimension=1, size=H, step=1)
-            # We also unsqueeze a channel dimension, as required by cirkit
-            # yy: (B, S', H) -> (B * S', 1, H)
-            yy = yy.reshape(-1, 1, H)
+        # NOTE: We need yy in the code below both with/without KL
+        # so compute it in one place to avoid repetition
+        # Compute sliding window of ground-truth tokens for each t
+        # from yy: (B, S') to yy: (B, S', H)
+        yy = yy.unfold(dimension=1, size=H, step=1)
+        # We also unsqueeze a channel dimension, as required by cirkit
+        # yy: (B, S', H) -> (B * S', 1, H)
+        yy = yy.reshape(-1, 1, H)
 
         losses = dict(kl_losses=None, ce_losses=None)
         if self.compute_kl:
             B, S, V = teacher_log_probs.shape
             assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
-            # Sample from the teacher model
-            # shape: B, S', V
-            teacher_probs = torch.exp(teacher_log_probs)
-            # shape: B * S', V  - multinomial sample wants 2D tensor
-            teacher_probs = teacher_probs.flatten(0, 1)
-            # shape: B * S', 1
-            teacher_samples = torch.multinomial(teacher_probs, num_samples=1)
-            # shape: B, S'
-            teacher_samples = teacher_samples.reshape(B, S)
-            # shape: B, S', H
-            teacher_samples = teacher_samples.unfold(dimension=1, size=H, step=1)
-            # shape: B * S', 1, H
-            teacher_samples = teacher_samples.reshape(-1, 1, H)
 
-            # shape: H, B * S', V   Compute logits for teacher samples
-            log_probs = self.circuit.autoregressive_conditionals(yy=teacher_samples, with_logits=True)
+            # shape: H, B * S', V   Compute conditional distributions for circuit
+            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
 
             # Make teacher_log_probs windowed to get kl with circuit logprobs
             # shape: B, S', V, H
@@ -373,6 +363,21 @@ class MultiTokenLM(torch.nn.Module):
                 losses['ce_losses'] = ce_losses
         else:
             ce_losses = torch.zeros(H, device=yy.device)
+
+            # # NOTE: We can comment out below for faster implementation when gamma=1
+            # # however we get logging only of avg. loss for each token.
+
+            # # If gamma == 1, we are not using discounting, so we can just use
+            # # the original joint distribution, which is more efficient
+            # if self.gamma == 1.:
+            #     log_probs = self.circuit(yy)
+            #
+            #     # The loss is the negated average conditional log-likelihood
+            #     # Divide by H as we are computing per token loss, we
+            #     # will sum across tokens in the calling function
+            #     loss = -log_probs.mean() / H
+            #     losses['ce_losses'] = ce_losses + loss
+            # else:
 
             # We do not need to expand logits - this is more memory efficient
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)

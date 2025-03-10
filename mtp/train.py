@@ -1,8 +1,8 @@
 import os
 import wandb
 import hydra
-print(os.environ['CUDA_VISIBLE_DEVICES'])
-print(os.environ['GPUS'])
+# print(os.environ['CUDA_VISIBLE_DEVICES'])
+# print(os.environ['GPUS'])
 import torch
 import torch.distributed as dist
 from torch import autocast

@@ -39,7 +39,7 @@ source .venv/bin/activate
 # ./env.sh
 
 # Override some env variables
-# export GPUS=2
+export GPUS=2
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 export WANDB_MODE=online
 

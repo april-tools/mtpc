@@ -62,6 +62,10 @@ class MultiTokenLM(torch.nn.Module):
 
         if self.compute_kl:
             assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
+            assert self.lm.encoder_only is False, 'We need the LM head to compute KL'
+        else:
+            assert self.lm.encoder_only is True, 'We do not need the LM head since we are not computing KL'
+
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())

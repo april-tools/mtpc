@@ -5,15 +5,20 @@ The code is based on the [KellerJordan/modded-nanogpt](https://github.com/Keller
 
 # Setup:
 
-## Download packages
+## Download code
 
+```bash
+git clone git@github.com:PiotrNawrot/nanoGPT.git
+```
+
+### Prepare package installation
 For flash-attn build to work, set the `CUDA_HOME` env variable to point to your CUDA path, e.g.:
 
 ```
 export CUDA_HOME=/opt/cuda-12.6.0
 ```
 
-### Using uv
+### Environment installation using uv
 ```
 uv venv --python 3.10
 source .venv/bin/activate
@@ -22,7 +27,7 @@ uv pip install -r requirements.txt
 uv pip install flash-attn --no-build-isolation
 ```
 
-### Using pip
+### Environment installation using pip
 ```
 python3.10 -m venv .venv
 source .venv/bin/activate

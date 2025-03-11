@@ -19,7 +19,6 @@ env_vars = {
     "DATASET_DIR": "/data/",
     "MODEL_DIR": "/data/model/",
 }
-
 install_script_name = "run_mtp_EIDF.sh"
 link = f"http://files.emilevankrieken.com/{install_script_name}"
 
@@ -28,17 +27,16 @@ run_script_name = "basharin-ablation.sh"
 
 job = KubernetesJob(
     name=f"evankri-mtp-basharin-ablation",
-    image="nvcr.io/nvidia/pytorch:23.10-py3",
+    #image="nvcr.io/nvidia/pytorch:25.02-py3",
+    image="nvcr.io/nvidia/cuda:12.0.0-cudnn8-devel-ubuntu22.04",
     kueue_queue_name=KueueQueue.INFORMATICS,
     command=["/bin/sh", "-c"],
-    args=[f"wget {link} ; chmod +x {install_script_name} ; ./{install_script_name}"],
+    args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name}"],
     gpu_type="nvidia.com/gpu",
-    # gpu_product="NVIDIA-A100-SXM4-40GB",
-    gpu_limit=1,
+    gpu_product="NVIDIA-H100-80GB-HBM3",
+    gpu_limit=2,
     # shm_size="10G",  # "200G" is the maximum value for shm_size
-    backoff_limit=4,
-    cpu_request=24,
-    ram_request=f"20G",
+    backoff_limit=1,
     env_vars=env_vars,
     secret_env_vars={"WANDB_API_KEY": {"secret_name": "wandb-key", "key": "api_key"}, "HF_TOKEN": {"secret_name": "hf-key", "key": "api_key"}, "GIT_TOKEN": {"secret_name": "evankri-git-token-2025", "key": "token"}},
     job_deadlineseconds=60*60,

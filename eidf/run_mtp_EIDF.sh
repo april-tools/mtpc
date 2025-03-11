@@ -2,9 +2,7 @@
 echo "Installing unix dependencies..."
 
 cd /home
-apt-get install wget gpg curl
-
-apt-get install git
+DEBIAN_FRONTEND=noninteractive apt-get -y install wget gpg curl python3 python-is-python3 pip git nano sudo build-essential
 
 echo "Installing gh..."
 wget https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_linux_386.tar.gz
@@ -35,8 +33,8 @@ source .venv/bin/activate
 ../uv/uv pip install flash-attn --no-build-isolation
 
 # Source the env variables
-# chmod +x env.sh
-# ./env.sh
+chmod +x env.sh
+./env.sh
 
 nvidia-smi
 echo " lol new version :D"

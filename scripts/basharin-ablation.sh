@@ -45,7 +45,7 @@
 
 # =========== All models below are beta=0, gamma=1 ==============
 ##  n=2, r=2
-../uv/uv run torchrun --standalone \
+torchrun --standalone \
                 --nproc_per_node=$GPUS \
                 -m mtp.train \
                 data=finewebedu10B \

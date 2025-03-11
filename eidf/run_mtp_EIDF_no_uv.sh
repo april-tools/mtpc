@@ -20,27 +20,22 @@ echo "Cloning repository..."
 git clone https://github.com/PiotrNawrot/nanoGPT.git
 
 
-echo "Installing uv..."
-curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="uv" sh
-
 cd nanoGPT
 git checkout eidf-setup
 
 echo "Installing dependencies..."
 
-../uv/uv venv --python 3.10
-source .venv/bin/activate
-../uv/uv pip install --upgrade pip setuptools wheel psutil
-../uv/uv pip install -r requirements.txt
-../uv/uv pip install flash-attn --no-build-isolation
+pip install --upgrade pip setuptools wheel psutil
+pip install -r requirements.txt
+pip install flash-attn --no-build-isolation
 
 # Source the env variables
-# chmod +x env.sh
-# ./env.sh
+chmod +x env.sh
+./env.sh
 
 nvidia-smi
 echo " lol new version :D"
-../uv/uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.device_count());print(torch.cuda.get_device_name(0));print(torch.cuda.get_device_name(1))"
+python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.device_count());print(torch.cuda.get_device_name(0));print(torch.cuda.get_device_name(1))"
 # Override some env variables
 export GPUS=2
 export CUDA_VISIBLE_DEVICES=0,1

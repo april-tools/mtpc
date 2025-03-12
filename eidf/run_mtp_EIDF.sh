@@ -56,4 +56,4 @@ export USER=Emile
 ../uv/uv run eidf/download_data.py 10 --dataset fineweb-edu
 
 # Run the script
-./scripts/basharin-ablation.sh
+./scripts/"$1"

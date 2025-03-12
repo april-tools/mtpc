@@ -19,19 +19,22 @@ env_vars = {
     "DATASET_DIR": "/data/",
     "MODEL_DIR": "/data/model/",
 }
+
 install_script_name = "run_mtp_EIDF.sh"
 link = f"http://files.emilevankrieken.com/{install_script_name}"
 
-run_script_name = "basharin-ablation.sh"
+parser = argparse.ArgumentParser()
+parser.add_argument('--script', type=str)
+args = parser.parse_args()
 
 
 job = KubernetesJob(
-    name=f"evankri-mtp-basharin-ablation",
+    name=f"evankri-mtp-{args.script}",
     #image="nvcr.io/nvidia/pytorch:25.02-py3",
     image="nvcr.io/nvidia/cuda:12.0.0-cudnn8-devel-ubuntu22.04",
     kueue_queue_name=KueueQueue.INFORMATICS,
     command=["/bin/sh", "-c"],
-    args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name}"],
+    args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name} {args.script}"],
     gpu_type="nvidia.com/gpu",
     gpu_product="NVIDIA-H100-80GB-HBM3",
     gpu_limit=2,

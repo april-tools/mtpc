@@ -20,5 +20,5 @@
                 lm.model.encoder_only=false \
                 model.mt_head.freeze_unembedding=true \
                 training.device_batch_size=16 \
-                training.expname=basharin-n-2-r-2
+                training.expname=basharin-n-2-r-4
 

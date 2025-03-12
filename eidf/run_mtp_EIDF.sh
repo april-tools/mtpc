@@ -33,18 +33,25 @@ source .venv/bin/activate
 ../uv/uv pip install flash-attn --no-build-isolation
 
 # Source the env variables
-chmod +x env.sh
-./env.sh
+# chmod +x env.sh
+# ./env.sh
 
 nvidia-smi
-echo " lol new version :D"
 ../uv/uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.device_count());print(torch.cuda.get_device_name(0));print(torch.cuda.get_device_name(1))"
 # Override some env variables
+# Source this file from the root directory of the project
+export MTP_ROOT=`pwd`
 export GPUS=2
 export CUDA_VISIBLE_DEVICES=0,1
 export WANDB_MODE=online
 
-nvidia-smi
+export OMP_NUM_THREADS=1
+# Below allows our results to be reproducible
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Download first 10 chunks of fineweb-edu train dataset
+./bin/download_data 10 --dataset fineweb-edu
 
 # Run the script
 ./scripts/basharin-ablation.sh

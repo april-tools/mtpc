@@ -10,4 +10,4 @@ tueplots
 wandb
 transformers
 datasets
-huggingface-hub
+huggingface_hub

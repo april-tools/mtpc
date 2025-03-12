@@ -49,13 +49,11 @@ export OMP_NUM_THREADS=1
 # Below allows our results to be reproducible
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export USER=Emile
 
 # Download first 10 chunks of fineweb-edu train dataset
 # ./bin/download_data 10 --dataset fineweb-edu
-uv run eidf/download_data.py 10 --dataset fineweb-edu
-
-# Echo contents of requirements.txt
-cat requirements.txt
+../uv/uv run eidf/download_data.py 10 --dataset fineweb-edu
 
 # Run the script
 ./scripts/basharin-ablation.sh

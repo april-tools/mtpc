@@ -23,6 +23,7 @@ def get(fname, dataset):
 # Download the GPT-2 tokens of Fineweb10B from huggingface. This
 # saves about an hour of startup time compared to regenerating them.
 if __name__ == "__main__":
+    print("Downloading data!")
 
     parser = argparse.ArgumentParser('Download datasets')
     parser.add_argument('numchunks', type=int, nargs=1, default=103)

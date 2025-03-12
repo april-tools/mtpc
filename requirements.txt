@@ -9,3 +9,5 @@ seaborn
 tueplots
 wandb
 transformers
+datasets
+huggingface-hub

@@ -96,6 +96,7 @@ if __name__ == "__main__":
     set_deterministic(args.random_seed)
 
     os.environ['DEVICE'] = args.device
+    os.environ['MODE'] = 'generate'
 
     # Initialize training context
     ctx = autocast(device_type=args.device, dtype=torch.bfloat16)

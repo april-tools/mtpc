@@ -31,20 +31,18 @@ if [ ! -d "nanoGPT" ]; then
 	git clone https://github.com/PiotrNawrot/nanoGPT.git
 	cd nanoGPT
 	git checkout eidf-setup
-
-	echo "Installing dependencies..."
-
 	../uv/uv venv --python 3.10
-	source .venv/bin/activate
-	../uv/uv pip install --upgrade pip setuptools wheel psutil
-	../uv/uv pip install -r requirements.txt
-	../uv/uv pip install flash-attn --no-build-isolation
 else
 	# Else just ensure up to date
+	echo "Already cloned."
 	cd nanoGPT
 	git pull
-	../uv/uv pip install -r requirements.txt
 fi
+source .venv/bin/activate
+echo "Installing dependencies..."
+../uv/uv pip install --upgrade pip setuptools wheel psutil
+../uv/uv pip install -r requirements.txt
+../uv/uv pip install flash-attn --no-build-isolation
 
 export MTP_ROOT=`pwd`
 export GPUS=2

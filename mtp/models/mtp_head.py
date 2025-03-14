@@ -93,8 +93,10 @@ class MLPExpanderHead(torch.nn.Module):
         self.n_embd = n_embd  # D
         self.n_component = n_component  # R
         self.n_layer = n_layer
-        self.mlps = torch.nn.ModuleList([torch.nn.Sequential(*([ResBlock(self.n_embd)] * self.n_layer))
-                                         for c in range(self.n_component)])
+        self.mlps = torch.nn.ModuleList(
+            [torch.nn.Sequential(*([ResBlock(self.n_embd)] * self.n_layer))
+            for _ in range(self.n_component)]
+        )
 
     def forward(self, xx: Tensor) -> Tensor:
         # Batch, Sentence Length, Embed Dim
@@ -252,18 +254,8 @@ class MultiTokenHead(torch.nn.Module):
         # sum_weight: (B, S, 1, R)
         if self.n_component > 1:
             sum_weight = self.sum_weight_head(xx, generate=generate)
-            sum_weight = torch.softmax(
-                sum_weight.unsqueeze(dim=2),
-                dim=-1
-            )
+            sum_weight = torch.softmax(sum_weight.unsqueeze(dim=2), dim=-1)
         else:
-            B, S, D = xx.shape
-            if generate:
-                shape = (B, 1, 1, 1)
-            else:
-                shape = (B, S, 1, 1)
-            sum_weight = torch.ones(*shape,
-                                    device=xx.device,
-                                    requires_grad=False)
+            sum_weight = None
 
         return dict(cat_log_probs=cat_log_probs, sum_weight=sum_weight)

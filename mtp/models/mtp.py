@@ -556,16 +556,9 @@ class MultiTokenLM(torch.nn.Module):
             # under the consideration that
             # q(x_{t+j+1}\mid x_{\leq t+j}) = \
             #     q(x_{t+1}, ..., x_{t+j+1}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t})
-            mtp_jp1th_tokens = torch.zeros(
-                tokens.shape[0], self.mt_head.vocab_size, tokens.shape[1], device=tokens.device, dtype=tokens.dtype
-            )
-            mtp_jp1th_tokens[:, :, :num_accepted_tokens] = tokens[:, :num_accepted_tokens]
-            mtp_jp1th_tokens[:, :, num_accepted_tokens] = torch.arange(
-                self.mt_head.vocab_size, device=tokens.device, dtype=tokens.dtype
-            ).unsqueeze(dim=0)
-            mtp_jp1th_tokens = mtp_jp1th_tokens.view(
-                mtp_jp1th_tokens.shape[0] * mtp_jp1th_tokens.shape[1], 1, tokens.shape[1]
-            )
+            # mtp_jp1th_tokens: (B=1, 1, H)
+            mtp_jp1th_tokens = tokens.clone().unsqueeze(dim=1)
+            mtp_jp1th_tokens[:, :, num_accepted_tokens] = -1
             if num_accepted_tokens + 1 == tokens.shape[1]:
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                 mtp_jp1th_token_log_probs = self.circuit(mtp_jp1th_tokens)

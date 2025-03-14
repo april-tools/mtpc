@@ -1,0 +1,14 @@
+# Please configure
+username = "evankri"
+email = "Emile.van.Krieken@ed.ac.uk"
+
+pvc_name = "mtp-pvc"
+
+# Secrets
+github_secret_name = f"{username}-git-token-2025"
+wandb_secret_name = "wandb-key"
+hf_secret_name = "hf-key"
+
+# GPU setup
+gpu_product = "NVIDIA-H100-80GB-HBM3"
+gpu_limit = 2

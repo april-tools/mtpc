@@ -5,14 +5,11 @@ import time
 from kubejobs.jobs import KubernetesJob, create_pvc, KueueQueue
 from rich import print
 import argparse
+from config import username, email, pvc_name, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit
 
 # unique id generated using time
 
 unique_id = time.strftime("%Y%m%d%H%M%S")
-
-# Please configure
-username = "evankri"
-email = "Emile.van.Krieken@ed.ac.uk"
 
 
 env_vars = {
@@ -35,18 +32,18 @@ job = KubernetesJob(
     command=["/bin/sh", "-c"],
     args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name} {args.script}"],
     gpu_type="nvidia.com/gpu",
-    gpu_product="NVIDIA-H100-80GB-HBM3",
-    gpu_limit=2,
+    gpu_product=gpu_product,
+    gpu_limit=gpu_limit,
     # shm_size="10G",  # "200G" is the maximum value for shm_size
     backoff_limit=1,
     env_vars=env_vars,
-    secret_env_vars={"WANDB_API_KEY": {"secret_name": "wandb-key", "key": "api_key"}, "HF_TOKEN": {"secret_name": "hf-key", "key": "api_key"}, "GIT_TOKEN": {"secret_name": f"{username}-git-token-2025", "key": "token"}},
+    secret_env_vars={"WANDB_API_KEY": {"secret_name": wandb_secret_name, "key": "api_key"}, "HF_TOKEN": {"secret_name": hf_secret_name, "key": "api_key"}, "GIT_TOKEN": {"secret_name": github_secret_name, "key": "token"}},
     job_deadlineseconds=60*60*60,
     user_name=f'{username}-infk8s',
     user_email=email,
     volume_mounts={
         "mtp-pvc": {
-            "pvc": f"{username}-mtp-pvc-0",
+            "pvc": f"{username}-{pvc_name}-0",
             "mountPath": "/data"
         }
     }

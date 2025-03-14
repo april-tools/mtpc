@@ -1,21 +1,23 @@
-import copy
 import torch
 import torch.nn.functional as F
 
 from torch import Tensor
-from torch.nn import Linear
+from torch import nn
+
+from mtp.models.circuits import ParametersConfig
 from .mlp import Block
 
 
-# TODO: Maybe move this to a medusa module - since we will likely compare to medusa anyway
-# Taken from the Medusa paper's code
-# https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
 class ResBlock(torch.nn.Module):
     """
     A Residual Block module.
 
     This module performs a linear transformation followed by a SiLU activation,
     and then adds the result to the original input, creating a residual connection.
+
+    #TODO:
+    # This is part of the Medusa model. However, here we vectorize it over an extra batch dimension on the parameters.
+    # https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
 
     Args:
         hidden_size (int): The size of the hidden layers in the block.
@@ -62,14 +64,6 @@ class LinearExpanderHead(torch.nn.Module):
         self.reset_parameters()
 
     def forward(self, xx: Tensor) -> Tensor:
-        # Batch, Sentence Length, Embed Dim
-        B, S, D = xx.shape
-
-        # xxs = []
-        # for i in range(self.n_component):
-        #     xxs.append(xx @ self.Wr[i])
-        # xx = torch.stack(xxs, dim=-2)
-
         # xx is B x S x R x D
         xx = torch.einsum('bsc,rcd->bsrd', xx, self.Wr)
 
@@ -99,9 +93,6 @@ class MLPExpanderHead(torch.nn.Module):
         )
 
     def forward(self, xx: Tensor) -> Tensor:
-        # Batch, Sentence Length, Embed Dim
-        B, S, D = xx.shape
-
         xxs = []
         for mlp in self.mlps:
             act = mlp(xx)
@@ -168,67 +159,38 @@ class TransformerEncoderHead(torch.nn.Module):
             each.reset_parameters()
 
 
-class OutputHead(torch.nn.Module):
-
-    def __init__(self, encoder: TransformerEncoderHead | None, expander: ExpanderHead | Linear):
-        super().__init__()
-        self.encoder = encoder
-        # Expands parametrisation for mixture model
-        # NOTE: For the case of the categoricals, we want a tensor B, S, R, *D*  (expander)
-        # For the case of the sum layer, we want                   B, S, R
-        # We therefore allow the expander to be a simple linear layer (not linear expander)
-        self.expander = expander
-
-    def forward(self, xx: Tensor, generate: bool = False) -> Tensor:
-        # xx is B, S, D
-
-        # We can bypass the transformer encoder by setting it to have n_layer=0
-        if self.encoder is not None and self.encoder.n_layer > 0:
-            xx = self.encoder(xx)
-        if generate:
-            xx = xx[:, [-1]]
-
-        xx = self.expander(xx)
-        return xx
-
-    def reset_parameters(self):
-        if self.encoder is not None:
-            self.encoder.reset_parameters()
-        self.expander.reset_parameters()
-
-
 class MultiTokenHead(torch.nn.Module):
     def __init__(
-            self,
-            token_head: OutputHead,
-            sum_weight_head: OutputHead,
-            vocab_size: int,
-            n_embd: int,
-            n_component: int = 1,
-            n_token: int = 3,
-            freeze_unembedding=False
+        self,
+        config: ParametersConfig,
+        *,
+        n_embd: int = 768,
+        n_head: int = 6,
+        transformer_n_layer: int = 2,
+        expander_n_layer: int = 2,
+        expander_type: str = 'linear',
+        freeze_unembedding: bool = False
     ):
         super().__init__()
-        self.vocab_size = vocab_size  # V
-        self.token_head = token_head
-        self.sum_weight_head = sum_weight_head
-        self.n_embd = n_embd  # D
-        self.n_component = n_component  # R
-        self.n_token = n_token  # H
+        self.encoder = TransformerEncoderHead(n_embd, n_head=n_head, n_layer=transformer_n_layer)
         self.freeze_unembedding = freeze_unembedding
 
-        # Projection to the Categorical log probs
-        self.token_heads = torch.nn.ModuleList([
-            copy.deepcopy(self.token_head)
-            for _ in range(self.n_token)
-        ])
-        for th in self.token_heads:
-            th.reset_parameters()
-        # Delete the original instance, since we took deep copies
-        del self.token_head
-        # If we only have one component we do not need a sum_weight_head
-        if self.n_component == 1:
-            del self.sum_weight_head
+        # Instantiate as many output head as needed by the circuit parameters configuration
+        sum_weights_heads = []
+        categorical_log_probs_heads = []
+        for shape in config.sum_weights_shapes:
+            # n_folds, n_components, vocab_size = shape
+            sum_weights_heads.append(
+                ExpanderHead(n_embd, n_layer=expander_n_layer, expander_type=expander_type, shape=shape)
+            )
+        for shape in config.categorical_log_probs_shapes:
+            # n_folds, n_output_units, n_input_units = shape
+            categorical_log_probs_heads.append(
+                ExpanderHead(n_embd, n_layer=expander_n_layer, expander_type=expander_type, shape=shape)
+            )
+        self._sum_weights_heads = nn.ModuleList(sum_weights_heads)
+        self._categorical_log_probs_heads = nn.ModuleList(categorical_log_probs_heads)
+
         # The shared unembedding matrix
         self.W = torch.nn.Linear(self.n_embd, self.vocab_size, bias=False)
         # Potentially freeze unembedding weights
@@ -240,22 +202,22 @@ class MultiTokenHead(torch.nn.Module):
 
     def forward(self, xx: Tensor, generate: bool = False) -> dict:
         # xx: (B, S, D)
-        logits = []
-        # TODO: Can we avoid the for loop?
-        for token_head in self.token_heads:
-            # head_xx: (B, S, R, D)
-            head_xx = token_head(xx, generate=generate)
-            # head_logits: (B, S, R, V)
-            head_logits = self.W(head_xx)
-            logits.append(head_logits)
-        # cat_log_probs: (H, B, S, R, V)
-        cat_log_probs = torch.log_softmax(torch.stack(logits, dim=0), dim=-1)
+        # Pass through the transformer encoder first, if required
+        if self.encoder is not None:
+            xx = self.encoder(xx)
+        if generate:
+            xx = xx[:, [-1]]
 
-        # sum_weight: (B, S, 1, R)
-        if self.n_component > 1:
-            sum_weight = self.sum_weight_head(xx, generate=generate)
-            sum_weight = torch.softmax(sum_weight.unsqueeze(dim=2), dim=-1)
-        else:
-            sum_weight = None
+        # xx: (B, S, D) or (B, 1, D) if generate=True
+        # Compute the parameters of the circuit
+        sum_weights = []            # A list of tensors (B, S, F, K, J)
+        categorical_log_probs = []  # A list of tensors (B, S, F, K, V)
+        for sum_weight_fn in self._sum_weights_heads:
+            sum_weights.append(sum_weight_fn(xx))
+        for categorical_log_probs_fn in self._categorical_log_probs_heads:
+            categorical_log_probs.append(categorical_log_probs_fn(xx))
 
-        return dict(cat_log_probs=cat_log_probs, sum_weight=sum_weight)
+        return {
+            'sum': sum_weights,
+            'categorical': categorical_log_probs
+        }

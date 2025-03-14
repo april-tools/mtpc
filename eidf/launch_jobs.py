@@ -10,10 +10,10 @@ import argparse
 
 unique_id = time.strftime("%Y%m%d%H%M%S")
 
-# # create some persistent storage to keep around model weights, and perhaps data if you need it
-# create_pvc(
-#     pvc_name="tutorial-pvc", storage="10Gi", access_modes="ReadWriteOnce"
-# )
+# Please configure
+username = "evankri"
+email = "Emile.van.Krieken@ed.ac.uk"
+
 
 env_vars = {
     "DATASET_DIR": "/data/",
@@ -29,8 +29,7 @@ args = parser.parse_args()
 
 
 job = KubernetesJob(
-    name=f"evankri-mtp-{args.script}",
-    #image="nvcr.io/nvidia/pytorch:25.02-py3",
+    name=f"{username}-mtp-{args.script[:-3]}",
     image="nvcr.io/nvidia/cuda:12.0.0-cudnn8-devel-ubuntu22.04",
     kueue_queue_name=KueueQueue.INFORMATICS,
     command=["/bin/sh", "-c"],
@@ -41,12 +40,19 @@ job = KubernetesJob(
     # shm_size="10G",  # "200G" is the maximum value for shm_size
     backoff_limit=1,
     env_vars=env_vars,
-    secret_env_vars={"WANDB_API_KEY": {"secret_name": "wandb-key", "key": "api_key"}, "HF_TOKEN": {"secret_name": "hf-key", "key": "api_key"}, "GIT_TOKEN": {"secret_name": "evankri-git-token-2025", "key": "token"}},
-    job_deadlineseconds=60*60,
-    user_name='evankri-infk8s',
-    user_email='Emile.van.Krieken@ed.ac.uk'
+    secret_env_vars={"WANDB_API_KEY": {"secret_name": "wandb-key", "key": "api_key"}, "HF_TOKEN": {"secret_name": "hf-key", "key": "api_key"}, "GIT_TOKEN": {"secret_name": f"{username}-git-token-2025", "key": "token"}},
+    job_deadlineseconds=60*60*60,
+    user_name=f'{username}-infk8s',
+    user_email=email,
+    volume_mounts={
+        "mtp-pvc": {
+            "pvc": f"{username}-mtp-pvc-0",
+            "mountPath": "/data"
+        }
+    }
 )
 
-job_yaml = job.generate_yaml()
-print(job_yaml)
-job.run()
+if __name__ == "__main__":
+    job_yaml = job.generate_yaml()
+    print(job_yaml)
+    job.run()

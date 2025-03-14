@@ -56,4 +56,5 @@ export USER=Emile
 ../uv/uv run eidf/download_data.py 10 --dataset fineweb-edu
 
 # Run the script
+chmod +x scripts/"$1"
 ./scripts/"$1"

@@ -6,7 +6,7 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install wget gpg curl python3 python-i
 
 cd $MTP_PVC_ROOT
 
-if [! -d "gh"]; then
+if [ ! -d "$MTP_PVC_ROOT/gh" ]; then
 	echo "Installing gh..."
 	wget https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_linux_386.tar.gz
 	tar -xvf gh_2.65.0_linux_386.tar.gz
@@ -19,25 +19,14 @@ echo $GIT_TOKEN > token.txt
 ./gh/bin/gh auth setup-git
 rm token.txt
 
-if [! -d "$MTP_PVC_ROOT/uv"]; then
+if [ ! -d "$MTP_PVC_ROOT/uv" ]; then
 	echo "Installing uv..."
 	curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="uv" sh
 fi
 
-export MTP_ROOT = `pwd`
-export GPUS=2
-export CUDA_VISIBLE_DEVICES=0,1
-export WANDB_MODE=online
-
-export OMP_NUM_THREADS=1
-# Below allows our results to be reproducible
-export CUBLAS_WORKSPACE_CONFIG=:4096:8
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export USER=Emile
-
 
 # On first install
-if [! -d "nanoGPT"]; then
+if [ ! -d "nanoGPT" ]; then
 	echo "Cloning repository..."
 	git clone https://github.com/PiotrNawrot/nanoGPT.git
 	cd nanoGPT
@@ -54,7 +43,19 @@ else
 	# Else just ensure up to date
 	cd nanoGPT
 	git pull
+	../uv/uv pip install -r requirements.txt
 fi
+
+export MTP_ROOT=`pwd`
+export GPUS=2
+export CUDA_VISIBLE_DEVICES=0,1
+export WANDB_MODE=online
+
+export OMP_NUM_THREADS=1
+# Below allows our results to be reproducible
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export USER=Emile
 
 nvidia-smi
 ../uv/uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.device_count());print(torch.cuda.get_device_name(0));print(torch.cuda.get_device_name(1))"

@@ -168,7 +168,7 @@ class TransformerEncoderHead(torch.nn.Module):
 
 class OutputHead(torch.nn.Module):
 
-    def __init__(self, encoder: TransformerEncoderHead, expander: ExpanderHead | Linear):
+    def __init__(self, encoder: TransformerEncoderHead | None, expander: ExpanderHead | Linear):
         super().__init__()
         self.encoder = encoder
         # Expands parametrisation for mixture model
@@ -181,7 +181,7 @@ class OutputHead(torch.nn.Module):
         # xx is B, S, D
 
         # We can bypass the transformer encoder by setting it to have n_layer=0
-        if self.encoder.n_layer > 0:
+        if self.encoder is not None and self.encoder.n_layer > 0:
             xx = self.encoder(xx)
         if generate:
             xx = xx[:, [-1]]
@@ -190,7 +190,8 @@ class OutputHead(torch.nn.Module):
         return xx
 
     def reset_parameters(self):
-        self.encoder.reset_parameters()
+        if self.encoder is not None:
+            self.encoder.reset_parameters()
         self.expander.reset_parameters()
 
 
@@ -235,7 +236,7 @@ class MultiTokenHead(torch.nn.Module):
     def set_unembedding_weights(self, weights):
         self.W.weight.data = weights
 
-    def forward(self, xx: Tensor, generate: bool = False) -> dict[str, Tensor]:
+    def forward(self, xx: Tensor, generate: bool = False) -> dict:
         # xx: (B, S, D)
         logits = []
         # TODO: Can we avoid the for loop?

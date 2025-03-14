@@ -57,7 +57,7 @@ class GPTEncoder(nn.Module):
         )
         self.apply(_init_weights)
 
-    def forward(self, xx: Tensor, **kwargs) -> Tensor:
+    def forward(self, xx: Tensor) -> Tensor:
         xx = self.transformer.wte(xx)  # token embeddings of shape (B, S, n_embd)
         # TODO: Decide RMS_NORM positioning
         xx = F.rms_norm(xx, (xx.size(-1),))

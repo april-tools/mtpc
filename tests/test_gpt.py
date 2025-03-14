@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from mtp.models.gpt import GPT
+from mtp.models.lm import LM
 
 
 @pytest.fixture
@@ -12,12 +13,13 @@ def gpt(
     n_embd = 8,
     n_layer: int = 1,
     n_head: int = 2
-) -> GPT:
+) -> LM:
     gpt = GPT(vocab_size, n_embd, n_layer, n_head)
-    return gpt
+    lm = LM(gpt, ref_enc='encoder', ref_head='head', encoder_only=False, freeze=False)
+    return lm
 
 
-def test_gpt_forward(gpt: GPT):
+def test_gpt_forward(gpt: LM):
     batch_size, seq_length = 8, 12
     seq = torch.randint(high=2, size=(batch_size, seq_length + 1))
     xx = seq[:, :seq_length]
@@ -27,17 +29,18 @@ def test_gpt_forward(gpt: GPT):
     assert results['loss'] >= 0.0
 
 
-def test_gpt_generate(gpt: GPT):
+def test_gpt_generate(gpt: LM):
     BOS = 1
     # Sample a bunch of short sentences
     # We will use these samples to get empirical estimates of the sentences distribution
     num_seqs, max_seq_length = 2 ** 17, 4
     seqs = torch.full(size=(num_seqs, 1), fill_value=BOS, dtype=torch.int64)
     while seqs.shape[1] < max_seq_length:
-        toks = gpt.generate(seqs, use_argmax=False)
+        gresult = gpt.generate(seqs, use_argmax=False, use_cache=False)
+        toks = gresult['tokens']
         assert toks.shape == (num_seqs, 1)
         seqs = torch.concat([seqs, toks], dim=1)
-    assert torch.all(torch.isin(seqs, torch.tensor(list(range(gpt.vocab_size)))))
+    assert torch.all(torch.isin(seqs, torch.tensor(list(range(gpt.encoder.vocab_size)))))
     # Map samples to indices of the probabilities computed above
     # seqs_idx: (num_seqs,)
     seqs_idx = torch.sum(seqs * torch.tensor([0] + list(reversed([2 ** i for i in range(max_seq_length - 1)]))), dim=-1)
@@ -52,7 +55,7 @@ def test_gpt_generate(gpt: GPT):
     worlds_seqs = torch.cat([torch.full(size=(worlds.shape[0], 1), fill_value=BOS, dtype=torch.int64), worlds], dim=1)
     xx = worlds_seqs[:, :-1].contiguous()
     yy = worlds_seqs[:, 1:].contiguous()
-    results = gpt(xx, targets=yy, return_logits=True)
+    results = gpt(xx, yy=yy, return_logits=True)
     assert results['logits'].shape[1] == max_seq_length - 1
     log_probs = torch.log_softmax(results['logits'], dim=-1)
     worlds_log_probs = torch.gather(log_probs, dim=2, index=yy.unsqueeze(dim=2)).squeeze(dim=2)

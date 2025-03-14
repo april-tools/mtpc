@@ -112,7 +112,7 @@ class LM(nn.Module):
         xx: Tensor,
         yy: Tensor | None = None,
         return_logits: bool = True,
-    ) -> tuple[Tensor | None, None]:
+    ) -> dict:
         assert (
             self.head is not None
         ), "The forward of GPT can only be called if encoder_only=False"

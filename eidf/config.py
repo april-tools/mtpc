@@ -3,6 +3,7 @@ username = "evankri"
 email = "Emile.van.Krieken@ed.ac.uk"
 
 pvc_name = "mtp-pvc"
+mtp_root_name = 'mtp-root'
 
 # Secrets
 github_secret_name = f"{username}-git-token-2025"

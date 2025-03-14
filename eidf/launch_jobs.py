@@ -2,19 +2,18 @@
 
 import time
 
-from kubejobs.jobs import KubernetesJob, create_pvc, KueueQueue
+from kubejobs.jobs import KubernetesJob, KueueQueue
 from rich import print
 import argparse
-from config import username, email, pvc_name, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit
+from config import username, email, pvc_name, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name
 
 # unique id generated using time
 
 unique_id = time.strftime("%Y%m%d%H%M%S")
 
-
+# Set the MTP root to the PVC folder
 env_vars = {
-    "DATASET_DIR": "/data/",
-    "MODEL_DIR": "/data/model/",
+    "MTP_ROOT": f"/{mtp_root_name}",
 }
 
 install_script_name = "run_mtp_EIDF.sh"
@@ -44,7 +43,7 @@ job = KubernetesJob(
     volume_mounts={
         "mtp-pvc": {
             "pvc": f"{username}-{pvc_name}-0",
-            "mountPath": "/data"
+            "mountPath": f"/{mtp_root_name}"
         }
     }
 )

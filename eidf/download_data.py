@@ -8,11 +8,13 @@ from huggingface_hub import hf_hub_download
 def get(fname, dataset):
     if dataset == 'fineweb':
         local_dir = os.path.join(os.environ['MTP_ROOT'], 'data', 'fineweb10B')
+        print(f"Downloading to {local_dir}")
         if not os.path.exists(os.path.join(local_dir, fname)):
             hf_hub_download(repo_id="kjj0/fineweb10B-gpt2", filename=fname,
                             repo_type="dataset", local_dir=local_dir)
     elif dataset == 'fineweb-edu':
         local_dir = os.path.join(os.environ['MTP_ROOT'], 'data', 'finewebedu10B')
+        print(f"Downloading to {local_dir}")
         if not os.path.exists(os.path.join(local_dir, fname)):
             hf_hub_download(repo_id="kjj0/finewebedu10B-gpt2", filename=fname,
                             repo_type="dataset", local_dir=local_dir)

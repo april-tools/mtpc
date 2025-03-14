@@ -11,9 +11,9 @@ from config import username, email, pvc_name, github_secret_name, wandb_secret_n
 
 unique_id = time.strftime("%Y%m%d%H%M%S")
 
-# Set the MTP root to the PVC folder
+# Give a name to the PVC folder (here will be the code, data and models)
 env_vars = {
-    "MTP_ROOT": f"/{mtp_root_name}",
+    "MTP_PVC_ROOT": f"/{mtp_root_name}",
 }
 
 install_script_name = "run_mtp_EIDF.sh"
@@ -42,7 +42,7 @@ job = KubernetesJob(
     user_email=email,
     volume_mounts={
         "mtp-pvc": {
-            "pvc": f"{username}-{pvc_name}-0",
+            "pvc": f"{username}-{pvc_name}",
             "mountPath": f"/{mtp_root_name}"
         }
     }

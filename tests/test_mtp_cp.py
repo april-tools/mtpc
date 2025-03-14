@@ -20,26 +20,40 @@ def mtp_cp(
     n_component: int = 2,
     n_token: int = 2
 ) -> MultiTokenLM:
-    lm = LM(lm=GPT(vocab_size, n_embd, n_layer, n_head),
-            ref_enc='encoder',
-            ref_head='head',
-            encoder_only=False)
-    token_head = OutputHead(encoder=TransformerEncoderHead(n_embd=n_embd,
-                                                           n_head=n_head,
-                                                           n_layer=n_layer),
-                            expander=ExpanderHead(expander_type='linear',
-                                                  n_embd=n_embd,
-                                                  n_component=n_component))
-    sum_head = OutputHead(encoder=TransformerEncoderHead(n_embd=n_embd,
-                                                         n_head=n_head,
-                                                         n_layer=n_layer),
-                          expander=torch.nn.Linear(n_embd, n_component))
-    mt_head = MultiTokenHead(token_head=token_head,
-                             sum_weight_head=sum_head,
-                             vocab_size=vocab_size,
-                             n_embd=n_embd,
-                             n_component=n_component,
-                             n_token=n_token)
+    lm = LM(
+        lm=GPT(vocab_size, n_embd, n_layer, n_head),
+        ref_enc='encoder',
+        ref_head='head',
+        encoder_only=False
+    )
+    token_head = OutputHead(
+        encoder=TransformerEncoderHead(
+            n_embd=n_embd,
+            n_head=n_head,
+            n_layer=n_layer
+        ),
+        expander=ExpanderHead(
+            expander_type='linear',
+            n_embd=n_embd,
+            n_component=n_component,
+            n_layer=1
+        ))
+    sum_head = OutputHead(
+        encoder=TransformerEncoderHead(
+            n_embd=n_embd,
+            n_head=n_head,
+            n_layer=n_layer
+        ),
+        expander=torch.nn.Linear(n_embd, n_component)
+    )
+    mt_head = MultiTokenHead(
+        token_head=token_head,
+        sum_weight_head=sum_head,
+        vocab_size=vocab_size,
+        n_embd=n_embd,
+        n_component=n_component,
+        n_token=n_token
+    )
     circuit = CircuitCP(vocab_size, n_token, n_component)
     mtp = MultiTokenLM(lm, mt_head, circuit)
     return mtp

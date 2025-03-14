@@ -4,8 +4,9 @@ random_seed: 13
 # Optimization hyperparams
 batch_size: 512
 device_batch_size: 8
-sequence_length: 256
-num_iterations: 5000
+sequence_length: 1024
+# 19000 * 1024 * 512 = 9961472000 ~ approx 10B tokens
+num_iterations: 19000
 learning_rate: 0.00003
 # Default scheduler uses cosine annealing to LR/10
 # If no scheduler, we keep LR constant

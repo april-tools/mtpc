@@ -64,9 +64,9 @@ pytest
 ## Download data
 ```
 # Download first 10 chunks of fineweb train dataset
-./bin/download_data 10 --dataset fineweb
-# Download first 10 chunks of fineweb-edu train dataset
-./bin/download_data 10 --dataset fineweb-edu
+./bin/download_data --numchunks 10 --dataset fineweb
+# Download all chunks of fineweb-edu train dataset
+./bin/download_data --dataset fineweb-edu
 ```
 
 ## Wandb

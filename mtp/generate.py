@@ -179,12 +179,10 @@ if __name__ == "__main__":
                         x,
                         mode=args.mode,
                         use_cache=args.use_cache,
-                        past_key_values=past_key_values,
-                        past_last_hidden_states=past_last_hidden_states
+                        past_key_values=past_key_values
                     )
                 tokens = outputs['tokens']
                 past_key_values = outputs['past_key_values']
-                past_last_hidden_states = outputs['past_last_hidden_states']
             x = torch.cat([x, tokens], dim=1)
             pbar.update(tokens.shape[1])
 

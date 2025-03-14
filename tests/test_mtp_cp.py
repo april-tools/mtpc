@@ -27,23 +27,15 @@ def mtp_cp(
         encoder_only=False
     )
     token_head = OutputHead(
-        encoder=TransformerEncoderHead(
-            n_embd=n_embd,
-            n_head=n_head,
-            n_layer=n_layer
-        ),
+        encoder=None,
         expander=ExpanderHead(
             expander_type='linear',
             n_embd=n_embd,
             n_component=n_component,
-            n_layer=1
+            n_layer=n_layer
         ))
     sum_head = OutputHead(
-        encoder=TransformerEncoderHead(
-            n_embd=n_embd,
-            n_head=n_head,
-            n_layer=n_layer
-        ),
+        encoder=None,
         expander=torch.nn.Linear(n_embd, n_component)
     )
     mt_head = MultiTokenHead(
@@ -78,10 +70,11 @@ def test_mtp_cp_generate(mtp_cp: MultiTokenLM):
     num_seqs, max_seq_length = 2 ** 17, mtp_cp.mt_head.n_token * num_steps + 1
     seqs = torch.full(size=(num_seqs, 1), fill_value=BOS, dtype=torch.int64)
     for _ in range(num_steps):
-        toks = mtp_cp.generate(seqs)['tokens']
+        gresult = mtp_cp.generate(seqs)
+        toks = gresult['tokens']
         assert toks.shape == (num_seqs, mtp_cp.mt_head.n_token)
         seqs = torch.cat([seqs, toks], dim=1)
-    assert torch.all(torch.isin(seqs, torch.tensor(list(range(mtp_cp.lm.lm.vocab_size)))))
+    assert torch.all(torch.isin(seqs, torch.tensor(list(range(mtp_cp.lm.encoder.vocab_size)))))
     # Map samples to indices of the probabilities computed above
     # seqs_idx: (num_seqs,)
     seqs_idx = torch.sum(seqs * torch.tensor([0] + list(reversed([2 ** i for i in range(max_seq_length - 1)]))), dim=-1)
@@ -118,14 +111,15 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     for i in range(num_seqs):
         seq = torch.full(size=(1, 1), fill_value=BOS, dtype=torch.int64)
         while seq.shape[1] < max_seq_length:
-            toks = mtp_cp.self_speculative_generate(seq)['tokens']
+            gresult = mtp_cp.self_speculative_generate(seq)
+            toks = gresult['tokens']
             assert len(toks.shape) == 2 and toks.shape[0] == 1
             assert 1 <= toks.shape[1] <= mtp_cp.mt_head.n_token + 1
             seq = torch.concat([seq, toks], dim=1)
             num_accepted_tokens.append(toks.shape[1] - 1)
         seq = seq[:, :max_seq_length]
         assert seq.shape == (1, max_seq_length)
-        assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.lm.lm.vocab_size)))))
+        assert torch.all(torch.isin(seq, torch.tensor(list(range(mtp_cp.lm.encoder.vocab_size)))))
         seqs[i] = seq.squeeze(dim=0)
     assert any(j != 0 and j != mtp_cp.mt_head.n_token for j in num_accepted_tokens)
     # Map samples to indices of the probabilities computed above
@@ -146,7 +140,7 @@ def test_mtp_cp_self_speculative_generate(mtp_cp: MultiTokenLM):
     worlds_seqs = torch.cat([torch.full(size=(worlds.shape[0], 1), fill_value=BOS, dtype=torch.int64), worlds], dim=1)
     xx = worlds_seqs[:, :-1].contiguous()
     yy = worlds_seqs[:, 1:].contiguous()
-    results = mtp_cp.lm(xx, targets=yy, return_logits=True)
+    results = mtp_cp.lm(xx, yy=yy, return_logits=True)
     assert results['logits'].shape[1] == max_seq_length - 1
     log_probs = torch.log_softmax(results['logits'], dim=-1)
     worlds_log_probs = torch.gather(log_probs, dim=2, index=yy.unsqueeze(dim=2)).squeeze(dim=2)

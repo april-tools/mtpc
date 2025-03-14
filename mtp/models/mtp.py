@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn.functional as F
+import functools
 
 from torch import Tensor
 from copy import deepcopy
@@ -33,14 +34,16 @@ class MultiTokenLM(torch.nn.Module):
     kl_type: string, the type of KL to use, can be forward or reverse.
     """
 
-    def __init__(self,
-                 lm: LM,
-                 mt_head: MultiTokenHead,
-                 circuit: CircuitCP,
-                 init_from_lm_head: bool = True,
-                 beta: float = .9,
-                 gamma: float = 1.,
-                 kl_type: str = 'forward'):
+    def __init__(
+        self,
+        lm: LM,
+        mt_head: MultiTokenHead,
+        circuit: CircuitCP,
+        init_from_lm_head: bool = True,
+        beta: float = .9,
+        gamma: float = 1.,
+        kl_type: str = 'forward'
+    ):
         super().__init__()
         self.lm = lm
         self.mt_head = mt_head
@@ -86,7 +89,7 @@ class MultiTokenLM(torch.nn.Module):
     #     yy: Tensor,
     #     return_log_probs: bool = False,
     #     return_stp_loss: bool = False
-    # ) -> dict[str, Tensor]:
+    # ) -> dict:
     #     # Compute the loss, i.e., the multi-token average negated log-likelihood
     #
     #     # xx: (B, S, D)
@@ -194,7 +197,11 @@ class MultiTokenLM(torch.nn.Module):
         self.parameterize_circuit(xx)
 
         # 5) Compute CE loss per token and, optionally, KL loss
-        losses = self.compute_per_token_losses(yy, teacher_log_probs)
+        losses = self.compute_per_token_losses(
+            yy,
+            teacher_log_probs,
+            return_log_probs=return_log_probs
+        )
 
         # 6) Weigh the losses and optionally discount
         sum_combined_loss = 0
@@ -222,10 +229,12 @@ class MultiTokenLM(torch.nn.Module):
         sum_combined_loss = sum_combined_loss / sum([self.gamma ** k
                                                      for k in range(H)])
 
-        return {
-            'loss': sum_combined_loss,
-            **loss_for_log
-        }
+        outputs = {'loss': sum_combined_loss}
+        if self.compute_kl or self.compute_ce:
+            outputs.update(loss_for_log)
+        if return_log_probs:
+            outputs['log_probs'] = losses['log_probs']
+        return outputs
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
         # TODO: Make this a parameterise function on the circuit
@@ -289,10 +298,12 @@ class MultiTokenLM(torch.nn.Module):
         return all_token_log_probs
 
     @torch._dynamo.disable
-    def compute_per_token_losses(self,
-                                 yy: Tensor,
-                                 teacher_log_probs: Tensor = None
-                                 ):
+    def compute_per_token_losses(
+        self,
+        yy: Tensor,
+        teacher_log_probs: Tensor = None,
+        return_log_probs: bool = False
+    ) -> dict:
         """ Compute losses per token. If teacher_log_probs is passed as an
         argument, we compute both KL and CE losses for each token.
         Otherwise, we compute only per token CE loss.
@@ -301,7 +312,7 @@ class MultiTokenLM(torch.nn.Module):
             yy: shape (B, S'), the target token indices
             teacher_log_probs: shape (B, S', V), the target token indices
         """
-        if self.compute_kl is True:
+        if self.compute_kl:
             assert teacher_log_probs is not None, 'Expected teacher_log_probs != None'
 
         H = self.mt_head.n_token
@@ -388,6 +399,11 @@ class MultiTokenLM(torch.nn.Module):
                 # The circuit has only computed the log probs for the targets
                 ce_losses[h] = -log_probs[h].mean()
             losses['ce_losses'] = ce_losses
+
+        # Compute p(x_{t+1}, ..., x_{t+n} \mid x_{<= t})
+        if return_log_probs:
+            losses['log_probs'] = self.circuit(yy)
+
         return losses
 
     @torch.no_grad()

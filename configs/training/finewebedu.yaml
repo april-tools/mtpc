@@ -3,7 +3,7 @@ random_seed: 13
 
 # Optimization hyperparams
 batch_size: 512
-device_batch_size: 8
+device_batch_size: 16
 sequence_length: 1024
 # 19000 * 1024 * 512 = 9961472000 ~ approx 10B tokens
 num_iterations: 19000

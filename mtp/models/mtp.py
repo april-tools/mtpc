@@ -35,8 +35,8 @@ class MultiTokenLM(torch.nn.Module):
     def __init__(
         self,
         lm: LM,
-        mt_head: MultiTokenHead,
         circuit: CircuitModel,
+        mt_head_kwargs: dict,
         init_from_lm_head: bool = True,
         beta: float = .9,
         gamma: float = 1.,
@@ -44,9 +44,17 @@ class MultiTokenLM(torch.nn.Module):
     ):
         super().__init__()
         self.lm = lm
-        self.mt_head = mt_head
         self.circuit = circuit
-
+        self.mt_head = MultiTokenHead(
+            self.circuit.parameters_config,
+            self.circuit.vocab_size,
+            n_embd=mt_head_kwargs['n_embd'],
+            n_head=mt_head_kwargs['n_head'],
+            transformer_n_layer=mt_head_kwargs['transformer_n_layer'],
+            expander_n_layer=mt_head_kwargs['expander_n_layer'],
+            expander_type=mt_head_kwargs['expander_type'],
+            freeze_vocab_unembedding=mt_head_kwargs['freeze_vocab_unembedding']
+        )
         self.init_from_lm_head = init_from_lm_head
 
         # Below are the params for weighting the kl and ce losses.

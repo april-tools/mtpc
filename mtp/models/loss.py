@@ -125,16 +125,18 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
             H: is the # of tokens in the MTP window
             BS: is the seq len * batch size (collapsed)
             V: is the vocabulary size
-        If we shape is (H, BS, V), yy is expected to index the prob of true
-        category. Else, probs should be true log probs and yy=None is expected.
         yy (torch.Tensor | None): The targets with shape (BS, 1, H), containing
         the indices of the correct token, or None.
+        If draft_log_probs is (H, BS, V), yy is expected to index the prob of
+        true category. Else, probs should be true log probs and yy=None is
+        expected.
     """
-    BS, _, H = yy.shape
+    H, BS = draft_log_probs.shape[:2]
     if yy is None:
-        assert draft_log_probs.shape == (BS, H)
+        assert len(draft_log_probs.shape) == 2
     else:
-        assert draft_log_probs.shape[:2] == (BS, H)
+        assert len(draft_log_probs.shape) == 3
+        assert yy.shape == (BS, 1, H)
     ce_losses = torch.zeros(H, device=draft_log_probs.device)
     for h in range(H):
         if yy is None:

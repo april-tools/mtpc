@@ -1,16 +1,14 @@
 import os
 import torch
-import torch.nn.functional as F
-import functools
 
 from torch import Tensor
 from copy import deepcopy
 
 from .lm import LM
 from .mtp_head import MultiTokenHead
-
 from .circuits import CircuitCP
 from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
+from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -42,7 +40,8 @@ class MultiTokenLM(torch.nn.Module):
         init_from_lm_head: bool = True,
         beta: float = .9,
         gamma: float = 1.,
-        kl_type: str = 'forward'
+        kl_type: str = 'forward',
+        kl_algorithm: str = 'binary_approx'
     ):
         super().__init__()
         self.lm = lm
@@ -56,15 +55,18 @@ class MultiTokenLM(torch.nn.Module):
         # by computing train and validation with different hyperparams
         assert 0 <= beta <= 1, 'Expected 0 <= beta <= 1, got: %.2f' % beta
         assert 0 < gamma <= 1, 'Expected 0 <= gamma <= 1, got: %.2f' % gamma
-        assert kl_type in ('forward', 'reverse'), 'Unknown kl_type: %s' % kl_type 
+        assert kl_type in ('forward', 'reverse'), 'Unknown kl_type: %s' % kl_type
+        assert kl_algorithm in ('full', 'binary_approx'), 'Unknown kl_algorithm: %s' % kl_algorithm
         self.beta = beta
         self.gamma = gamma
         self.kl_type = kl_type
+        self.kl_algorithm = kl_algorithm
 
         # Keep track of what we need to compute
         self.compute_ce, self.compute_kl = self.beta < 1, self.beta > 0
 
         if self.compute_kl:
+            # NOTE: We compute teacher_log_probs in a no_grad block.
             assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
             assert self.lm.encoder_only is False, 'We need the LM head to compute KL'
         else:
@@ -156,6 +158,8 @@ class MultiTokenLM(torch.nn.Module):
             'loss': the combined loss used for training
             'kl_loss_at_h': the kl loss for token h (for h in H)
             'ce_loss_at_h': the cross entropy loss for token h (for h in H)
+            'log_probs': the log probs from the draft model, if
+                return_log_probs is True.
         """
         H = self.mt_head.n_token
         # B = xx.shape[0]
@@ -171,9 +175,26 @@ class MultiTokenLM(torch.nn.Module):
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
             with torch.no_grad():
-                # shape: (B, S', V)
+                # shape: (B, S, V)
                 logits = self.lm.head(xx)
+                # shape: B, S, V
                 teacher_log_probs = torch.log_softmax(logits, axis=-1)
+                if self.kl_algorithm == 'binary_approx':
+                    # We only need the log probs for the target category
+                    # shape: B, S, 1
+                    teacher_log_probs = torch.gather(teacher_log_probs,
+                                                     dim=-1,
+                                                     index=yy.unsqueeze(-1))
+                # Make teacher_log_probs windowed for kl with circuit logprobs
+                # TODO: Since we are using a for loop in the KL computation
+                # shape: B, S', V, H
+                teacher_log_probs = teacher_log_probs.unfold(dimension=1, size=H, step=1)
+                # shape: H, B, S', V
+                teacher_log_probs = teacher_log_probs.permute(3, 0, 1, 2)
+                # shape: H, B * S', V
+                teacher_log_probs = teacher_log_probs.flatten(1, 2)
+                # If V=1 because of binary approx, remove the dim
+                teacher_log_probs = teacher_log_probs.squeeze(-1)
         else:
             teacher_log_probs = None
 
@@ -196,20 +217,35 @@ class MultiTokenLM(torch.nn.Module):
         # 4) Parameterize the circuit with our NN activations
         self.parameterize_circuit(xx)
 
-        # 5) Compute CE loss per token and, optionally, KL loss
+        # 5) Make target idxs, yy, windowed
+        # from yy: (B, S) to yy: (B, S', H)
+        yy = yy.unfold(dimension=1, size=H, step=1)
+        # We also unsqueeze a channel dimension, as required by cirkit
+        # yy: (B, S', H) -> (B * S', 1, H)
+        yy = yy.reshape(-1, 1, H)
+
+        # 6) Compute draft log probs with the circuit
+        if self.compute_kl and self.kl_algorithm == 'full':
+            # shape: H, B * S', V   Compute conditional distributions for circuit
+            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
+        else:
+            # shape: H, B * S'  We do not need to expand logits
+            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
+
+        # 7) Compute CE loss per token and, optionally, KL loss
         losses = self.compute_per_token_losses(
             yy,
-            teacher_log_probs,
-            return_log_probs=return_log_probs
+            draft_log_probs=log_probs,
+            teacher_log_probs=teacher_log_probs
         )
 
-        # 6) Weigh the losses and optionally discount
+        # 8) Weigh the losses and optionally discount
         sum_combined_loss = 0
         loss_for_log = dict()
         for k in range(H):
 
-            kl_loss = losses['kl_losses'][k] if self.compute_kl else 0.
-            ce_loss = losses['ce_losses'][k] if self.compute_ce else 0.
+            kl_loss = losses['kl_loss'][k] if self.compute_kl else 0.
+            ce_loss = losses['ce_loss'][k] if self.compute_ce else 0.
 
             # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
             combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
@@ -219,7 +255,10 @@ class MultiTokenLM(torch.nn.Module):
 
             # Compute losses for logging / these are detached outside
             if self.compute_kl:
-                loss_for_log['kl_loss_at_%d' % (k+1)] = kl_loss
+                if self.kl_algorithm == 'full':
+                    loss_for_log['kl_loss_at_%d' % (k+1)] = kl_loss
+                elif self.kl_algorithm == 'binary_approx':
+                    loss_for_log['kl_loss_ba_at_%d' % (k+1)] = kl_loss
 
             if self.compute_ce:
                 loss_for_log['ce_loss_at_%d' % (k+1)] = ce_loss
@@ -233,7 +272,8 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl or self.compute_ce:
             outputs.update(loss_for_log)
         if return_log_probs:
-            outputs['log_probs'] = losses['log_probs']
+            # TODO: standardize format of returned log_probs
+            outputs['log_probs'] = log_probs
         return outputs
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):
@@ -301,108 +341,38 @@ class MultiTokenLM(torch.nn.Module):
     def compute_per_token_losses(
         self,
         yy: Tensor,
-        teacher_log_probs: Tensor = None,
-        return_log_probs: bool = False
+        draft_log_probs: Tensor,
+        teacher_log_probs: Tensor = None
     ) -> dict:
         """ Compute losses per token. If teacher_log_probs is passed as an
         argument, we compute both KL and CE losses for each token.
         Otherwise, we compute only per token CE loss.
 
         Args:
-            yy: shape (B, S'), the target token indices
-            teacher_log_probs: shape (B, S', V), the target token indices
+            yy: shape (H, BS), the target token indices
+            draft_log_probs: shape (H, BS, V) or (H, BS), the log probs from the draft model
+            teacher_log_probs: shape (H, BS, V) or (H, BS), the categorical distributions
+                from the teacher model, windowed for easy kl computation.
         """
         if self.compute_kl:
             assert teacher_log_probs is not None, 'Expected teacher_log_probs != None'
 
-        H = self.mt_head.n_token
-
-        # NOTE: We need yy in the code below both with/without KL
-        # so compute it in one place to avoid repetition
-        # Compute sliding window of ground-truth tokens for each t
-        # from yy: (B, S') to yy: (B, S', H)
-        yy = yy.unfold(dimension=1, size=H, step=1)
-        # We also unsqueeze a channel dimension, as required by cirkit
-        # yy: (B, S', H) -> (B * S', 1, H)
-        yy = yy.reshape(-1, 1, H)
-
-        losses = dict(kl_losses=None, ce_losses=None)
+        losses = dict()
         if self.compute_kl:
             B, S, V = teacher_log_probs.shape
             assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
 
-            # shape: H, B * S', V   Compute conditional distributions for circuit
-            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
-
-            # Make teacher_log_probs windowed to get kl with circuit logprobs
-            # shape: B, S', V, H
-            teacher_log_probs = teacher_log_probs.unfold(dimension=1, size=H, step=1)
-            # shape: H, B, S', V
-            teacher_log_probs = teacher_log_probs.permute(3, 0, 1, 2)
-            # shape: H, B * S', V
-            teacher_log_probs = teacher_log_probs.flatten(1, 2)
-
-            kl_losses = torch.zeros(H, device=teacher_log_probs.device)
-            for h in range(H):
-                if self.kl_type == 'forward':
-                    # We want to compute KL(target_model || draft_model)
-                    # For usual order: input, target, pt computes forward KL.
-                    # target = torch.softmax(torch.randn(3, 5), dim=-1)
-                    # draft = torch.softmax(torch.randn(3, 5), dim=-1)
-                    # kl_f = (target * torch.log(target / draft)).sum(axis=1).mean()
-                    # # NOTE: the flip in order arguments for pt below
-                    # kl_f_pt = F.kl_div(torch.log(draft), torch.log(target), log_target=True, reduction='batchmean')
-                    # assert torch.allclose(kl_f, kl_f_pt)
-                    # So we do draft, target order for forward KL:
-                    kl_losses[h] = F.kl_div(log_probs[h],
-                                            teacher_log_probs[h],
-                                            log_target=True,
-                                            reduction='batchmean')
-                else:
-                    kl_losses[h] = F.kl_div(teacher_log_probs[h],
-                                            log_probs[h],
-                                            log_target=True,
-                                            reduction='batchmean')
-            losses['kl_losses'] = kl_losses
+            if self.kl_algorithm == 'full':
+                losses['kl_loss'] = compute_full_kl(log_probs, teacher_log_probs, self.kl_type)
+            elif self.kl_algorithm == 'binary_approx':
+                losses['kl_loss'] = compute_binary_approx_kl(log_probs, teacher_log_probs, self.kl_type)
+            else:
+                raise ValueError('Unknown kl_algorithm = %s' % self.kl_algorithm)
 
             if self.compute_ce:
-                ce_losses = torch.zeros(H, device=yy.device)
-                for h in range(H):
-                    # NOTE: log_probs are logits, but not vice-versa
-                    # NOTE 2: The CE loss acts as regularisation - if the teacher
-                    # samples differ from the data, the ce loss nudges the model
-                    # to also have high prob for the token in the data
-                    ce_losses[h] = F.cross_entropy(log_probs[h], yy[:, :, h].ravel())
-                losses['ce_losses'] = ce_losses
+                losses['ce_loss'] = compute_cross_entropy(log_probs, yy)
         else:
-            ce_losses = torch.zeros(H, device=yy.device)
-
-            # # NOTE: We can comment out below for faster implementation when gamma=1
-            # # however we get logging only of avg. loss for each token.
-
-            # # If gamma == 1, we are not using discounting, so we can just use
-            # # the original joint distribution, which is more efficient
-            # if self.gamma == 1.:
-            #     log_probs = self.circuit(yy)
-            #
-            #     # The loss is the negated average conditional log-likelihood
-            #     # Divide by H as we are computing per token loss, we
-            #     # will sum across tokens in the calling function
-            #     loss = -log_probs.mean() / H
-            #     losses['ce_losses'] = ce_losses + loss
-            # else:
-
-            # We do not need to expand logits - this is more memory efficient
-            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
-            for h in range(H):
-                # Cross-entropy with one-hot targets == negative log-likelihood
-                # The circuit has only computed the log probs for the targets
-                ce_losses[h] = -log_probs[h].mean()
-            losses['ce_losses'] = ce_losses
-
-        # Compute p(x_{t+1}, ..., x_{t+n} \mid x_{<= t})
-        if return_log_probs:
-            losses['log_probs'] = self.circuit(yy)
+            losses['ce_loss'] = compute_cross_entropy(log_probs, yy=None)
 
         return losses
 

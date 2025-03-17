@@ -224,6 +224,7 @@ if __name__ == "__main__":
         stats['beta'] = cfg.model.model.beta
         stats['gamma'] = cfg.model.model.gamma
         stats['kl_type'] = cfg.model.model.kl_type
+        stats['kl_algorithm'] = cfg.model.model.kl_algorithm
         stats['token_head_type'] = cfg.model.token_head.expander.expander_type
         stats['token_head_num_transformer_layers'] = cfg.model.token_head.encoder.n_layer
         stats['sum_weight_num_transformer_layers'] = cfg.model.sum_weight_head.encoder.n_layer

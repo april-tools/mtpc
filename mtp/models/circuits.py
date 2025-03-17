@@ -110,6 +110,7 @@ class CircuitCP(torch.nn.Module):
     def forward(self, yy):
         return self._circuit(yy).ravel()
 
+    @torch._dynamo.disable
     def univariate_marginal_at_k(self, k, yy=None, with_logits=False):
         assert 0 <= k <= self.n_token
         if with_logits:
@@ -134,6 +135,7 @@ class CircuitCP(torch.nn.Module):
         # BS, V if with_logits else BS
         return log_probs
 
+    @torch._dynamo.disable
     def autoregressive_marginal_at_k(self, k, yy, with_logits=False):
         # Marginalises out future tokens
         assert len(yy.shape) == 3
@@ -171,6 +173,7 @@ class CircuitCP(torch.nn.Module):
                 k, yy=yy, with_logits=with_logits
             )
             marginals.append(marginal)
+        marginals = torch.stack(marginals)
         # Go in reverse to avoid overwriting useful info.
         # Stop at 1, since conditional for ntp is just marginal
         for k in reversed(range(1, H)):

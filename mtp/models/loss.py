@@ -4,7 +4,36 @@ import torch.nn.functional as F
 
 def compute_full_kl(draft_log_probs: torch.Tensor,
                     teacher_log_probs: torch.Tensor,
-                    kl_type: str):
+                    kl_type: str) -> torch.Tensor:
+    """
+    Computes the Kullback–Leibler (KL) divergence between two distributions.
+
+    Args:
+        draft_log_probs (torch.Tensor): Log probabilities from the draft model,
+        shape (H, BS, V), where:
+            H: is the # of tokens in the MTP window
+            BS: is the seq len * batch size (collapsed)
+            V: is the vocabulary size
+        teacher_log_probs (torch.Tensor): Log probabilities from the
+        teacher model, shape (H, BS, V).
+        kl_type (str): Specifies the type of KL divergence to compute
+        ('forward' or 'reverse').
+
+    Returns:
+        kl_losses (torch.Tensor of shape H): KL divergence loss computed
+        for each of the H positions in the MTP window. The value for each
+        position is the average across the sequence and batch dimension
+        (not vocab).
+
+    Raises:
+        AssertionError: If shapes of `draft_log_probs` and `teacher_log_probs`
+            do not match.
+        ValueError: If `kl_type` is not 'forward' or 'reverse'.
+
+    Note:
+        The forward KL divergence is computed as D_{KL}(P || Q) and the reverse
+        as D_{KL}(Q || P).
+    """
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
     H, BS, V = draft_log_probs.shape
@@ -35,7 +64,32 @@ def compute_full_kl(draft_log_probs: torch.Tensor,
 
 def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
                              teacher_log_probs: torch.Tensor,
-                             kl_type: str):
+                             kl_type: str) -> torch.Tensor:
+    """
+    Computes an approximate KL divergence between two distributions by grouping
+    the probabilities into two categories: target and rest, and computing a KL
+    between Bernoulli RVs.
+
+    Args:
+        draft_log_probs (torch.Tensor): Log probabilities for the target
+        category under the draft model, shape (H, BS), where:
+            H: is the # of tokens in the MTP window
+            BS: is the seq len * batch size (collapsed)
+        teacher_log_probs (torch.Tensor): Log probabilities from the teacher
+            model, shape (H, BS).
+        kl_type (str): Specifies the KL divergence to compute
+            ('forward' or 'reverse').
+
+    Returns:
+        kl_losses (torch.Tensor of shape H): Approx KL divergence loss computed
+        for each of the H positions in the MTP window. The value for each
+        position is the average across the sequence and batch dimension
+        (not vocab).
+
+    Raises:
+        AssertionError: If shapes of `draft_log_probs` and `teacher_log_probs` do not match.
+        ValueError: If `kl_type` is not 'forward' or 'reverse'.
+    """
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
     assert draft_log_probs.shape == teacher_log_probs.shape

@@ -17,7 +17,7 @@ def test_zero_kl():
     assert torch.allclose(rkl, torch.zeros(1))
 
 
-def test_approx_equals_full_forward():
+def test_approx_equals_full_forward_seq():
 
     pp = torch.tensor([[.3, .7],
                        [.2, .8]])
@@ -36,7 +36,26 @@ def test_approx_equals_full_forward():
     assert torch.allclose(fkl, akl)
 
 
-def test_approx_equals_full_reverse():
+def test_approx_equals_full_forward_heads():
+
+    pp = torch.tensor([[.3, .7],
+                       [.2, .8]])
+    tt = torch.log(pp).reshape(-1, 1, 2)
+
+    ppd = torch.tensor([[.4, .6],
+                        [.1, .9]])
+    dd = torch.log(ppd).reshape(-1, 1, 2)
+
+    fkl = compute_full_kl(tt, dd, 'forward')
+
+    akl = compute_binary_approx_kl(tt[:, :, 0], dd[:, :, 0], 'forward')
+    assert torch.allclose(fkl, akl)
+
+    akl = compute_binary_approx_kl(tt[:, :, 1], dd[:, :, 1], 'forward')
+    assert torch.allclose(fkl, akl)
+
+
+def test_approx_equals_full_reverse_seq():
 
     pp = torch.tensor([[.3, .7],
                        [.2, .8]])
@@ -45,6 +64,25 @@ def test_approx_equals_full_reverse():
     ppd = torch.tensor([[.4, .6],
                         [.1, .9]])
     dd = torch.log(ppd).reshape(1, -1, 2)
+
+    fkl = compute_full_kl(tt, dd, 'reverse')
+
+    akl = compute_binary_approx_kl(tt[:, :, 0], dd[:, :, 0], 'reverse')
+    assert torch.allclose(fkl, akl)
+
+    akl = compute_binary_approx_kl(tt[:, :, 1], dd[:, :, 1], 'reverse')
+    assert torch.allclose(fkl, akl)
+
+
+def test_approx_equals_full_reverse_heads():
+
+    pp = torch.tensor([[.3, .7],
+                       [.2, .8]])
+    tt = torch.log(pp).reshape(-1, 1, 2)
+
+    ppd = torch.tensor([[.4, .6],
+                        [.1, .9]])
+    dd = torch.log(ppd).reshape(-1, 1, 2)
 
     fkl = compute_full_kl(tt, dd, 'reverse')
 

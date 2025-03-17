@@ -179,6 +179,10 @@ class MultiTokenLM(torch.nn.Module):
                 logits = self.lm.head(xx)
                 # shape: B, S, V
                 teacher_log_probs = torch.log_softmax(logits, axis=-1)
+
+                B, S, V = teacher_log_probs.shape
+                assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
+
                 if self.kl_algorithm == 'binary_approx':
                     # We only need the log probs for the target category
                     # shape: B, S, 1
@@ -226,10 +230,10 @@ class MultiTokenLM(torch.nn.Module):
 
         # 6) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == 'full':
-            # shape: H, B * S', V   Compute conditional distributions for circuit
+            # shape: H, B * S', V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
         else:
-            # shape: H, B * S'  We do not need to expand logits
+            # shape: H, B * S'  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
 
         # 7) Compute CE loss per token and, optionally, KL loss
@@ -301,7 +305,6 @@ class MultiTokenLM(torch.nn.Module):
         self._cat_layer.log_probs = cat_log_probs
         self._sum_layer.weight = sum_weight
 
-    @torch._dynamo.disable
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
         # how good the model would be for just next token prediction
@@ -313,7 +316,6 @@ class MultiTokenLM(torch.nn.Module):
         # scalar
         return stp_loss
 
-    @torch._dynamo.disable
     def compute_all_next_token_losses(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
         # how good the model would be for just next token prediction
@@ -325,28 +327,23 @@ class MultiTokenLM(torch.nn.Module):
         # H dims
         return stp_losses
 
-    @torch._dynamo.disable
     def compute_next_token_log_probs(self) -> Tensor:
         next_token_log_probs = self.circuit.univariate_marginal_at_k(k=0, with_logits=True)
         # BS, V
         return next_token_log_probs
 
-    @torch._dynamo.disable
     def compute_all_token_log_probs(self, yy: Tensor) -> Tensor:
         all_token_log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
         # H, BS, V
         return all_token_log_probs
 
-    @torch._dynamo.disable
     def compute_per_token_losses(
         self,
         yy: Tensor,
         draft_log_probs: Tensor,
         teacher_log_probs: Tensor = None
     ) -> dict:
-        """ Compute losses per token. If teacher_log_probs is passed as an
-        argument, we compute both KL and CE losses for each token.
-        Otherwise, we compute only per token CE loss.
+        """ Compute per token losses.
 
         Args:
             yy: shape (H, BS), the target token indices
@@ -359,20 +356,18 @@ class MultiTokenLM(torch.nn.Module):
 
         losses = dict()
         if self.compute_kl:
-            B, S, V = teacher_log_probs.shape
-            assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
-
             if self.kl_algorithm == 'full':
-                losses['kl_loss'] = compute_full_kl(log_probs, teacher_log_probs, self.kl_type)
+                losses['kl_loss'] = compute_full_kl(draft_log_probs, teacher_log_probs, self.kl_type)
             elif self.kl_algorithm == 'binary_approx':
-                losses['kl_loss'] = compute_binary_approx_kl(log_probs, teacher_log_probs, self.kl_type)
+                losses['kl_loss'] = compute_binary_approx_kl(draft_log_probs, teacher_log_probs, self.kl_type)
             else:
                 raise ValueError('Unknown kl_algorithm = %s' % self.kl_algorithm)
-
-            if self.compute_ce:
-                losses['ce_loss'] = compute_cross_entropy(log_probs, yy)
-        else:
-            losses['ce_loss'] = compute_cross_entropy(log_probs, yy=None)
+        if self.compute_ce:
+            # If we have only computed the gold log probs
+            if len(draft_log_probs.shape) == 2:
+                losses['ce_loss'] = compute_cross_entropy(draft_log_probs, yy=None)
+            else:
+                losses['ce_loss'] = compute_cross_entropy(draft_log_probs, yy)
 
         return losses
 

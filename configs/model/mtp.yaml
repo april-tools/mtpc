@@ -51,6 +51,7 @@ model:
     circuit: ${model.circuit}
     init_from_lm_head: true
     # Loss weighing
-    kl_type: forward            # Can be forward or reverse
-    beta: ${model.beta}         # Interpolate losses. 0. means CE only and 1. is only KL
-    gamma: ${model.gamma}       # Exp. future token discount. 1. Means all tokens contribute equally
+    kl_type: forward             # Can be forward or reverse
+    kl_algorithm: binary_approx  # Can be full or binary_approx
+    beta: ${model.beta}          # Interpolate losses. 0. means CE only and 1. is only KL
+    gamma: ${model.gamma}        # Exp. future token discount. 1. Means all tokens contribute equally

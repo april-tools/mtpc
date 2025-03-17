@@ -216,8 +216,13 @@ def main(cfg: DictConfig):
         train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
         val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
 
+        ntok_train = cfg.training.batch_size * T * cfg.training.num_iterations
+
         logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
         logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
+        logger(f"During training we will see {ntok_train} tokens")
+        logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
+        assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
 
         # Calculate steps
         val_steps = cfg.training.val_tokens // (B * T * world_size)

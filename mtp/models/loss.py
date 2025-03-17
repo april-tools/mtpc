@@ -95,20 +95,20 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
     assert draft_log_probs.shape == teacher_log_probs.shape
     H, BS = teacher_log_probs.shape
 
-    # TODO: Implement forward and reverse KL
-    kl_losses = torch.zeros(H, device=teacher_log_probs.device)
-    for h in range(H):
-        # Compute log probs of 1 - p(x), use log1p for num stability
-        rest_draft_log_probs = torch.log1p(-torch.exp(draft_log_probs))
-        rest_teacher_log_probs = torch.log1p(-torch.exp(teacher_log_probs))
-        if kl_type == 'forward':
-            kl = torch.exp(teacher_log_probs) * (teacher_log_probs - draft_log_probs)
-            kl += torch.exp(rest_teacher_log_probs) * (rest_teacher_log_probs - rest_draft_log_probs)
-            kl_losses[h] = kl.mean()
-        else:
-            kl = torch.exp(draft_log_probs) * (draft_log_probs - teacher_log_probs)
-            kl += torch.exp(rest_draft_log_probs) * (rest_draft_log_probs - rest_teacher_log_probs)
-            kl_losses[h] = kl.mean()
+    # Compute log probs of 1 - p(x), use log1p for num stability
+    rest_draft_log_probs = torch.log1p(-torch.exp(draft_log_probs))
+    rest_teacher_log_probs = torch.log1p(-torch.exp(teacher_log_probs))
+
+    # kl_losses = torch.zeros(H, device=teacher_log_probs.device)
+    # for h in range(H):
+    if kl_type == 'forward':
+        kl = torch.exp(teacher_log_probs) * (teacher_log_probs - draft_log_probs)
+        kl += torch.exp(rest_teacher_log_probs) * (rest_teacher_log_probs - rest_draft_log_probs)
+        kl_losses = kl.mean(axis=-1)
+    else:
+        kl = torch.exp(draft_log_probs) * (draft_log_probs - teacher_log_probs)
+        kl += torch.exp(rest_draft_log_probs) * (rest_draft_log_probs - rest_teacher_log_probs)
+        kl_losses = kl.mean(axis=-1)
     return kl_losses
 
 

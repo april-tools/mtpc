@@ -95,9 +95,10 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
     assert draft_log_probs.shape == teacher_log_probs.shape
     H, BS = teacher_log_probs.shape
 
+    epsilon = torch.finfo(teacher_log_probs.dtype).eps
     # Compute log probs of 1 - p(x), use log1p for num stability
-    rest_draft_log_probs = torch.log1p(-torch.exp(draft_log_probs))
-    rest_teacher_log_probs = torch.log1p(-torch.exp(teacher_log_probs))
+    rest_draft_log_probs = torch.log1p(-torch.exp(torch.clamp(draft_log_probs, max=-epsilon)))
+    rest_teacher_log_probs = torch.log1p(-torch.exp(torch.clamp(teacher_log_probs, max=-epsilon)))
 
     # kl_losses = torch.zeros(H, device=teacher_log_probs.device)
     # for h in range(H):

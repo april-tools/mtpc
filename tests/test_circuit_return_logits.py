@@ -44,10 +44,8 @@ def test_circuit_conditionals_with_logits():
     yy = torch.randint(V, (BS, 1, H))
 
     log_probs = cc.autoregressive_conditionals(yy, with_logits=False)
-    log_probs = torch.stack(log_probs)
 
     log_probs_all = cc.autoregressive_conditionals(yy, with_logits=True)
-    log_probs_all = torch.stack(log_probs_all)
     match = log_probs_all[torch.arange(H)[:, None], torch.arange(BS)[None, :], yy.squeeze().permute(1, 0)]
 
     # Assert entries we get without all logits agree with all logits case

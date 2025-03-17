@@ -67,7 +67,7 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
                 or log_probs.shape[3] != self.num_categories
             ):
                 raise ValueError(
-                    f"Expected probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.num_categories}), "
+                    f"Expected log probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.num_categories}), "
                     f"but found {log_probs.shape}"
                 )
         self._log_probs = log_probs
@@ -76,15 +76,18 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
     def config(self) -> Mapping[str, Any]:
         return {
             "num_output_units": self.num_output_units,
-            "num_channels": self.num_channels,
             "num_categories": self.num_categories,
         }
+    
+    @property
+    def fold_settings(self) -> tuple[Any, ...]:
+        return self.num_variables, *self.config.items()
 
     def log_unnormalized_likelihood(self, x: Tensor) -> Tensor:
         if x.is_floating_point():
             x = x.long()  # The input to Categorical should be discrete
         # x: (F, B, 1) -> (F, B)
-        x = x.squeeze(dim=3)
+        x = x.squeeze(dim=2)
         F, B = x.shape
         V = self.num_categories
 
@@ -193,6 +196,10 @@ class TorchBatchedSumLayer(TorchInnerLayer):
             "num_output_units": self.num_output_units,
             "arity": self.arity,
         }
+
+    @property
+    def fold_settings(self) -> tuple[Any, ...]:
+        return *self.config.items(),
 
     def forward(self, x: Tensor) -> Tensor:
         # x: (F, H, B, Ki) -> (F, B, H * Ki)

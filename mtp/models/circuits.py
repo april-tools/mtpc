@@ -1,7 +1,7 @@
-from collections import defaultdict
 import torch
 
 from cirkit.backend.torch.circuits import TorchCircuit
+from cirkit.backend.torch.layers import TorchHadamardLayer, TorchKroneckerLayer
 from cirkit.pipeline import PipelineContext
 from cirkit.symbolic.circuit import Circuit
 from cirkit.symbolic.layers import HadamardLayer, CategoricalLayer
@@ -87,7 +87,7 @@ class CircuitModel(torch.nn.Module):
                 rank=n_component,
                 input_layer="categorical",
                 input_params={'logits': utils.Parameterization()},
-                weight_param={'weight': utils.Parameterization()}
+                weight_param=utils.Parameterization()
             )
         elif kind == 'hmm':
             # Instantiate an HMM model
@@ -109,13 +109,15 @@ class CircuitModel(torch.nn.Module):
         # Retrieve the circuit layers to parameterize
         self._parameters_config = ParametersConfig()
         for i, layer in enumerate(self._circuit.topological_ordering()):
+            if isinstance(layer, (TorchHadamardLayer, TorchKroneckerLayer)):
+                continue
             if isinstance(layer, TorchBatchedCategoricalLayer):
                 self._parameters_config.register_categorical_layer(layer)
                 continue
             if isinstance(layer, TorchBatchedSumLayer):
                 self._parameters_config.register_sum_layer(layer)
                 continue
-            assert False, "Unknown layer to parameterize"
+            assert False, f"Unknown layer to parameterize, {type(layer)}"
 
         # Initialize the sampler and the marginalizer objects
         self.sampler = SamplingQuery(self._circuit)
@@ -184,7 +186,7 @@ class CircuitModel(torch.nn.Module):
             yy = torch.zeros(BS, V, device=log_probs.device)
             yy[:, k] = -1
         else:
-            assert len(yy.shape) == 3
+            assert len(yy.shape) == 2
             BS, H = yy.shape
             assert H == self.n_token
         log_probs = self.marginalizer(
@@ -199,7 +201,7 @@ class CircuitModel(torch.nn.Module):
 
     def autoregressive_marginal_at_k(self, k, yy, with_logits=False):
         # Marginalises out future tokens
-        assert len(yy.shape) == 3
+        assert len(yy.shape) == 2
         BS, H = yy.shape
         assert H == self.n_token
         assert 0 <= k <= self.n_token

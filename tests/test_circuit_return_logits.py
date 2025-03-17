@@ -1,13 +1,17 @@
+import pytest
 import torch
 
-from mtp.models.circuits import CircuitCP
+from .test_circuit_model import build_circuit
 
 
-def test_circuit_marginalisation_with_logits():
+@pytest.mark.parametrize(
+    "kind", [('fully_factorized',), ('cp',), ('hmm',)]
+)
+def test_circuit_marginalisation_with_logits(kind: str):
     BS, H, R, V = 8, 4, 2, 5
     marg_idx = 2
 
-    cc = CircuitCP(V, H, R)
+    cc = build_circuit(V, H, R, kind=kind)
 
     sum_layer = cc.circuit.layers[cc.sum_layer_idx]
     cat_layer = cc.circuit.layers[cc.cat_layer_idx]

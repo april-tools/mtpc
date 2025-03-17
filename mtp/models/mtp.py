@@ -50,10 +50,10 @@ class MultiTokenLM(torch.nn.Module):
             self.circuit.vocab_size,
             n_embd=mt_head_kwargs['n_embd'],
             n_head=mt_head_kwargs['n_head'],
-            transformer_n_layer=mt_head_kwargs['transformer_n_layer'],
-            expander_n_layer=mt_head_kwargs['expander_n_layer'],
-            expander_type=mt_head_kwargs['expander_type'],
-            freeze_vocab_unembedding=mt_head_kwargs['freeze_vocab_unembedding']
+            transformer_n_layer=mt_head_kwargs.get('transformer_n_layer', 0),
+            expander_n_layer=mt_head_kwargs.get('expander_n_layer', 1),
+            expander_type=mt_head_kwargs.get('expander_type', 'mlp'),
+            freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False)
         )
         self.init_from_lm_head = init_from_lm_head
 
@@ -81,6 +81,14 @@ class MultiTokenLM(torch.nn.Module):
         if self.init_from_lm_head:
             self.mt_head.set_unembedding_weights(lm.lm_head_weights)
         del lm.lm_head_weights
+
+    @property
+    def vocab_size(self) -> int:
+        return self.circuit.vocab_size
+
+    @property
+    def n_token(self) -> int:
+        return self.circuit.n_token
 
     def forward(
         self,
@@ -112,11 +120,11 @@ class MultiTokenLM(torch.nn.Module):
             'kl_loss_at_h': the kl loss for token h (for h in H)
             'ce_loss_at_h': the cross entropy loss for token h (for h in H)
         """
-        H = self.mt_head.n_token
+        H = self.n_token
         # B = xx.shape[0]
         S = xx.shape[1]
-        # R = self.mt_head.n_component
-        # V = self.mt_head.vocab_size
+        # R = self.circuit.n_component
+        # V = self.vocab_size
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
@@ -252,7 +260,7 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl:
             assert teacher_log_probs is not None, 'Expected teacher_log_probs != None'
 
-        H = self.mt_head.n_token
+        H = self.n_token
 
         # NOTE: We need yy in the code below both with/without KL
         # so compute it in one place to avoid repetition
@@ -264,7 +272,7 @@ class MultiTokenLM(torch.nn.Module):
 
         losses = dict(kl_losses=None, ce_losses=None)
         if self.compute_kl:
-            assert teacher_log_probs.shape[2] == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
+            assert teacher_log_probs.shape[2] == self.vocab_size, 'Circuit and teacher have different vocab size'
 
             # shape: H, B * S', V   Compute conditional distributions for circuit
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
@@ -462,7 +470,7 @@ class MultiTokenLM(torch.nn.Module):
         #
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
         log_marginal_probs = self.circuit.marginalizer(
-            tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1), integrate_vars=self.circuit._autoregressive_mar_mask
+            tokens.expand(size=(tokens.shape[1], -1)), integrate_vars=self.circuit._autoregressive_mar_mask
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
@@ -512,8 +520,8 @@ class MultiTokenLM(torch.nn.Module):
             # under the consideration that
             # q(x_{t+j+1}\mid x_{\leq t+j}) = \
             #     q(x_{t+1}, ..., x_{t+j+1}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t})
-            # mtp_jp1th_tokens: (B=1, 1, H)
-            mtp_jp1th_tokens = tokens.clone().unsqueeze(dim=1)
+            # mtp_jp1th_tokens: (B=1, H)
+            mtp_jp1th_tokens = tokens.clone()
             mtp_jp1th_tokens[:, num_accepted_tokens] = -1
             if num_accepted_tokens + 1 == tokens.shape[1]:
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
@@ -525,7 +533,7 @@ class MultiTokenLM(torch.nn.Module):
                     integrate_vars=self.circuit._autoregressive_mar_mask[num_accepted_tokens],
                 )
             # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
-            mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
+            mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.vocab_size)
             # mtp_last_probs: (B, V)
             if num_accepted_tokens == 0:
                 mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs)

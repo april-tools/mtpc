@@ -101,7 +101,7 @@ class MLPExpanderHead(nn.Module):
         self.n_expand = n_expand  # R
         self.n_layer = n_layer
         self.mlp = nn.Sequential(
-            [ResBlock(n_expand, self.n_embd) for _ in range(self.n_layer)]
+            *[ResBlock(n_expand, self.n_embd) for _ in range(self.n_layer)]
         )
 
     def forward(self, xx: Tensor) -> Tensor:
@@ -195,14 +195,19 @@ class OutputHead(nn.Module):
 
 
 class FoldOutputHead(nn.Module):
-    def __init__(self, heads: list):
+    def __init__(self, heads: list, *, proj: nn.Linear):
         super().__init__()
         self.heads = nn.ModuleList(heads)
+        self.proj = proj
 
-    def forward(self, xx: Tensor) -> Tensor:
+    def forward(self, xx: Tensor, generate: bool = False) -> Tensor:
         # xx: (B, S, D)
-        # Stack tensors of shape (B, S, R, D) to a tensor of shape (B, S, F, R, D)
-        return torch.stack([h(xx) for h in self.heads], dim=2)
+        # Stack tensors of shape (B, S, K, D) to a tensor of shape (F, B, S, K, D)
+        xxs = [h(xx, generate=generate) for h in self.heads]
+        xx = torch.stack(xxs, dim=0)
+        # output after projection: (B, S, F, K, C), e.g., C = V
+        # Note that S = 1 if generate is True
+        return self.proj(xx)
 
 
 class MultiTokenHead(nn.Module):
@@ -230,12 +235,12 @@ class MultiTokenHead(nn.Module):
         # The shared unembedding matrix
         self.vocab_proj = nn.Linear(self.n_embd, self.vocab_size, bias=False)
         # Potentially freeze unembedding weights
-        for p in self.W.parameters():
+        for p in self.vocab_proj.parameters():
             p.requires_grad = not self.freeze_vocab_unembedding
 
         # Instantiate as many folded output heads as needed by the circuit parameters configuration
-        sum_weights_heads, sum_weights_projs = [], []
-        categorical_log_probs_heads, categorical_log_probs_projs = [], []
+        sum_weights_heads = []
+        categorical_log_probs_heads = []
         for shape in config.sum_weights_shapes:
             n_folds, n_output_units, n_input_units = shape
             heads = [OutputHead(
@@ -243,16 +248,15 @@ class MultiTokenHead(nn.Module):
                 ExpanderHead(n_embd, n_output_units, n_layer=expander_n_layer, expander_type=expander_type)
             ) for _ in range(n_folds)]
             proj = nn.Linear(self.n_embd, n_input_units, bias=False)
-            sum_weights_heads.append(FoldOutputHead(heads))
-            sum_weights_projs.append(proj)
+            sum_weights_heads.append(FoldOutputHead(heads, proj=proj))
         for shape in config.categorical_log_probs_shapes:
             n_folds, n_components, vocab_size = shape
             heads = [OutputHead(
                 TransformerEncoderHead(n_embd, n_head=n_head, n_layer=transformer_n_layer),
                 ExpanderHead(n_embd, n_components, n_layer=expander_n_layer, expander_type=expander_type)
             ) for _ in range(n_folds)]
-            categorical_log_probs_heads.append(FoldOutputHead(heads))
-            categorical_log_probs_projs.append(self.W)  # Share the same unembedding matrix for each token
+            # Share the same unembedding matrix for each token
+            categorical_log_probs_heads.append(FoldOutputHead(heads, proj=self.vocab_proj))
         self._sum_weights_heads = nn.ModuleList(sum_weights_heads)
         self._categorical_log_probs_heads = nn.ModuleList(categorical_log_probs_heads)
 
@@ -261,27 +265,18 @@ class MultiTokenHead(nn.Module):
 
     def forward(self, xx: Tensor, generate: bool = False) -> dict:
         # xx: (B, S, D)
-        # Pass through the transformer encoder first, if required
-        if self.encoder is not None:
-            xx = self.encoder(xx)
-        if generate:
-            xx = xx[:, [-1]]
-
-        # xx: (B, S, D) or (B, 1, D) if generate=True
         # Compute the parameters of the circuit
         sum_weights = []            # A list of tensors (B, S, F, K, J)
         categorical_log_probs = []  # A list of tensors (B, S, F, K, V)
-        for sum_weight_fn, sum_weight_proj in \
-            zip(self._sum_weights_heads, self._sum_weights_projs):
-            # sw: (B, S, F, K, D) -> (B, S, F, K, J) after projection
-            sw = sum_weight_fn(xx)    # Apply output head network
-            sw = sum_weight_proj(sw)  # Linear projection
+        for sum_weight_fn in self._sum_weights_heads:
+            # sw: (B, S, F, K, J)
+            sum_logits = sum_weight_fn(xx, generate=generate)
+            sw = torch.softmax(sum_logits, dim=-1)
             sum_weights.append(sw)
-        for categorical_log_probs_fn, categorical_log_probs_proj in \
-            zip(self._categorical_log_probs_heads, self._categorical_log_probs_projs):
-            # clp: (B, S, F, K, D) -> (B, S, F, K, V) after projection
-            clp = categorical_log_probs_fn(xx)    # Apply output head network
-            clp = categorical_log_probs_proj(xx)  # Linear projection
+        for categorical_log_probs_fn in self._categorical_log_probs_heads:
+            # clp: (B, S, F, K, V)
+            categorical_logits = categorical_log_probs_fn(xx, generate=generate)
+            clp = torch.log_softmax(categorical_logits, dim=-1)
             categorical_log_probs.append(clp)
 
         return {

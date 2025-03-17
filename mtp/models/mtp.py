@@ -276,8 +276,11 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl or self.compute_ce:
             outputs.update(loss_for_log)
         if return_log_probs:
-            # TODO: standardize format of returned log_probs
-            outputs['log_probs'] = log_probs
+            # TODO: fix below. We should not be recomputing things here
+            # but we would need to standardize what log probs we return
+            # currently this would differ depending on with_logits or not
+            lp = self.circuit(yy)
+            outputs['log_probs'] = lp
         return outputs
 
     def parameterize_circuit(self, xx: Tensor, generate: bool = False):

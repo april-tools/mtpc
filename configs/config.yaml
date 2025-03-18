@@ -6,7 +6,6 @@ defaults:
   - data: fineweb10B
   - generate: default
 
-name: nanogpt
 compile: true
 device: cuda   # if cpu make source num processes=1
 # from_checkpoint: path/to/model@dddd.pth

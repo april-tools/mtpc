@@ -17,6 +17,18 @@ def test_zero_kl():
     assert torch.allclose(rkl, torch.zeros(1))
 
 
+def test_binary_zero_not_nan():
+
+    tt = torch.tensor([0., -torch.inf]).reshape(2, 1)
+    dd = torch.tensor([0., -torch.inf]).reshape(2, 1)
+
+    fkl = compute_binary_approx_kl(tt, dd, 'forward')
+    assert torch.allclose(fkl, torch.zeros_like(fkl))
+
+    rkl = compute_binary_approx_kl(tt, dd, 'reverse')
+    assert torch.allclose(rkl, torch.zeros_like(rkl))
+
+
 def test_approx_equals_full_forward_seq():
 
     pp = torch.tensor([[.3, .7],

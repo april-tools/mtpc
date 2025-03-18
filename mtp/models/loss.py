@@ -97,19 +97,21 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
     assert draft_log_probs.shape == teacher_log_probs.shape
     H, BS = teacher_log_probs.shape
 
-    print(draft_log_probs.dtype, teacher_log_probs.dtype)
+    # Clamp log probs to avoid NaNs
     assert draft_log_probs.dtype == teacher_log_probs.dtype
-    epsilon = torch.finfo(teacher_log_probs.dtype).eps
-    # rest_draft_log_probs = torch.log1p(-torch.exp(torch.clamp(draft_log_probs, max=-epsilon)))
-    # rest_teacher_log_probs = torch.log1p(-torch.exp(torch.clamp(teacher_log_probs, max=-epsilon)))
+    # Smallest representable positive number
+    epsilon = torch.finfo(teacher_log_probs.dtype).tiny
+    max_float = torch.finfo(teacher_log_probs.dtype).max
+    # Clamp 0 -> -1.1754943508222875e-38 (for float32)
+    # Clamp -inf -> -3.4028234663852886e+38 (for float32)
+    draft_log_probs = torch.clamp(draft_log_probs, min=-max_float, max=-epsilon)
+    teacher_log_probs = torch.clamp(teacher_log_probs, min=-max_float, max=-epsilon)
 
     # Compute log (1 - p) where p is given as logprob
     # Use log1mexp for numerical stability
     rest_draft_log_probs = log1mexp(draft_log_probs)
     rest_teacher_log_probs = log1mexp(teacher_log_probs)
 
-    # kl_losses = torch.zeros(H, device=teacher_log_probs.device)
-    # for h in range(H):
     if kl_type == 'forward':
         kl = torch.exp(teacher_log_probs) * (teacher_log_probs - draft_log_probs)
         kl += torch.exp(rest_teacher_log_probs) * (rest_teacher_log_probs - rest_draft_log_probs)

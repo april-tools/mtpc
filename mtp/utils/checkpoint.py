@@ -75,8 +75,8 @@ class Checkpoint(object):
         assert global_step >= 0
         # Advance global_step
         self.global_step = global_step
-        # We haven't begun training, just serialise the config file
-        if global_step == 0:
+        if global_step == 0 and model is None:
+            # We haven't begun training, just serialise the config file
             with open(self.configpath, "w") as f:
                 OmegaConf.save(self.config, f)
         else:
@@ -100,8 +100,6 @@ class Checkpoint(object):
     def restore(self, model, optimizer=None, scheduler=None, device=None):
         # NOTE: modifies inplace
         # Load state_dict from checkpoint and apply to the objects
-        # If global_step == 0, there is no object
-        assert self.global_step != 0
         state = self._load_state(device=device)
 
         # Deal with cases where we only serialize subset of params
@@ -125,7 +123,7 @@ class Checkpoint(object):
         device = get_local_device()
         model = model.to(device)
         # If we have begun training, you are getting the saved model
-        if self.global_step > 0:
+        if self.global_step >= 0:
             state = self._load_state(device=device)
             # Deal with cases where we only serialize subset of params
             self._load_model_state_dict(model, state['model_state_dict'])

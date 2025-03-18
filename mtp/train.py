@@ -233,6 +233,15 @@ def main(cfg: DictConfig):
             # Skip global_step training examples to resume training
             train_loader.seek(global_step * train_accumulation_steps)
 
+        if master_process:
+            # Save model at step 0
+            if cfg.training.save_model and global_step == 0:
+                ckp.save(global_step=global_step,
+                         model=model,
+                         optimizer=optimizer if cfg.training.save_optimizer else None,
+                         scheduler=scheduler if cfg.training.save_optimizer else None)
+                logger(f'step:{global_step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
+
         # ===================== BEGIN TRAINING LOOP ==========================
         for step in range(1 + global_step, cfg.training.num_iterations + 1):
             first_step = (step == 1)

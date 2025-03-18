@@ -1,10 +1,9 @@
 import torch
+from torch import Tensor
 
 from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.backend.torch.layers import TorchHadamardLayer, TorchKroneckerLayer
 from cirkit.pipeline import PipelineContext
-from cirkit.symbolic.circuit import Circuit
-from cirkit.symbolic.layers import HadamardLayer, CategoricalLayer
 from cirkit.utils.scope import Scope
 from cirkit.templates import utils, tensor_factorizations, pgms
 from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
@@ -60,44 +59,34 @@ class CircuitModel(torch.nn.Module):
         self.vocab_size = vocab_size  # V
         self.n_token = n_token  # H
         self.n_component = n_component  # R
+        self.kind = kind
 
         if kind == 'fully-factorized':
-            assert n_component == 1, "A fully factorized model requires n_component = 1"
+            assert self.n_component == 1, "A fully factorized model requires n_component = 1"
             # Instantiate a symbolic circuit encoding a fully-factorized distribution
-            categoricals = [
-                CategoricalLayer(
-                    scope=Scope([i]),
-                    num_output_units=1,
-                    num_categories=self.vocab_size,
-                    logits_factory=utils.parameterization_to_factory(utils.Parameterization())
-                )
-                for i in range(self.n_token)
-            ]
-            hadamard = HadamardLayer(1, arity=self.n_token)
-            symb_circuit = Circuit(
-                layers=categoricals + [hadamard],
-                in_layers={hadamard: categoricals},
-                outputs=[hadamard],
+            symb_circuit = pgms.fully_factorized(
+                self.n_token,
+                input_layer='categorical',
+                input_params={'logits': utils.Parameterization()},
+                input_layer_kwargs={'num_categories': self.vocab_size}
             )
         elif kind == 'cp':
             # Instantiate a symbolic circuit encoding the CP decomposition
-            # Since the parameters will come from the LLM, then we do not use any parameterization
             symb_circuit = tensor_factorizations.cp(
                 (self.vocab_size,) * self.n_token,
-                rank=n_component,
+                rank=self.n_component,
                 input_layer="categorical",
                 input_params={'logits': utils.Parameterization()},
                 weight_param=utils.Parameterization()
             )
         elif kind == 'hmm':
             # Instantiate an HMM model
-            symb_circuit = pgms.from_hmm(
+            symb_circuit = pgms.hmm(
                 list(range(n_token)),
-                input_factory=lambda sc, k: CategoricalLayer(
-                    sc, k, num_categories=self.vocab_size, logits_factory=utils.parameterization_to_factory(utils.Parameterization())
-                ),
-                weight_factory=utils.parameterization_to_factory(utils.Parameterization())
-
+                input_layer='categorical',
+                num_latent_states=self.n_component,
+                input_params={'logits': utils.Parameterization()},
+                input_layer_kwargs={'num_categories': self.vocab_size}
             )
         else:
             assert False
@@ -176,14 +165,23 @@ class CircuitModel(torch.nn.Module):
     def forward(self, yy):
         return self._circuit(yy).ravel()
 
-    def univariate_marginal_at_k(self, k, yy=None, with_logits=False):
+    @property
+    def _batch_size(self) -> int:
+        # Hack to get the batch size of the parameters in the circuit
+        return self._parameters_config.categorical_layers[0].log_probs.shape[1]
+    
+    @property
+    def _device(self) -> torch.device:
+        # Hack to get the device of the circuit
+        return self._parameters_config.categorical_layers[0].log_probs.device
+
+    def univariate_marginal_at_k(self, k: int, yy: Tensor | None = None, with_logits: bool = False):
         assert 0 <= k <= self.n_token
         if with_logits:
             if yy is not None:
                 raise ValueError('Expected yy=None, got: %s' % yy)
-            log_probs = self._circuit.layers[self.cat_layer_idx].log_probs
-            H, BS, R, V = log_probs.shape
-            yy = torch.zeros(BS, V, device=log_probs.device)
+            BS = self._batch_size
+            yy = torch.zeros(BS, self.vocab_size, device=self._device)
             yy[:, k] = -1
         else:
             assert len(yy.shape) == 2
@@ -199,7 +197,7 @@ class CircuitModel(torch.nn.Module):
         # BS, V if with_logits else BS
         return log_probs
 
-    def autoregressive_marginal_at_k(self, k, yy, with_logits=False):
+    def autoregressive_marginal_at_k(self, k: int, yy: Tensor, with_logits: bool = False):
         # Marginalises out future tokens
         assert len(yy.shape) == 2
         BS, H = yy.shape

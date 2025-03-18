@@ -72,9 +72,9 @@ class LinearExpanderHead(nn.Module):
     def __init__(self, n_embd: int, n_expand: int):
         super().__init__()
         self.n_embd = n_embd  # D
-        self.n_expand = n_expand  # R
+        self.n_expand = n_expand  # e.g., the number of mixture components R
         # Below is equivalent to R square linear layers
-        selfWr = nn.Parameter(
+        self.Wr = nn.Parameter(
             torch.zeros(self.n_expand, self.n_embd, self.n_embd)
         )
         self.reset_parameters()
@@ -89,7 +89,7 @@ class LinearExpanderHead(nn.Module):
         # change the logits - so we want an identity matrix
         eye = torch.eye(self.n_embd, device=self.Wr.device)
         # Expand to R x n_embd x n_embd
-        eye = eye.unsqueeze(0).repeat(self.n_component, 1, 1)
+        eye = eye.unsqueeze(0).repeat(self.n_expand, 1, 1)
         self.Wr.data = eye
 
 
@@ -217,8 +217,9 @@ class MultiTokenHead(nn.Module):
         vocab_size: int,
         *,
         n_embd: int = 768,
-        n_head: int = 6,
-        transformer_n_layer: int = 2,
+        transformer_n_head: int = 6,
+        tok_transformer_n_layer: int = 2,
+        sum_transformer_n_layer: int = 2,
         expander_n_layer: int = 2,
         expander_type: str = 'linear',
         freeze_vocab_unembedding: bool = False
@@ -226,8 +227,9 @@ class MultiTokenHead(nn.Module):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_embd = n_embd
-        self.n_head = n_head
-        self.transformer_n_layer = transformer_n_layer
+        self.transformer_n_head = transformer_n_head
+        self.tok_transformer_n_layer = tok_transformer_n_layer
+        self.sum_transformer_n_layer = sum_transformer_n_layer
         self.expander_n_layer = expander_n_layer
         self.expander_type = expander_n_layer
         self.freeze_vocab_unembedding = freeze_vocab_unembedding
@@ -244,7 +246,7 @@ class MultiTokenHead(nn.Module):
         for shape in config.sum_weights_shapes:
             n_folds, n_output_units, n_input_units = shape
             heads = [OutputHead(
-                TransformerEncoderHead(n_embd, n_head=n_head, n_layer=transformer_n_layer),
+                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=sum_transformer_n_layer),
                 ExpanderHead(n_embd, n_output_units, n_layer=expander_n_layer, expander_type=expander_type)
             ) for _ in range(n_folds)]
             proj = nn.Linear(self.n_embd, n_input_units, bias=False)
@@ -252,13 +254,21 @@ class MultiTokenHead(nn.Module):
         for shape in config.categorical_log_probs_shapes:
             n_folds, n_components, vocab_size = shape
             heads = [OutputHead(
-                TransformerEncoderHead(n_embd, n_head=n_head, n_layer=transformer_n_layer),
+                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=tok_transformer_n_layer),
                 ExpanderHead(n_embd, n_components, n_layer=expander_n_layer, expander_type=expander_type)
             ) for _ in range(n_folds)]
             # Share the same unembedding matrix for each token
             categorical_log_probs_heads.append(FoldOutputHead(heads, proj=self.vocab_proj))
         self._sum_weights_heads = nn.ModuleList(sum_weights_heads)
         self._categorical_log_probs_heads = nn.ModuleList(categorical_log_probs_heads)
+
+    @property
+    def token_heads(self) -> list:
+        return list(self._categorical_log_probs_heads)
+    
+    @property
+    def sum_weight_heads(self) -> list:
+        return list(self._sum_weights_heads)
 
     def set_unembedding_weights(self, weights):
         self.vocab_proj.weight.data = weights

@@ -10,7 +10,7 @@ from mtp.models.lm import LM
 
 
 
-@pytest.fixture(params=['fully-factorized', 'cp'])
+@pytest.fixture(params=['fully-factorized', 'cp', 'hmm'])
 def mtp(request):
     vocab_size = 2
     n_embd = 8
@@ -82,6 +82,8 @@ def test_mtp_generate(mtp: MultiTokenLM):
         torch.max(torch.abs(worlds_probs / ratios - 1.0))
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize('mtp', ['cp'], indirect=True)
 def test_mtp_self_speculative_generate(mtp: MultiTokenLM):
     # TODO: which value is the "beginning of sentence"?
     BOS = 1

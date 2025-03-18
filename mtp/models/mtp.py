@@ -49,8 +49,9 @@ class MultiTokenLM(torch.nn.Module):
             self.circuit.parameters_config,
             self.circuit.vocab_size,
             n_embd=mt_head_kwargs['n_embd'],
-            n_head=mt_head_kwargs['n_head'],
-            transformer_n_layer=mt_head_kwargs.get('transformer_n_layer', 0),
+            transformer_n_head=mt_head_kwargs.get('transformer_n_head', 1),
+            tok_transformer_n_layer=mt_head_kwargs.get('tok_transformer_n_layer', 0),
+            sum_transformer_n_layer=mt_head_kwargs.get('sum_transformer_n_layer', 0),
             expander_n_layer=mt_head_kwargs.get('expander_n_layer', 1),
             expander_type=mt_head_kwargs.get('expander_type', 'mlp'),
             freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False)

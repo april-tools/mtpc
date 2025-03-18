@@ -55,6 +55,29 @@ def test_approx_equals_full_forward_heads():
     assert torch.allclose(fkl, akl)
 
 
+def test_approx_equals_full_forward_both():
+
+    pp = torch.tensor([[[.3, .7],
+                        [.2, .8]],
+                       [[.1, .9],
+                        [.05, .95]]])
+    tt = torch.log(pp)
+
+    ppd = torch.tensor([[[.4, .6],
+                         [.1, .9]],
+                        [[.2, .8],
+                         [.25, .75]]])
+    dd = torch.log(ppd)
+
+    fkl = compute_full_kl(tt, dd, 'forward')
+
+    akl = compute_binary_approx_kl(tt[:, :, 0], dd[:, :, 0], 'forward')
+    assert torch.allclose(fkl, akl)
+
+    akl = compute_binary_approx_kl(tt[:, :, 1], dd[:, :, 1], 'forward')
+    assert torch.allclose(fkl, akl)
+
+
 def test_approx_equals_full_reverse_seq():
 
     pp = torch.tensor([[.3, .7],

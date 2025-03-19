@@ -11,6 +11,7 @@ device: cuda   # if cpu make source num processes=1
 # from_checkpoint: path/to/model@dddd.pth
 from_checkpoint: null
 
+name: nanogpt
 hydra:
   job:
     chdir: true

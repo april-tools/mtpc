@@ -22,5 +22,6 @@ do
 	   	--random-seed 13 \
 		--num-tokens 1000 \
 		--prompt 'The king of' \
+		model.mt_head_hparams.freeze_vocab_unembedding=true \
 		--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
 done

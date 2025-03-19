@@ -6,8 +6,8 @@ from copy import deepcopy
 
 from .lm import LM
 from .mtp_head import MultiTokenHead
-from .circuits import CircuitCP
-from .circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
+
+from .circuits import CircuitModel
 from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
 
 
@@ -35,8 +35,8 @@ class MultiTokenLM(torch.nn.Module):
     def __init__(
         self,
         lm: LM,
-        mt_head: MultiTokenHead,
-        circuit: CircuitCP,
+        circuit: CircuitModel,
+        mt_head_kwargs: dict,
         init_from_lm_head: bool = True,
         beta: float = .9,
         gamma: float = 1.,
@@ -45,9 +45,18 @@ class MultiTokenLM(torch.nn.Module):
     ):
         super().__init__()
         self.lm = lm
-        self.mt_head = mt_head
         self.circuit = circuit
-
+        self.mt_head = MultiTokenHead(
+            self.circuit.parameters_config,
+            self.circuit.vocab_size,
+            n_embd=mt_head_kwargs['n_embd'],
+            transformer_n_head=mt_head_kwargs.get('transformer_n_head', 1),
+            tok_transformer_n_layer=mt_head_kwargs.get('tok_transformer_n_layer', 0),
+            sum_transformer_n_layer=mt_head_kwargs.get('sum_transformer_n_layer', 0),
+            expander_n_layer=mt_head_kwargs.get('expander_n_layer', 1),
+            expander_type=mt_head_kwargs.get('expander_type', 'mlp'),
+            freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False)
+        )
         self.init_from_lm_head = init_from_lm_head
 
         # Below are the params for weighting the kl and ce losses.
@@ -74,67 +83,24 @@ class MultiTokenLM(torch.nn.Module):
             if not (os.environ.get('MODE', None) == 'generate'):
                 assert self.lm.encoder_only is True, 'We do not need the LM head since we are not computing KL'
 
-        # Retrieve the circuit layers to parameterize
-        layers = list(self.circuit.circuit.topological_ordering())
-        self._cat_layer: TorchBatchedCategoricalLayer = layers[self.circuit.cat_layer_idx]
-        assert isinstance(self._cat_layer, TorchBatchedCategoricalLayer)
-        self._sum_layer = layers[self.circuit.sum_layer_idx]
-        assert isinstance(self._sum_layer, TorchBatchedSumLayer)
-
         if self.init_from_lm_head:
             self.mt_head.set_unembedding_weights(lm.lm_head_weights)
         del lm.lm_head_weights
 
-    # def forward(
-    #     self,
-    #     xx: Tensor,
-    #     yy: Tensor,
-    #     return_log_probs: bool = False,
-    #     return_stp_loss: bool = False
-    # ) -> dict:
-    #     # Compute the loss, i.e., the multi-token average negated log-likelihood
-    #
-    #     # xx: (B, S, D)
-    #     xx = self.lm.encoder(xx)['last_hidden_state']
-    #
-    #     # At training time, we want to learn to predict the next H tokens
-    #     # xx: (B, S', D), where S' = S - H + 1
-    #     xx = xx[:, : xx.shape[1] - self.mt_head.n_token + 1]
-    #
-    #     # Parameterize the circuit
-    #     self.parameterize_circuit(xx)
-    #
-    #     # Compute sliding windows indices
-    #     # from yy: (B, S) to yy: (B, S', H)
-    #     # where S' = S - H + 1
-    #     yy = yy.unfold(dimension=1, size=self.mt_head.n_token, step=1)
-    #     # Note that we unsqueeze a channel dimension, as required by cirkit
-    #     # yy: (B, S', H) -> (B * S', 1, H)
-    #     yy = yy.reshape(-1, 1, yy.shape[2])
-    #
-    #     # Compute the conditional log-likelihoods
-    #     # yy: (B * S', 1, H)
-    #     # log_probs: (B * S', 1, 1)
-    #     log_probs = self.circuit(yy)
-    #
-    #     # The loss is the negated average conditional log-likelihood
-    #     mtp_loss = -log_probs.mean()
-    #     if not return_log_probs:
-    #         log_probs = None
-    #
-    #     if return_stp_loss:
-    #         # Compute also the single token loss, if needed
-    #         stp_loss = self.compute_next_token_loss(yy)
-    #     else:
-    #         stp_loss = None
-    #
-    #     return dict(log_probs=log_probs, loss=mtp_loss, mtp_loss=mtp_loss, stp_loss=stp_loss)
+    @property
+    def vocab_size(self) -> int:
+        return self.circuit.vocab_size
+
+    @property
+    def n_token(self) -> int:
+        return self.circuit.n_token
 
     def forward(
-            self,
-            xx: torch.Tensor,               # (B, S) input ids
-            yy: torch.Tensor,               # (B, S) target ids
-            return_log_probs: bool = False) -> dict:
+        self,
+        xx: torch.Tensor,
+        yy: torch.Tensor,
+        return_log_probs: bool = False
+    ) -> dict:
         r"""
         Reference: https://arxiv.org/abs/2410.17765 , Eq 14.
 
@@ -161,11 +127,11 @@ class MultiTokenLM(torch.nn.Module):
             'log_probs': the log probs from the draft model, if
                 return_log_probs is True.
         """
-        H = self.mt_head.n_token
+        H = self.n_token
         # B = xx.shape[0]
         S = xx.shape[1]
-        # R = self.mt_head.n_component
-        # V = self.mt_head.vocab_size
+        # R = self.circuit.n_component
+        # V = self.vocab_size
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
@@ -219,14 +185,13 @@ class MultiTokenLM(torch.nn.Module):
         xx = xx[:, : history_idx]
 
         # 4) Parameterize the circuit with our NN activations
-        self.parameterize_circuit(xx)
+        self._parameterize_circuit(xx)
 
         # 5) Make target idxs, yy, windowed
         # from yy: (B, S) to yy: (B, S', H)
         yy = yy.unfold(dimension=1, size=H, step=1)
-        # We also unsqueeze a channel dimension, as required by cirkit
-        # yy: (B, S', H) -> (B * S', 1, H)
-        yy = yy.reshape(-1, 1, H)
+        # yy: (B, S', H) -> (B * S', H)
+        yy = yy.reshape(-1, H)
 
         # 6) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == 'full':
@@ -283,36 +248,18 @@ class MultiTokenLM(torch.nn.Module):
             outputs['log_probs'] = lp
         return outputs
 
-    def parameterize_circuit(self, xx: Tensor, generate: bool = False):
-        # TODO: Make this a parameterise function on the circuit
-
-        # Free previous tensors before we produce new ones
-        # this is important, since cat_layer probs is a large tensor
-        self._cat_layer.log_probs = None
-        self._sum_layer.weight = None
-
+    def _parameterize_circuit(self, xx: Tensor, generate: bool = False):
         # Obtain dictionary of circuit parameters
         circuit_params = self.mt_head(xx, generate=generate)
 
-        # cat_logits: (H, B, S', R, V)
-        cat_log_probs = circuit_params["cat_log_probs"]
-        # sum_weight: (B, S', 1, R)
-        sum_weight = circuit_params["sum_weight"]
-
-        # cat_log_probs: (H, B * S', R, V)
-        cat_log_probs = cat_log_probs.view(cat_log_probs.shape[0], -1, cat_log_probs.shape[3], cat_log_probs.shape[4])
-        # sum_weight: (1, B * S', 1, R)
-        sum_weight = sum_weight.view(1, -1, 1, sum_weight.shape[3])
-
-        # Set the parameters of the circuit
-        self._cat_layer.log_probs = cat_log_probs
-        self._sum_layer.weight = sum_weight
+        # Set the parameters to the circuit
+        self.circuit.parameterize(circuit_params)
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
         # how good the model would be for just next token prediction
         #
-        # yy: (B * S', 1, H)
+        # yy: (B * S', H)
         # log_probs: (B * S')
         log_probs = self.circuit.univariate_marginal_at_k(k=0, yy=yy, with_logits=False)
         stp_loss = -log_probs.mean()
@@ -323,7 +270,7 @@ class MultiTokenLM(torch.nn.Module):
         # We keep track of next token prediction loss too, in order to discern
         # how good the model would be for just next token prediction
         #
-        # yy: (B * S', 1, H)
+        # yy: (B * S', H)
         # all_log_probs: (H, B * S')
         all_log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
         stp_losses = -all_log_probs.mean(dim=1)
@@ -405,13 +352,11 @@ class MultiTokenLM(torch.nn.Module):
             xx = self.lm.encoder(inputs)['last_hidden_state']
 
         # Parameterize the circuit
-        self.parameterize_circuit(xx, generate=True)
+        self._parameterize_circuit(xx, generate=True)
 
         if mode == 'mtp':
             # Sample the next tokens
             tokens, _ = self.circuit.sample(num_samples=1)
-            # Remove extraneous channel dimension
-            tokens = tokens.squeeze(dim=1)
         elif mode == 'stp':
             next_token_probs = torch.exp(self.compute_next_token_log_probs())
             if use_argmax:
@@ -419,9 +364,11 @@ class MultiTokenLM(torch.nn.Module):
                 tokens = tokens.unsqueeze(dim=1)
             else:
                 tokens = torch.multinomial(next_token_probs, num_samples=1)
-        return dict(tokens=tokens,
-                    past_key_values=past_key_values,
-                    past_last_hidden_states=xx)
+        return dict(
+            tokens=tokens,
+            past_key_values=past_key_values,
+            past_last_hidden_states=xx
+        )
 
     # TODO: Refactor to bring for-loop into function as per Edoardo's comment
     @torch.no_grad()
@@ -456,12 +403,11 @@ class MultiTokenLM(torch.nn.Module):
 
         assert xx.shape[1] == seq.shape[1]
         # Set the circuit parameters, based on the last embeddings
-        self.parameterize_circuit(xx, generate=True)
+        self._parameterize_circuit(xx, generate=True)
 
         # Sample the next H tokens
-        # tokens: (B=1, 1, H) -> (B=1, H)
+        # tokens: (B=1, H)
         tokens, _ = self.circuit.sample(num_samples=1)
-        tokens = tokens.squeeze(dim=1)
 
         # Concatenate the tokens with the current sequence,
         # which gives the candidate next sequence
@@ -490,7 +436,7 @@ class MultiTokenLM(torch.nn.Module):
         #
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
         log_marginal_probs = self.circuit.marginalizer(
-            tokens.expand(size=(tokens.shape[1], -1)).unsqueeze(dim=1), integrate_vars=self.circuit._autoregressive_mar_mask
+            tokens.expand(size=(tokens.shape[1], -1)), integrate_vars=self.circuit._autoregressive_mar_mask
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
@@ -540,9 +486,9 @@ class MultiTokenLM(torch.nn.Module):
             # under the consideration that
             # q(x_{t+j+1}\mid x_{\leq t+j}) = \
             #     q(x_{t+1}, ..., x_{t+j+1}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t})
-            # mtp_jp1th_tokens: (B=1, 1, H)
-            mtp_jp1th_tokens = tokens.clone().unsqueeze(dim=1)
-            mtp_jp1th_tokens[:, :, num_accepted_tokens] = -1
+            # mtp_jp1th_tokens: (B=1, H)
+            mtp_jp1th_tokens = tokens.clone()
+            mtp_jp1th_tokens[:, num_accepted_tokens] = -1
             if num_accepted_tokens + 1 == tokens.shape[1]:
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                 mtp_jp1th_token_log_probs = self.circuit(mtp_jp1th_tokens)
@@ -553,7 +499,7 @@ class MultiTokenLM(torch.nn.Module):
                     integrate_vars=self.circuit._autoregressive_mar_mask[num_accepted_tokens],
                 )
             # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
-            mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.mt_head.vocab_size)
+            mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.vocab_size)
             # mtp_last_probs: (B, V)
             if num_accepted_tokens == 0:
                 mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs)
@@ -566,6 +512,8 @@ class MultiTokenLM(torch.nn.Module):
 
         # Retrieve the accepted tokens, plus the last one
         tokens = torch.cat([tokens[:, :num_accepted_tokens], last_token], dim=1)
-        return dict(tokens=tokens,
-                    past_key_values=past_key_values,
-                    past_last_hidden_states=xx)
+        return dict(
+            tokens=tokens,
+            past_key_values=past_key_values,
+            past_last_hidden_states=xx
+        )

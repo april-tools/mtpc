@@ -56,12 +56,12 @@ torchrun --standalone \
                 model.n_component=2 \
                 model.model.gamma=1 \
                 model.model.beta=0 \
-                model.sum_weight_head.encoder.n_layer=0 \
-                model.token_head.encoder.n_layer=0 \
-                model.token_head.expander.expander_type=linear \
+                model.mt_head_hparams.sum_transformer_n_layer=0 \
+                model.mt_head_hparams.tok_transformer_n_layer=0 \
+                model.mt_head_hparams.expander_type=linear \
                 lm.model.freeze=true \
                 lm.model.encoder_only=true \
-                model.mt_head.freeze_unembedding=true \
+                model.mt_head_hparams.freeze_vocab_unembedding=true \
                 training.device_batch_size=16 \
                 training.expname=basharin-n-2-r-2-b-0-g-1
 
@@ -77,12 +77,12 @@ torchrun --standalone \
                 model.n_component=2 \
                 model.model.gamma=1 \
                 model.model.beta=0 \
-                model.sum_weight_head.encoder.n_layer=0 \
-                model.token_head.encoder.n_layer=0 \
-                model.token_head.expander.expander_type=mlp \
+                model.mt_head_hparams.sum_transformer_n_layer=0 \
+                model.mt_head_hparams.tok_transformer_n_layer=0 \
+                model.mt_head_hparams.expander_type=mlp \
                 lm.model.freeze=true \
                 lm.model.encoder_only=true \
-                model.mt_head.freeze_unembedding=true \
+                model.mt_head_hparams.freeze_vocab_unembedding=true \
                 training.device_batch_size=16 \
                 training.expname=basharin-n-2-r-2-mlp
 
@@ -98,12 +98,12 @@ torchrun --standalone \
                 model.n_component=2 \
                 model.model.gamma=1 \
                 model.model.beta=0 \
-                model.sum_weight_head.encoder.n_layer=1 \
-                model.token_head.encoder.n_layer=0 \
-                model.token_head.expander.expander_type=linear \
+                model.mt_head_hparams.sum_transformer_n_layer=1 \
+                model.mt_head_hparams.tok_transformer_n_layer=0 \
+                model.mt_head_hparams.expander_type=linear \
                 lm.model.freeze=true \
                 lm.model.encoder_only=true \
-                model.mt_head.freeze_unembedding=true \
+                model.mt_head_hparams.freeze_vocab_unembedding=true \
                 training.device_batch_size=16 \
                 training.expname=basharin-n-2-r-2-sumtrans-1
 
@@ -119,12 +119,12 @@ torchrun --standalone \
                 model.n_component=2 \
                 model.model.gamma=1 \
                 model.model.beta=0 \
-                model.sum_weight_head.encoder.n_layer=0 \
-                model.token_head.encoder.n_layer=1 \
-                model.token_head.expander.expander_type=linear \
+                model.mt_head_hparams.sum_transformer_n_layer=0 \
+                model.mt_head_hparams.tok_transformer_n_layer=1 \
+                model.mt_head_hparams.expander_type=linear \
                 lm.model.freeze=true \
                 lm.model.encoder_only=true \
-                model.mt_head.freeze_unembedding=true \
+                model.mt_head_hparams.freeze_vocab_unembedding=true \
                 training.device_batch_size=16 \
                 training.expname=basharin-n-2-r-2-toktrans-1
 
@@ -140,12 +140,12 @@ torchrun --standalone \
                 model.n_component=2 \
                 model.model.gamma=1 \
                 model.model.beta=0 \
-                model.sum_weight_head.encoder.n_layer=0 \
-                model.token_head.encoder.n_layer=0 \
-                model.token_head.expander.expander_type=linear \
+                model.mt_head_hparams.sum_transformer_n_layer=0 \
+                model.mt_head_hparams.tok_transformer_n_layer=0 \
+                model.mt_head_hparams.expander_type=linear \
                 lm.model.freeze=true \
                 lm.model.encoder_only=true \
-                model.mt_head.freeze_unembedding=false \
+                model.mt_head_hparams.freeze_vocab_unembedding=false \
                 training.device_batch_size=16 \
                 training.expname=basharin-n-2-r-2-unfreeze-head
 
@@ -161,11 +161,11 @@ torchrun --standalone \
                 model.n_component=2 \
                 model.model.gamma=1 \
                 model.model.beta=0 \
-                model.sum_weight_head.encoder.n_layer=0 \
-                model.token_head.encoder.n_layer=0 \
-                model.token_head.expander.expander_type=linear \
+                model.mt_head_hparams.sum_transformer_n_layer=0 \
+                model.mt_head_hparams.tok_transformer_n_layer=0 \
+                model.mt_head_hparams.expander_type=linear \
                 lm.model.freeze=false \
                 lm.model.encoder_only=true \
-                model.mt_head.freeze_unembedding=true \
+                model.mt_head_hparams.freeze_vocab_unembedding=true \
                 training.device_batch_size=16 \
                 training.expname=basharin-n-2-r-2-unfreeze-LM

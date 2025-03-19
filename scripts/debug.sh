@@ -18,5 +18,5 @@ torchrun --standalone \
     training.device_batch_size=8 \
     training.val_loss_every=20 \
     training.save_model_every=100 \
-    model.mt_head.freeze_unembedding=false \
+    model.mt_head_hparams.freeze_vocab_unembedding=false \
     training.expname="debug"

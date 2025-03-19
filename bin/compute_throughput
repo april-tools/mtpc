@@ -10,13 +10,14 @@ device=cuda
 seed=12
 dataset=finewebedu10B
 lm=finewebedu
-model=basharin
+num_tokens=1000
 
 python -m mtp.generate \
 	--mode stp \
 	--random-seed $seed \
-	--num-tokens 1000 \
+	--num-tokens $num_tokens \
 	--device $device \
+	--use-cache \
 	--prompt 'A polytope' \
 	data=$dataset \
 	lm=$lm \
@@ -24,53 +25,57 @@ python -m mtp.generate \
 	lm.model.encoder_only=false \
 	| tail -n 1 \
 	>> $MTP_ROOT/outputs/results/throughput.jsonl
-for n in 2 3 4;
+
+for n in 2 4 6;
 do
-	for r in 1 2 4;
+	for model in mtp-cp mtp-hmm;
 	do
-		for exp in mlp linear;
-		do
+		if [[ "$model" == "mtp-cp" ]];
+		then
+			n_component_hs="1 4 8"
+		else  # mtp-hmm
+			n_component_hs="4 8"
+		fi
+		for n_component in $n_component_hs
 			for n_enc_token in 0 1 2;
 			do
 				for n_enc_sum in 0 1 2;
 				do
-					if (( $r == 1 )) && (( $n_enc_sum > 0 ));
-					then
-						continue
-					fi
 					python -m mtp.generate \
 						--mode mtp \
 						--random-seed $seed \
-						--num-tokens 1000 \
+						--num-tokens $num_tokens \
 						--device $device \
+						--use-cache \
 						--prompt 'A polytope' \
 						data=$dataset \
 						lm=$lm \
+						lm.model.encoder_only=false \
 						model=$model \
 						model.n_token=$n \
-						model.n_component=$r \
-						model.token_head.expander.expander_type=$exp \
-						model.sum_weight_head.encoder.n_layer=$n_enc_sum \
-						model.token_head.encoder.n_layer=$n_enc_token \
+						model.n_component=$n_component \
+						model.mt_head_hparams.sum_transformer_n_layer=$n_enc_sum \
+						model.mt_head_hparams.tok_transformer_n_layer=$n_enc_token \
 						| tail -n 1 \
 						>> $MTP_ROOT/outputs/results/throughput.jsonl
-					# python -m mtp.generate \
-					# 	--mode mtp \
-					# 	--speculative \
-					# 	--random-seed $seed \
-					# 	--num-tokens 1000 \
-					# 	--device $device \
-					# 	--prompt 'A polytope' \
-					# 	data=$dataset \
-					# 	lm=$lm \
-					# 	model=$model \
-					# 	model.n_token=$n \
-					# 	model.n_component=$r \
-					# 	model.token_head.expander.expander_type=$exp \
-					# 	model.sum_weight_head.encoder.n_layer=$n_enc_sum \
-					# 	model.token_head.encoder.n_layer=$n_enc_token \
-					# 	| tail -n 1 \
-					# 	>> $MTP_ROOT/outputs/results/throughput.jsonl
+					python -m mtp.generate \
+						--mode mtp \
+						--speculative \
+						--random-seed $seed \
+						--num-tokens $num_tokens \
+						--device $device \
+						--use-cache \
+						--prompt 'A polytope' \
+						data=$dataset \
+						lm=$lm \
+						lm.model.encoder_only=false \
+						model=$model \
+						model.n_token=$n \
+						model.n_component=$n_component \
+						model.mt_head_hparams.sum_transformer_n_layer=$n_enc_sum \
+						model.mt_head_hparams.tok_transformer_n_layer=$n_enc_token \
+						| tail -n 1 \
+						>> $MTP_ROOT/outputs/results/throughput.jsonl
 				done
 			done
 		done

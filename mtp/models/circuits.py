@@ -71,6 +71,7 @@ class CircuitModel(torch.nn.Module):
                 input_layer_kwargs={'num_categories': self.vocab_size}
             )
         elif kind == 'cp':
+            assert self.n_component > 1, "A CP model requires n_component > 1"
             # Instantiate a symbolic circuit encoding the CP decomposition
             symb_circuit = tensor_factorizations.cp(
                 (self.vocab_size,) * self.n_token,
@@ -80,6 +81,7 @@ class CircuitModel(torch.nn.Module):
                 weight_param=utils.Parameterization()
             )
         elif kind == 'hmm':
+            assert self.n_component > 1, "An HMM model requires n_component > 1"
             # Instantiate an HMM model
             symb_circuit = pgms.hmm(
                 list(range(n_token)),

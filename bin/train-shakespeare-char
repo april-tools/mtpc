@@ -13,6 +13,6 @@ do
 	do
 		torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char training=shakespeare_char model=mtp model.n_layer=4 model.n_head=4 model.n_embd=256 model.n_token=$n model.n_component=$r
 		# TODO: Also restore from checkpoint and keep LM frozen
-		# torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char training=shakespeare_char model=mtp model.n_component=5 model.n_token=3 model.n_head=4 model.n_embd=256 model.token_head.expander.expander_type=mlp model.token_head.encoder.n_layer=1 model.lm.freeze=false model.lm.lm=null model.lm.from_checkpoint=logs/2025-02-16/21-54-18/model\@500.pt  training.save_model_every=100
+		# torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char training=shakespeare_char model=mtp model.n_component=5 model.n_token=3 model.n_head=4 model.n_embd=256 model.mt_head_hparams.expander_type=mlp model.mt_head_hparams.tok_transformer_n_layer=1 model.lm.freeze=false model.lm.lm=null model.lm.from_checkpoint=logs/2025-02-16/21-54-18/model\@500.pt  training.save_model_every=100
 	done
 done

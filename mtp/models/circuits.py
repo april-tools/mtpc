@@ -53,7 +53,7 @@ class CircuitModel(torch.nn.Module):
         assert vocab_size > 1
         assert n_token > 1
         assert n_component > 0
-        assert kind in ['fully-factorized', 'cp', 'hmm']
+        assert kind in ['cp', 'hmm']
         super().__init__()
 
         self.vocab_size = vocab_size  # V
@@ -61,25 +61,25 @@ class CircuitModel(torch.nn.Module):
         self.n_component = n_component  # R
         self.kind = kind
 
-        if kind == 'fully-factorized':
-            assert self.n_component == 1, "A fully factorized model requires n_component = 1"
-            # Instantiate a symbolic circuit encoding a fully-factorized distribution
-            symb_circuit = pgms.fully_factorized(
-                self.n_token,
-                input_layer='categorical',
-                input_params={'logits': utils.Parameterization()},
-                input_layer_kwargs={'num_categories': self.vocab_size}
-            )
-        elif kind == 'cp':
-            assert self.n_component > 1, "A CP model requires n_component > 1"
-            # Instantiate a symbolic circuit encoding the CP decomposition
-            symb_circuit = tensor_factorizations.cp(
-                (self.vocab_size,) * self.n_token,
-                rank=self.n_component,
-                input_layer="categorical",
-                input_params={'logits': utils.Parameterization()},
-                weight_param=utils.Parameterization()
-            )
+        if kind == 'cp':
+            if self.n_component == 1:
+                # Instantiate a fully-factorized model, i.e., rank-1 CP
+                # Instantiate a symbolic circuit encoding a fully-factorized distribution
+                symb_circuit = pgms.fully_factorized(
+                    self.n_token,
+                    input_layer='categorical',
+                    input_params={'logits': utils.Parameterization()},
+                    input_layer_kwargs={'num_categories': self.vocab_size}
+                )
+            else:  # self.n_component > 1
+                # Instantiate a symbolic circuit encoding the CP decomposition
+                symb_circuit = tensor_factorizations.cp(
+                    (self.vocab_size,) * self.n_token,
+                    rank=self.n_component,
+                    input_layer="categorical",
+                    input_params={'logits': utils.Parameterization()},
+                    weight_param=utils.Parameterization()
+                )
         elif kind == 'hmm':
             assert self.n_component > 1, "An HMM model requires n_component > 1"
             # Instantiate an HMM model
@@ -91,7 +91,7 @@ class CircuitModel(torch.nn.Module):
                 input_layer_kwargs={'num_categories': self.vocab_size}
             )
         else:
-            assert False
+            assert False, f"Unknown model kind called {kind}"
 
         # Build the compilation context and compile the circuit
         self._ctx: PipelineContext = setup_pipeline_context()

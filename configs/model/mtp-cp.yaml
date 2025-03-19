@@ -9,7 +9,7 @@ circuit:
     vocab_size: ${data.vocab_size}
     n_token: ${model.n_token}
     n_component: ${model.n_component}
-    kind: 'cp'    # The available choices are 'fully-factorized', 'cp', 'hmm'
+    kind: 'cp'    # The available choices are 'cp', 'hmm'
 mt_head_hparams:  # The hyperparameters of the multi token head
     n_embd: ${lm.n_embd}
     transformer_n_head: ${lm.n_head}

@@ -109,12 +109,12 @@ do
 									\n		model.n_component=$r \\\
 									\n		model.model.gamma=$gamma \\\
 									\n		model.model.beta=$beta \\\
-									\n		model.sum_weight_head.encoder.n_layer=$n_enc_sum \\\
-									\n		model.token_head.encoder.n_layer=$n_enc_token \\\
-									\n		model.token_head.expander.expander_type=$exp \\\
+									\n		model.mt_head_hparams.sum_transformer_n_layer=$n_enc_sum \\\
+									\n		model.mt_head_hparams.tok_transformer_n_layer=$n_enc_token \\\
+									\n		model.mt_head_hparams.expander_type=$exp \\\
+									\n		model.mt_head_hparams.freeze_vocab_unembedding=$freeze_unembed \\\
 									\n		lm.model.freeze=$freeze_lm \\\
 									\n		lm.model.encoder_only=$encoder_only \\\
-									\n		model.mt_head.freeze_unembedding=$freeze_unembed \\\
 									\n		training.device_batch_size=$device_bs \\\
 									\n		training.expname="n-$n-r-$r-nth-$n_enc_token-nts-$n_enc_sum-$exp"
 									"

@@ -263,15 +263,15 @@ class MultiTokenHead(nn.Module):
             ) for _ in range(n_folds)]
             proj = nn.Linear(self.n_embd, n_input_units, bias=False)
             sum_weights_heads.append(FoldOutputHead(heads, proj=proj))
-        for i, shape in enumerate(config.categorical_log_probs_shapes):
+        for shape in config.categorical_log_probs_shapes:
             n_folds, n_components, vocab_size = shape
             # We make the first token head init as an identity function (to match teacher)
             # while the remaining heads are initialised to produce a uniform distribution
-            init = 'identity' if i == 0 else 'uniform'
+            get_init = lambda x: 'identity' if x == 0 else 'uniform'
             heads = [OutputHead(
                 TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=tok_transformer_n_layer),
-                ExpanderHead(n_embd, n_components, n_layer=expander_n_layer, expander_type=expander_type, init=init)
-            ) for _ in range(n_folds)]
+                ExpanderHead(n_embd, n_components, n_layer=expander_n_layer, expander_type=expander_type, init=get_init(i))
+            ) for i in range(n_folds)]
             # Share the same unembedding matrix for each token
             categorical_log_probs_heads.append(FoldOutputHead(heads, proj=self.vocab_proj))
         self._sum_weights_heads = nn.ModuleList(sum_weights_heads)

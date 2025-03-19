@@ -36,7 +36,8 @@ do
 		else  # mtp-hmm
 			n_component_hs="4 8"
 		fi
-		for n_component in $n_component_hs
+		for n_component in $n_component_hs;
+		do
 			for n_enc_token in 0 1 2;
 			do
 				for n_enc_sum in 0 1 2;

@@ -48,10 +48,8 @@ def test_circuit_conditionals_with_logits(circuit: CircuitModel):
     yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))
 
     log_probs = circuit.autoregressive_conditionals(yy, with_logits=False)
-    log_probs = torch.stack(log_probs)
 
     log_probs_all = circuit.autoregressive_conditionals(yy, with_logits=True)
-    log_probs_all = torch.stack(log_probs_all)
     match = log_probs_all[
         torch.arange(circuit.n_token)[:, None],
         torch.arange(BATCH_SIZE)[None, :],

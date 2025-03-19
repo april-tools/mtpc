@@ -224,6 +224,7 @@ if __name__ == "__main__":
         stats['beta'] = cfg.model.model.beta
         stats['gamma'] = cfg.model.model.gamma
         stats['kl_type'] = cfg.model.model.kl_type
+        stats['kl_algorithm'] = cfg.model.model.kl_algorithm
         stats['expander_type'] = cfg.model.mt_head_hparams.expander_type
         stats['expander_n_layer'] = cfg.model.mt_head_hparams.expander_n_layer
         stats['tok_transformer_n_layer'] = cfg.model.mt_head_hparams.tok_transformer_n_layer

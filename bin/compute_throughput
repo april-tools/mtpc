@@ -43,6 +43,7 @@ do
 					--prompt 'A polytope' \
 					data=$dataset \
 					lm=$lm \
+					lm.model.encoder_only=false \
 					model=$model \
 					model.n_token=$n \
 					model.mt_head_hparams.sum_transformer_n_layer=$n_enc_sum \
@@ -59,6 +60,7 @@ do
 					--prompt 'A polytope' \
 					data=$dataset \
 					lm=$lm \
+					lm.model.encoder_only=false \
 					model=$model \
 					model.n_token=$n \
 					model.mt_head_hparams.sum_transformer_n_layer=$n_enc_sum \

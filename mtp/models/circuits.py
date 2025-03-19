@@ -175,6 +175,7 @@ class CircuitModel(torch.nn.Module):
         # Hack to get the device of the circuit
         return self._parameters_config.categorical_layers[0].log_probs.device
 
+    @torch._dynamo.disable
     def univariate_marginal_at_k(self, k: int, yy: Tensor | None = None, with_logits: bool = False):
         assert 0 <= k <= self.n_token
         if with_logits:
@@ -197,6 +198,7 @@ class CircuitModel(torch.nn.Module):
         # BS, V if with_logits else BS
         return log_probs
 
+    @torch._dynamo.disable
     def autoregressive_marginal_at_k(self, k: int, yy: Tensor, with_logits: bool = False):
         # Marginalises out future tokens
         assert len(yy.shape) == 2
@@ -218,7 +220,7 @@ class CircuitModel(torch.nn.Module):
         # BS, V if with_logits else BS
         return log_probs
 
-    def autoregressive_conditionals(self, yy, with_logits=False):
+    def autoregressive_conditionals(self, yy: Tensor, with_logits: bool = False):
         BS, H = yy.shape
         assert H == self.n_token
 
@@ -231,6 +233,7 @@ class CircuitModel(torch.nn.Module):
                 k, yy=yy, with_logits=with_logits
             )
             marginals.append(marginal)
+        marginals = torch.stack(marginals)
         # Go in reverse to avoid overwriting useful info.
         # Stop at 1, since conditional for ntp is just marginal
         for k in reversed(range(1, H)):

@@ -10,13 +10,13 @@ from mtp.models.lm import LM
 
 
 
-@pytest.fixture(params=['fully-factorized', 'cp', 'hmm'])
+@pytest.fixture(params=[('cp', 1), ('cp', 2), ('hmm', 2)])
 def mtp(request):
     vocab_size = 2
     n_embd = 8
     n_layer = 1
     n_head = 2
-    n_component = 1 if request.param == 'fully-factorized' else 2
+    kind, n_component = request.param
     n_token = 2
     lm = LM(
         lm=GPT(vocab_size, n_embd, n_layer, n_head),
@@ -24,7 +24,7 @@ def mtp(request):
         ref_head='head',
         encoder_only=False
     )
-    circuit = build_circuit(vocab_size, n_token, n_component, kind=request.param)
+    circuit = build_circuit(vocab_size, n_token, n_component, kind=kind)
     mtp = MultiTokenLM(
         lm,
         circuit,

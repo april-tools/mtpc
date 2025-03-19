@@ -12,6 +12,7 @@ torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char trai
 
 torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char training=shakespeare_char \
 	model=mtp-cp \
+	model.model.kl_algorithm=binary_approx \
 	lm.n_layer=4 lm.n_head=4 lm.n_embd=256 \
 	lm.model.encoder_only=false \
 	lm.model.freeze=true \
@@ -19,7 +20,26 @@ torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char trai
 	training.save_model_every=100
 
 torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char training=shakespeare_char \
+    model=mtp-hmm \
+    model.model.kl_algorithm=binary_approx \
+    lm.n_layer=4 lm.n_head=4 lm.n_embd=256 \
+    lm.model.encoder_only=false \
+    lm.model.freeze=true \
+    lm.model.lm=null lm.model.from_checkpoint=logs/2025-03-19/16-31-59/model\@2000.pt \
+    training.save_model_every=100
+
+torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char training=shakespeare_char \
+    model=mtp-cp \
+	model.model.kl_algorithm=full \
+    lm.n_layer=4 lm.n_head=4 lm.n_embd=256 \
+	lm.model.encoder_only=false \
+	lm.model.freeze=true \
+	lm.model.lm=null lm.model.from_checkpoint=logs/2025-03-19/16-31-59/model\@2000.pt \
+	training.save_model_every=100
+
+torchrun --standalone --nproc_per_node=1 -m mtp.train data=shakespeare_char training=shakespeare_char \
 	model=mtp-hmm \
+	model.model.kl_algorithm=full \
 	lm.n_layer=4 lm.n_head=4 lm.n_embd=256 \
 	lm.model.encoder_only=false \
 	lm.model.freeze=true \

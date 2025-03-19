@@ -110,6 +110,10 @@ class CircuitModel(torch.nn.Module):
                 continue
             assert False, f"Unknown layer to parameterize, {type(layer)}"
 
+        # We currently support only one folded categorical layer whose folds are sorted based on the token ids
+        assert len(self._parameters_config.categorical_layers) == 1
+        assert torch.all(self._parameters_config.categorical_layers[0].scope_idx == torch.arange(self.n_token).unsqueeze(dim=1))
+
         # Initialize the sampler and the marginalizer objects
         self.sampler = SamplingQuery(self._circuit)
         self.marginalizer = IntegrateQuery(self._circuit)

@@ -1,7 +1,6 @@
 import json
 import argparse
 
-import numpy as np
 import matplotlib.pyplot as plt
 
 from itertools import groupby
@@ -37,7 +36,8 @@ if __name__ == '__main__':
             stats = tuple(sorted(stats, key=lambda x: x['step']))
 
             avg_accepted_tokens = tuple(row['avg_accepted_tokens'] for row in stats)
-            ax.plot(avg_accepted_tokens, '-o', label=model)
+            steps = tuple(row['step'] for row in stats)
+            ax.plot(steps, avg_accepted_tokens, '-o', label=model)
 
         ax.set_ylabel('Average number of accepted tokens', fontsize=24)
         ax.set_xlabel('# Training steps', fontsize=24)
@@ -50,15 +50,16 @@ if __name__ == '__main__':
         fig, axes = plt.subplots(figsize=(8, 10), nrows=ntoken + 1)
 
         for i, (model, stats) in enumerate(groupby(rows, lambda x: x['model'])):
-            stats = tuple(stats)
+            stats = tuple(sorted(stats, key=lambda x: x['step']))
             for j in range(ntoken + 1):
                 counts = tuple(row['hist_accepted_tokens'][1][j] for row in stats)
-                axes[j].plot(counts, '-o', label='%s' % model)
+                steps = tuple(row['step'] for row in stats)
+                axes[j].plot(steps, counts, '-o', label='%s' % model)
 
         for j in range(ntoken + 1):
-            axes[j].set_title('# times token %d accepted' % (j + 1), fontsize=24)
+            axes[j].set_title('# times %d token(s) accepted' % (j + 1), fontsize=24)
 
-        axes[-1].set_xlabel('# Training steps x 500', fontsize=24)
+        axes[-1].set_xlabel('# Training steps', fontsize=24)
         axes[-1].legend(fontsize=20, loc='lower right')
         axes[1].set_ylabel('Number of accepted tokens', fontsize=24)
         plt.suptitle('Token acceptance rate over training', fontsize=30)

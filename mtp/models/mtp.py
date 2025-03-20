@@ -246,6 +246,7 @@ class MultiTokenLM(torch.nn.Module):
             # currently this would differ depending on with_logits or not
             lp = self.circuit(yy)
             outputs['log_probs'] = lp
+            outputs['full_log_probs'] = log_probs
         return outputs
 
     def _parameterize_circuit(self, xx: Tensor, generate: bool = False):

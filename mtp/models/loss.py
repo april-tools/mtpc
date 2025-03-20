@@ -136,7 +136,7 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
             H: is the # of tokens in the MTP window
             BS: is the seq len * batch size (collapsed)
             V: is the vocabulary size
-        yy (torch.Tensor | None): The targets with shape (BS, 1, H), containing
+        yy (torch.Tensor | None): The targets with shape (BS, H), containing
         the indices of the correct token, or None.
         If draft_log_probs is (H, BS, V), yy is expected to index the prob of
         true category. Else, probs should be true log probs and yy=None is
@@ -147,7 +147,7 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
         assert len(draft_log_probs.shape) == 2
     else:
         assert len(draft_log_probs.shape) == 3
-        assert yy.shape == (BS, 1, H)
+        assert yy.shape == (BS, H)
     ce_losses = torch.zeros(H, device=draft_log_probs.device)
     for h in range(H):
         if yy is None:
@@ -156,5 +156,5 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
             ce_losses[h] = -draft_log_probs[h].mean()
         else:
             # NOTE: log_probs are logits, but not vice-versa
-            ce_losses[h] = F.cross_entropy(draft_log_probs[h], yy[:, :, h].ravel())
+            ce_losses[h] = F.cross_entropy(draft_log_probs[h], yy[:, h].ravel())
     return ce_losses

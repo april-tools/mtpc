@@ -11,12 +11,12 @@ torchrun --standalone \
     model.n_component=2 \
     model.model.gamma=1 \
     model.model.beta=1 \
-    model.sum_weight_head.encoder.n_layer=0 \
-    model.token_head.encoder.n_layer=0 \
-    model.token_head.expander.expander_type=linear \
+    model.mt_head_hparams.sum_transformer_n_layer=0 \
+    model.mt_head_hparams.tok_transformer_n_layer=0 \
+    model.mt_head_hparams.expander_type=linear \
     lm.model.freeze=true \
     lm.model.encoder_only=false \
-    model.mt_head.freeze_unembedding=true \
+    model.mt_head_hparams.freeze_vocab_unembedding=true \
     training.device_batch_size=16 \
     training.val_loss_every=200 \
     training.save_model_every=3000 \

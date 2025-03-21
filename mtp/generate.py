@@ -129,8 +129,8 @@ if __name__ == "__main__":
     n_component = 1
     # Override with MTP case
     if hasattr(model, 'mt_head'):
-        n_token = model.mt_head.n_token
-        n_component = model.mt_head.n_component
+        n_token = model.circuit.n_token
+        n_component = model.circuit.n_component
     if args.mode == 'mtp':
         assert tokens.shape[1] == n_token
     else:
@@ -179,12 +179,10 @@ if __name__ == "__main__":
                         x,
                         mode=args.mode,
                         use_cache=args.use_cache,
-                        past_key_values=past_key_values,
-                        past_last_hidden_states=past_last_hidden_states
+                        past_key_values=past_key_values
                     )
                 tokens = outputs['tokens']
                 past_key_values = outputs['past_key_values']
-                past_last_hidden_states = outputs['past_last_hidden_states']
             x = torch.cat([x, tokens], dim=1)
             pbar.update(tokens.shape[1])
 
@@ -226,9 +224,11 @@ if __name__ == "__main__":
         stats['beta'] = cfg.model.model.beta
         stats['gamma'] = cfg.model.model.gamma
         stats['kl_type'] = cfg.model.model.kl_type
-        stats['token_head_type'] = cfg.model.token_head.expander.expander_type
-        stats['token_head_num_transformer_layers'] = cfg.model.token_head.encoder.n_layer
-        stats['sum_weight_num_transformer_layers'] = cfg.model.sum_weight_head.encoder.n_layer
+        stats['kl_algorithm'] = cfg.model.model.kl_algorithm
+        stats['expander_type'] = cfg.model.mt_head_hparams.expander_type
+        stats['expander_n_layer'] = cfg.model.mt_head_hparams.expander_n_layer
+        stats['tok_transformer_n_layer'] = cfg.model.mt_head_hparams.tok_transformer_n_layer
+        stats['sum_transformer_n_layer'] = cfg.model.mt_head_hparams.sum_transformer_n_layer
 
     result = json.dumps(stats)
 

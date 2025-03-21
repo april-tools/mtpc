@@ -28,7 +28,6 @@ def compile_batched_categorical_layer(
     return TorchBatchedCategoricalLayer(
         torch.tensor(tuple(sl.scope)),
         sl.num_output_units,
-        num_channels=sl.num_channels,
         num_categories=sl.num_categories,
         semiring=compiler.semiring,
     )

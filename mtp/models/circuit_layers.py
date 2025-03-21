@@ -14,7 +14,6 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         self,
         scope_idx: Tensor,
         num_output_units: int,
-        num_channels: int = 1,
         *,
         num_categories: int = 2,
         semiring: Semiring | None = None,
@@ -27,7 +26,6 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
                 Alternatively, a tensor of shape $(D,)$ can be specified, which will be interpreted
                 as a tensor of shape $(1, D)$, i.e., with $F = 1$.
             num_output_units: The number of output units.
-            num_channels: The number of channels.
             num_categories: The number of categories for Categorical distribution.
             semiring: The evaluation semiring.
                 Defaults to [SumProductSemiring][cirkit.backend.torch.semiring.SumProductSemiring].
@@ -36,10 +34,6 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
             ValueError: If the scope contains more than one variable.
             ValueError: If the number of categories is negative.
         """
-        if num_channels != 1:
-            raise NotImplementedError(
-                "The batched categorical layer requires num_channels=1"
-            )
         num_variables = scope_idx.shape[-1]
         if num_variables != 1:
             raise ValueError(
@@ -52,7 +46,6 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         super().__init__(
             scope_idx,
             num_output_units,
-            num_channels=num_channels,
             semiring=semiring,
         )
         self.num_categories = num_categories
@@ -74,7 +67,7 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
                 or log_probs.shape[3] != self.num_categories
             ):
                 raise ValueError(
-                    f"Expected probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.num_categories}), "
+                    f"Expected log probs of shape ({self.num_folds}, B, {self.num_output_units}, {self.num_categories}), "
                     f"but found {log_probs.shape}"
                 )
         self._log_probs = log_probs
@@ -83,15 +76,18 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
     def config(self) -> Mapping[str, Any]:
         return {
             "num_output_units": self.num_output_units,
-            "num_channels": self.num_channels,
             "num_categories": self.num_categories,
         }
+    
+    @property
+    def fold_settings(self) -> tuple[Any, ...]:
+        return self.num_variables, *self.config.items()
 
     def log_unnormalized_likelihood(self, x: Tensor) -> Tensor:
         if x.is_floating_point():
             x = x.long()  # The input to Categorical should be discrete
-        # x: (F, C, B, 1) -> (F, B)
-        x = x.squeeze(dim=3).squeeze(dim=1)
+        # x: (F, B, 1) -> (F, B)
+        x = x.squeeze(dim=2)
         F, B = x.shape
         V = self.num_categories
 
@@ -135,8 +131,6 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         # samples: (F, K, num_samples, B) -> (F, K, num_samples * B)
         samples = samples.permute(1, 3, 0, 2)
         samples = samples.flatten(start_dim=2)
-        # samples: (F, K, num_samples * B) -> (F, C, K, num_samples * B)
-        samples = samples.unsqueeze(1)
         return samples
 
 
@@ -203,6 +197,10 @@ class TorchBatchedSumLayer(TorchInnerLayer):
             "arity": self.arity,
         }
 
+    @property
+    def fold_settings(self) -> tuple[Any, ...]:
+        return *self.config.items(),
+
     def forward(self, x: Tensor) -> Tensor:
         # x: (F, H, B, Ki) -> (F, B, H * Ki)
         x = x.permute(0, 2, 1, 3).flatten(start_dim=2)
@@ -230,10 +228,9 @@ class TorchBatchedSumLayer(TorchInnerLayer):
                 "Sampling in sum layers only works with positive weights summing to 1"
             )
 
-        # x: (F, H, C, Ki, num_samples * B, D) -> (F, C, H * Ki, num_samples * B, D)
-        num_samples = x.shape[4] // weight.shape[1]
-        x = x.permute(0, 2, 1, 3, 4, 5)
-        x = x.flatten(2, 3)
+        # x: (F, H, Ki, num_samples * B, D) -> (F, H * Ki, num_samples * B, D)
+        num_samples = x.shape[3] // weight.shape[1]
+        x = x.flatten(1, 2)
 
         # mixing_distribution: (F, B, Ko, H * Ki)
         mixing_distribution = torch.distributions.Categorical(probs=weight)
@@ -245,16 +242,15 @@ class TorchBatchedSumLayer(TorchInnerLayer):
 
         # Choose the sample that was chosen by the sum layer
         # This is done by selecting the corresponding index using gather
-        # mixing_indices: (F, 1, Ko, num_samples * B, 1) -> (F, C, Ko, num_samples * B, D)
-        mixing_indices = mixing_samples.unsqueeze(dim=1).unsqueeze(dim=-1)
+        # mixing_indices: (F, Ko, num_samples * B, 1) -> (F, Ko, num_samples * B, D)
+        mixing_indices = mixing_samples.unsqueeze(dim=-1)
         mixing_indices = mixing_indices.broadcast_to(
             mixing_samples.shape[0],
-            x.shape[1],
             mixing_samples.shape[1],
             mixing_samples.shape[2],
-            x.shape[4],
+            x.shape[3],
         )
 
-        # x: (F, C, Ko, num_samples * B, D)
-        x = torch.gather(x, dim=2, index=mixing_indices)
+        # x: (F, Ko, num_samples * B, D)
+        x = torch.gather(x, dim=1, index=mixing_indices)
         return x, mixing_samples

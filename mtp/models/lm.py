@@ -71,7 +71,7 @@ class LM(nn.Module):
             # Assume that if we can find the conf, we saved the checkpoint
             try:
                 cp = Checkpoint.load(self.from_checkpoint)
-                lm = cp.model.lm
+                lm = cp.model.lm.lm
             # otherwise try loading as default pt
             except Exception:
                 lm = torch.load(
@@ -112,7 +112,7 @@ class LM(nn.Module):
         xx: Tensor,
         yy: Tensor | None = None,
         return_logits: bool = True,
-    ) -> tuple[Tensor | None, None]:
+    ) -> dict:
         assert (
             self.head is not None
         ), "The forward of GPT can only be called if encoder_only=False"

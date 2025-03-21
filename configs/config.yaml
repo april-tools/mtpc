@@ -1,17 +1,17 @@
 defaults:
   - _self_
   - training: default
-  - model: gpt
+  - model: stp
   - lm: nanogpt
   - data: fineweb10B
   - generate: default
 
-name: nanogpt
 compile: true
 device: cuda   # if cpu make source num processes=1
 # from_checkpoint: path/to/model@dddd.pth
 from_checkpoint: null
 
+name: nanogpt
 hydra:
   job:
     chdir: true

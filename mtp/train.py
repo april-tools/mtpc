@@ -218,8 +218,14 @@ def main(cfg: DictConfig):
         train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
         val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
 
+        ntok_train = cfg.training.batch_size * T * cfg.training.num_iterations
+
         logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
         logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
+        logger(f"During training we will see {ntok_train} tokens")
+        logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
+        if 'shakespeare' not in cfg.data.name:
+            assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
 
         # Calculate steps
         val_steps = cfg.training.val_tokens // (B * T * world_size)
@@ -229,6 +235,15 @@ def main(cfg: DictConfig):
         if global_step > 0:
             # Skip global_step training examples to resume training
             train_loader.seek(global_step * train_accumulation_steps)
+
+        if master_process:
+            # Save model at step 0
+            if cfg.training.save_model and global_step == 0:
+                ckp.save(global_step=global_step,
+                         model=model,
+                         optimizer=optimizer if cfg.training.save_optimizer else None,
+                         scheduler=scheduler if cfg.training.save_optimizer else None)
+                logger(f'step:{global_step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
 
         # ===================== BEGIN TRAINING LOOP ==========================
         for step in range(1 + global_step, cfg.training.num_iterations + 1):

@@ -28,10 +28,9 @@ args = parser.parse_args()
 
 env_vars = {
     "MTP_PVC_ROOT": f"/{mtp_root_name}",
-    "MTP_DATA_CHUNKS": args.data_chunks,
+    "MTP_DATA_CHUNKS": str(args.data_chunks),
 }
 
-# TODO: Create PVC with name according to script
 script_name = args.script[:-3]
 create_pvc(username, script_name, args.pvc_size)
 

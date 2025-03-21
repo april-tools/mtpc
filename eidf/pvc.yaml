@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: 
-  name: evankri-mtp-pvc
+  name: s2457990-infk8s-mtp-pvc
   labels:
-    eidf/user: evankri
+    eidf/user: s2457990-infk8s
 spec:
   accessModes:
   - ReadWriteOnce
   resources:
     requests:
-      storage: 100Gi
+      storage: 256Gi
   storageClassName: csi-rbd-sc

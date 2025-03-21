@@ -28,9 +28,12 @@ parser.add_argument('--memory_limit', type=str, default=memory_limit)
 parser.add_argument('--cpus_limit', type=int, default=cpus_limit)
 args = parser.parse_args()
 
+cuda_vis = ",".join([f"{i}" for i in range(args.gpu_limit)])
 env_vars = {
     "MTP_PVC_ROOT": f"/{mtp_root_name}",
     "MTP_DATA_CHUNKS": str(args.data_chunks),
+    "GPU": args.gpu_limit,
+    "CUDA_VISIBLE_DEVICES": cuda_vis,
 }
 
 script_name = args.script[:-3]

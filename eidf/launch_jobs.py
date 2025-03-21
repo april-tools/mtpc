@@ -20,6 +20,7 @@ link = f"http://files.emilevankrieken.com/{install_script_name}"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--script', type=str)
+parser.add_argument('--branch', type=str, default="eidf-setup")
 parser.add_argument('--gpu_limit', type=int, default=gpu_limit)
 parser.add_argument('--gpu_product', type=str, default=gpu_product)
 parser.add_argument('--data_chunks', type=int, default=data_chunks)
@@ -41,7 +42,7 @@ job = KubernetesJob(
     image="nvcr.io/nvidia/cuda:12.0.0-cudnn8-devel-ubuntu22.04",
     kueue_queue_name=KueueQueue.INFORMATICS,
     command=["/bin/sh", "-c"],
-    args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name} {args.script}"],
+    args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name} {args.script} {args.branch}"],
     gpu_type="nvidia.com/gpu",
     gpu_product=args.gpu_product,
     gpu_limit=args.gpu_limit,

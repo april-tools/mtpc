@@ -30,12 +30,13 @@ if [ ! -d "nanoGPT" ]; then
 	echo "Cloning repository..."
 	git clone https://github.com/PiotrNawrot/nanoGPT.git
 	cd nanoGPT
-	git checkout eidf-setup
+	git checkout "$2"
 	../uv/uv venv --python 3.10
 else
 	# Else just ensure up to date
 	echo "Already cloned."
 	cd nanoGPT
+    git checkout "$2"
 	git pull
 fi
 source .venv/bin/activate

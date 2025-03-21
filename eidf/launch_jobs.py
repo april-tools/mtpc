@@ -5,34 +5,45 @@ import time
 from kubejobs.jobs import KubernetesJob, KueueQueue
 from rich import print
 import argparse
-from config import username, email, pvc_name, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name
+from config import username, email, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name, data_chunks
+from create_pvc import create_pvc
 
 # unique id generated using time
 
 unique_id = time.strftime("%Y%m%d%H%M%S")
 
 # Give a name to the PVC folder (here will be the code, data and models)
-env_vars = {
-    "MTP_PVC_ROOT": f"/{mtp_root_name}",
-}
+
 
 install_script_name = "run_mtp_EIDF.sh"
 link = f"http://files.emilevankrieken.com/{install_script_name}"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--script', type=str)
+parser.add_argument('--gpu_limit', type=int, default=gpu_limit)
+parser.add_argument('--gpu_product', type=str, default=gpu_product)
+parser.add_argument('--data_chunks', type=int, default=data_chunks)
+parser.add_argument('--pvc_size', type=str, default="100Gi")
 args = parser.parse_args()
 
+env_vars = {
+    "MTP_PVC_ROOT": f"/{mtp_root_name}",
+    "MTP_DATA_CHUNKS": args.data_chunks,
+}
+
+# TODO: Create PVC with name according to script
+script_name = args.script[:-3]
+create_pvc(username, script_name)
 
 job = KubernetesJob(
-    name=f"{username}-mtp-{args.script[:-3]}",
+    name=f"{username}-mtp-{script_name}",
     image="nvcr.io/nvidia/cuda:12.0.0-cudnn8-devel-ubuntu22.04",
     kueue_queue_name=KueueQueue.INFORMATICS,
     command=["/bin/sh", "-c"],
     args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name} {args.script}"],
     gpu_type="nvidia.com/gpu",
-    gpu_product=gpu_product,
-    gpu_limit=gpu_limit,
+    gpu_product=args.gpu_product,
+    gpu_limit=args.gpu_limit,
     # shm_size="10G",  # "200G" is the maximum value for shm_size
     backoff_limit=1,
     env_vars=env_vars,
@@ -42,7 +53,7 @@ job = KubernetesJob(
     user_email=email,
     volume_mounts={
         "mtp-pvc": {
-            "pvc": f"{username}-{pvc_name}",
+            "pvc": f"{username}-mtp-{script_name}",
             "mountPath": f"/{mtp_root_name}"
         }
     }

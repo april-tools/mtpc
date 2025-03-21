@@ -1,0 +1,30 @@
+
+def create_pvc(username, script_name, pvc_size):
+	pvc_script = f"""
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: 
+  name: {username}-mtp-{script_name}
+  labels:
+    eidf/user: {username}-infk8s
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: {pvc_size}
+  storageClassName: csi-rbd-sc
+"""
+	with open(f"{username}-mtp-{script_name}.yaml", "w") as f:
+		f.write(pvc_script)
+	# Apply the PVC using kubectl
+	import subprocess
+	
+	print(f"Creating PVC {username}-mtp-{script_name}")
+	result = subprocess.run(["kubectl", "apply", "-f", f"{username}-mtp-{script_name}.yaml"], 
+		capture_output=True, text=True)
+	
+	if result.returncode == 0:
+		print(f"Successfully created PVC: {username}-mtp-{script_name}")
+	else:
+		print(f"Failed to create PVC: {result.stderr}")

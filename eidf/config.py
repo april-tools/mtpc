@@ -2,7 +2,6 @@
 username = "evankri"
 email = "Emile.van.Krieken@ed.ac.uk"
 
-pvc_name = "mtp-pvc"
 mtp_root_name = 'mtp'
 
 # Secrets
@@ -13,3 +12,6 @@ hf_secret_name = "hf-key"
 # GPU setup
 gpu_product = "NVIDIA-H100-80GB-HBM3"
 gpu_limit = 2
+
+# Data chunks
+data_chunks = 103

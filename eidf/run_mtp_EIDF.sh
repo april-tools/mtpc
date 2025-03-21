@@ -63,7 +63,7 @@ echo "Main directory:"
 echo $MTP_PVC_ROOT
 
 # Download first 10 chunks of fineweb-edu train dataset
-../uv/uv run eidf/download_data.py 10 --dataset fineweb-edu
+../uv/uv run eidf/download_data.py $MTP_DATA_CHUNKS --dataset fineweb-edu
 
 # Run the script
 chmod +x scripts/"$1"

@@ -1,0 +1,44 @@
+import json
+import argparse
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+from itertools import groupby
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--results', help='Path to throughput.txt file (list of json).')
+    parser.add_argument('--device', choices=('cuda', 'cpu'),
+                        default='cuda', type=str,
+                        help='Device to plot throughput for.')
+
+    args = parser.parse_args()
+
+    rows = []
+    with open(args.results, 'r') as f:
+        rows = []
+        for line in f:
+            row = json.loads(line)
+            row['model'], step = row['checkpoint'].split('@')
+            row['step'] = int(step)
+            rows.append(row)
+
+    fig, ax = plt.subplots(figsize=(10, 6), nrows=1)
+    # fig, axes = plt.subplots(figsize=(10, 6), nrows=3)
+
+    for i, (model, stats) in enumerate(groupby(rows, lambda x: x['model'])):
+        stats = tuple(sorted(stats, key=lambda x: x['step']))
+
+        avg_accepted_tokens = tuple(row['avg_accepted_tokens'] for row in stats)
+        # avg_accepted_tokens = tuple(row['hist_accepted_tokens'][1][0] for row in stats)
+        ax.plot(avg_accepted_tokens, '-o', label=model)
+
+    ax.set_ylabel('Average number of accepted tokens', fontsize=24)
+    ax.set_xlabel('# Training steps', fontsize=24)
+    ax.set_title('Token acceptance rate over training', fontsize=30)
+    ax.legend(fontsize=20, loc='lower right')
+    plt.tight_layout()
+    plt.show()

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# In this script we evaluate generation throughput
+# I.e. how many tokens we can generate per second (with a batch size of one)
+
+mkdir -p $MTP_ROOT/outputs/results
+
+
+device=cuda
+seed=12
+default="$MTP_ROOT/outputs/models/finewebedu10B"
+# If not overriden by cli, use default
+directory="${1:-$default}"
+
+for file in $(find "$directory" -type f -name "*.pt");
+do
+	echo -e "Processing $file..."
+	python -m mtp.generate \
+		--device cuda \
+		--mode mtp \
+		--speculative \
+	   	--random-seed 13 \
+		--num-tokens 1000 \
+		--prompt 'The king of' \
+		--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
+done

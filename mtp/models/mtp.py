@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn.functional as F
 
@@ -64,8 +65,9 @@ class MultiTokenLM(torch.nn.Module):
             assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
             assert self.lm.encoder_only is False, 'We need the LM head to compute KL'
         else:
-            assert self.lm.encoder_only is True, 'We do not need the LM head since we are not computing KL'
-
+            # We need encoder_only is false during generation - due to speculative decoding
+            if not (os.environ.get('MODE', None) == 'generate'):
+                assert self.lm.encoder_only is True, 'We do not need the LM head since we are not computing KL'
 
         # Retrieve the circuit layers to parameterize
         layers = list(self.circuit.circuit.topological_ordering())

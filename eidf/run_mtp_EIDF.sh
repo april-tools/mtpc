@@ -36,8 +36,10 @@ else
 	# Else just ensure up to date
 	echo "Already cloned."
 	cd nanoGPT
-    git checkout "$2"
-	git pull
+	git status
+	git fetch --all
+	# This is needed in very specific cases. 
+	git reset --hard origin/$2
 fi
 source .venv/bin/activate
 echo "Installing dependencies..."
@@ -46,9 +48,11 @@ echo "Installing dependencies..."
 ../uv/uv pip install flash-attn --no-build-isolation
 
 export MTP_ROOT=`pwd`
-export GPUS=2
-export CUDA_VISIBLE_DEVICES=0,1
 export WANDB_MODE=online
+
+echo "GPU setup:"
+echo $GPU
+echo $CUDA_VISIBLE_DEVICES
 
 export OMP_NUM_THREADS=1
 # Below allows our results to be reproducible

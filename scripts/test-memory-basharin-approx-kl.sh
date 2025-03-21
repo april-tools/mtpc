@@ -6,7 +6,7 @@ for n in 1 2 4 8 16 32
 do
     echo "Running with batch size $n"
     
-    torchrun --standalone \
+    ../uv/uv run torchrun --standalone \
 		--nproc_per_node=$GPUS \
 		-m mtp.train \
 		data=finewebedu10B \

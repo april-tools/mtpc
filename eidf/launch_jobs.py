@@ -6,7 +6,7 @@ from kubejobs.jobs import KubernetesJob, KueueQueue
 from rich import print
 import argparse
 from config import username, email, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name, data_chunks
-from create_pvc import create_pvc
+from create_pvc import create_pvc, pvc_name
 
 # unique id generated using time
 
@@ -53,7 +53,7 @@ job = KubernetesJob(
     user_email=email,
     volume_mounts={
         "mtp-pvc": {
-            "pvc": f"{username}-mtp-{script_name}",
+            "pvc": pvc_name(username, script_name),
             "mountPath": f"/{mtp_root_name}"
         }
     }

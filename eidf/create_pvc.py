@@ -1,10 +1,13 @@
 
+def pvc_name(username, script_name):
+	return f"{username}-mtp-{script_name.replace('_', '-')}"
+
 def create_pvc(username, script_name, pvc_size):
 	pvc_script = f"""
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: 
-  name: {username}-mtp-{script_name}
+  name: {pvc_name(username, script_name)}
   labels:
     eidf/user: {username}-infk8s
 spec:
@@ -15,6 +18,7 @@ spec:
       storage: {pvc_size}
   storageClassName: csi-rbd-sc
 """
+	print(pvc_script)
 	with open(f"{username}-mtp-{script_name}.yaml", "w") as f:
 		f.write(pvc_script)
 	# Apply the PVC using kubectl

@@ -20,6 +20,7 @@ link = f"http://files.emilevankrieken.com/{install_script_name}"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--script', type=str)
+parser.add_argument('--branch', type=str, default="eidf-setup")
 parser.add_argument('--gpu_limit', type=int, default=gpu_limit)
 parser.add_argument('--gpu_product', type=str, default=gpu_product)
 parser.add_argument('--data_chunks', type=int, default=data_chunks)
@@ -32,6 +33,7 @@ cuda_vis = ",".join([f"{i}" for i in range(args.gpu_limit)])
 env_vars = {
     "MTP_PVC_ROOT": f"/{mtp_root_name}",
     "MTP_DATA_CHUNKS": str(args.data_chunks),
+    "MTP_GIT_BRANCH": args.branch,
     "GPU": str(args.gpu_limit),
     "CUDA_VISIBLE_DEVICES": cuda_vis,
 }

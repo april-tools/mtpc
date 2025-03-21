@@ -30,7 +30,7 @@ if [ ! -d "nanoGPT" ]; then
 	echo "Cloning repository..."
 	git clone https://github.com/PiotrNawrot/nanoGPT.git
 	cd nanoGPT
-	git checkout eidf-setup
+	git checkout $MTP_GIT_BRANCH
 	../uv/uv venv --python 3.10
 else
 	# Else just ensure up to date
@@ -39,7 +39,7 @@ else
 	git status
 	git fetch --all
 	# This is needed in very specific cases. 
-	git reset --hard origin/eidf-setup
+	git reset --hard origin/$MTP_GIT_BRANCH
 fi
 source .venv/bin/activate
 echo "Installing dependencies..."

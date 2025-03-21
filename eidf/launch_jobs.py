@@ -33,7 +33,7 @@ env_vars = {
 
 # TODO: Create PVC with name according to script
 script_name = args.script[:-3]
-create_pvc(username, script_name)
+create_pvc(username, script_name, args.pvc_size)
 
 job = KubernetesJob(
     name=f"{username}-mtp-{script_name}",

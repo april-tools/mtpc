@@ -25,6 +25,7 @@ do
 		lm.model.freeze=true \
 		model.mt_head_hparams.freeze_vocab_unembedding=true \
 		training.device_batch_size=$n \
+		model.circuit.kind=cp \
 		training.num_iterations=10 \
 		training.expname=basharin-akl+ce-n-4-r-4-b-$n
 done

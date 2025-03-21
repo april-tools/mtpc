@@ -36,7 +36,10 @@ else
 	# Else just ensure up to date
 	echo "Already cloned."
 	cd nanoGPT
-	git pull
+	git status
+	git fetch --all
+	# This is needed in very specific cases. 
+	git reset --hard origin/eidf-setup
 fi
 source .venv/bin/activate
 echo "Installing dependencies..."

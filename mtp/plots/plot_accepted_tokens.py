@@ -57,12 +57,12 @@ if __name__ == '__main__':
                 axes[j].plot(steps, counts, '-o', label='%s' % model)
 
         for j in range(ntoken + 1):
-            axes[j].set_title('# times %d token(s) accepted' % (j + 1), fontsize=24)
+            axes[j].set_title('# times %d token(s) generated' % (j + 1), fontsize=24)
 
         axes[-1].set_xlabel('# Training steps', fontsize=24)
         axes[-1].legend(fontsize=20, loc='lower right')
-        axes[1].set_ylabel('Number of accepted tokens', fontsize=24)
-        plt.suptitle('Token acceptance rate over training', fontsize=30)
+        axes[1].set_ylabel('Number of generated tokens (accepted tokens + 1)', fontsize=24)
+        plt.suptitle('Histogram of generated tokens over training', fontsize=30)
         plt.tight_layout()
         plt.show()
     else:

@@ -5,7 +5,7 @@ import time
 from kubejobs.jobs import KubernetesJob, KueueQueue
 from rich import print
 import argparse
-from config import username, email, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name, data_chunks
+from config import username, email, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name, data_chunks, pvc_size, memory_limit, cpus_limit
 from create_pvc import create_pvc, pvc_name
 
 # unique id generated using time
@@ -23,7 +23,9 @@ parser.add_argument('--script', type=str)
 parser.add_argument('--gpu_limit', type=int, default=gpu_limit)
 parser.add_argument('--gpu_product', type=str, default=gpu_product)
 parser.add_argument('--data_chunks', type=int, default=data_chunks)
-parser.add_argument('--pvc_size', type=str, default="100Gi")
+parser.add_argument('--pvc_size', type=str, default=pvc_size)
+parser.add_argument('--memory_limit', type=str, default=memory_limit)
+parser.add_argument('--cpus_limit', type=int, default=cpus_limit)
 args = parser.parse_args()
 
 env_vars = {
@@ -43,6 +45,8 @@ job = KubernetesJob(
     gpu_type="nvidia.com/gpu",
     gpu_product=args.gpu_product,
     gpu_limit=args.gpu_limit,
+    cpu_request=args.cpus_limit,
+    ram_request=args.memory_limit,
     # shm_size="10G",  # "200G" is the maximum value for shm_size
     backoff_limit=1,
     env_vars=env_vars,

@@ -5,7 +5,7 @@ import time
 from kubejobs.jobs import KubernetesJob, KueueQueue
 from rich import print
 import argparse
-from config import username, email, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name, data_chunks, pvc_size, memory_limit, cpus_limit
+from config import username, email, github_secret_name, wandb_secret_name, hf_secret_name, gpu_product, gpu_limit, mtp_root_name, data_chunks, pvc_size, memory_limit, cpus_limit, short_job
 from create_pvc import create_pvc, pvc_name
 
 # unique id generated using time
@@ -27,6 +27,7 @@ parser.add_argument('--data_chunks', type=int, default=data_chunks)
 parser.add_argument('--pvc_size', type=str, default=pvc_size)
 parser.add_argument('--memory_limit', type=str, default=memory_limit)
 parser.add_argument('--cpus_limit', type=int, default=cpus_limit)
+parser.add_argument('--short_job', type=bool, default=short_job)
 args = parser.parse_args()
 
 cuda_vis = ",".join([f"{i}" for i in range(args.gpu_limit)])
@@ -40,6 +41,7 @@ env_vars = {
 
 script_name = args.script[:-3]
 create_pvc(username, script_name, args.pvc_size)
+labels = {"kueue.x-k8s.io/priority-class": "short-workload-high-priority"} if args.short_job else None
 
 job = KubernetesJob(
     name=f"{username}-mtp-{script_name}",
@@ -55,8 +57,9 @@ job = KubernetesJob(
     # shm_size="10G",  # "200G" is the maximum value for shm_size
     backoff_limit=1,
     env_vars=env_vars,
+    labels=labels,
     secret_env_vars={"WANDB_API_KEY": {"secret_name": wandb_secret_name, "key": "api_key"}, "HF_TOKEN": {"secret_name": hf_secret_name, "key": "api_key"}, "GIT_TOKEN": {"secret_name": github_secret_name, "key": "token"}},
-    job_deadlineseconds=60*60*60,
+    job_deadlineseconds=60*60*24 if args.short_job else 60*60*60,
     user_name=f'{username}-infk8s',
     user_email=email,
     volume_mounts={

@@ -1,14 +1,15 @@
 #!/bin/bash
 
-n_layer=12
-n_head=12
-n_embd=768
+n_layer=6
+n_head=4
+n_embd=256
 
 # Train the autoregressive LLM model
 torchrun --standalone --nproc_per_node=$GPUS -m mtp.train data=shakespeare_char training=shakespeare_char \
   model=stp \
   lm.n_layer=$n_layer lm.n_head=$n_head lm.n_embd=$n_embd \
-  lm.model.encoder_only=false
+  lm.model.encoder_only=false \
+  training.save_model_every=100
 
 exit
 
@@ -32,7 +33,8 @@ do
           lm.n_layer=$n_layer lm.n_head=$n_head lm.n_embd=$n_embd \
           lm.model.encoder_only=false \
           lm.model.freeze=true \
-          lm.model.lm=null lm.model.from_checkpoint=$checkpoint
+          lm.model.lm=null lm.model.from_checkpoint=$checkpoint \
+          training.save_model_every=100
       done
     done
   done

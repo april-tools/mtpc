@@ -35,7 +35,7 @@ env_vars = {
     "MTP_PVC_ROOT": f"/{mtp_root_name}",
     "MTP_DATA_CHUNKS": str(args.data_chunks),
     "MTP_GIT_BRANCH": args.branch,
-    "GPU": str(args.gpu_limit),
+    "GPUS": str(args.gpu_limit),
     "CUDA_VISIBLE_DEVICES": cuda_vis,
 }
 
@@ -47,15 +47,15 @@ job = KubernetesJob(
     name=f"{username}-mtp-{script_name}",
     image="nvcr.io/nvidia/cuda:12.0.0-cudnn8-devel-ubuntu22.04",
     kueue_queue_name=KueueQueue.INFORMATICS,
-    command=["/bin/sh", "-c"],
-    args=[f"apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name} {args.script} {args.branch}"],
+    command=["/bin/bash", "-c"],
+    args=[f"ln -sf bash /bin/sh ; apt -y update && apt -y upgrade && DEBIAN_FRONTEND=noninteractive apt-get -y install wget; wget {link} ; chmod +x {install_script_name} ; ./{install_script_name} {args.script} {args.branch}"],
     gpu_type="nvidia.com/gpu",
     gpu_product=args.gpu_product,
     gpu_limit=args.gpu_limit,
     cpu_request=str(args.cpus_limit),
     ram_request=args.memory_limit,
     # shm_size="10G",  # "200G" is the maximum value for shm_size
-    backoff_limit=1,
+    backoff_limit=0,
     env_vars=env_vars,
     labels=labels,
     secret_env_vars={"WANDB_API_KEY": {"secret_name": wandb_secret_name, "key": "api_key"}, "HF_TOKEN": {"secret_name": hf_secret_name, "key": "api_key"}, "GIT_TOKEN": {"secret_name": github_secret_name, "key": "token"}},

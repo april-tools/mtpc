@@ -11,7 +11,7 @@ hf_secret_name = "s2457990-infk8s-hf-key"
 
 # GPU setup
 # Choose from: [NVIDIA-A100-SXM4-80GB, NVIDIA-A100-SXM4-40GB, NVIDIA-H100-80GB-HBM3]. For some reason, when I try H100, the job does not queue due to some memory error?... So defaulting to A100 for now. 
-gpu_product = "NVIDIA-A100-SXM4-80GB" 
+gpu_product = "NVIDIA-A100-SXM4-40GB"
 gpu_limit = 2
 memory_limit = "64Gi"
 cpus_limit = 16

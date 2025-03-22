@@ -10,7 +10,7 @@ wandb_secret_name = "wandb-key"
 hf_secret_name = "hf-key"
 
 # GPU setup
-gpu_product = "NVIDIA-H100-80GB-HBM3"
+gpu_product = "NVIDIA-A100-SXM4-80GB" # Choose from: [NVIDIA-A100-SXM4-80GB, NVIDIA-A100-SXM4-40GB, NVIDIA-H100-80GB-HBM3]. For some reason, when I try H100, the job does not queue due to some memory error?... So defaulting to A100 for now. 
 gpu_limit = 2
 memory_limit = "50Gi"
 cpus_limit = 16

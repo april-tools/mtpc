@@ -5,7 +5,7 @@ n_head=4
 n_embd=256
 
 # Train the autoregressive LLM model
-#torchrun --standalone --nproc_per_node=$GPUS -m mtp.train data=shakespeare_char training=shakespeare_char \
+#torchrun --standalone --nproc_per_node=$GPU -m mtp.train data=shakespeare_char training=shakespeare_char \
 #  model=stp \
 #  lm.n_layer=$n_layer lm.n_head=$n_head lm.n_embd=$n_embd \
 #  lm.model.encoder_only=false \
@@ -22,7 +22,7 @@ do
     do
       for kl in full binary_approx;
       do
-        torchrun --standalone --nproc_per_node=$GPUS -m mtp.train data=shakespeare_char training=shakespeare_char \
+        torchrun --standalone --nproc_per_node=$GPU -m mtp.train data=shakespeare_char training=shakespeare_char \
           model=$model \
           model.n_token=$n_token \
           model.n_component=$n_component \

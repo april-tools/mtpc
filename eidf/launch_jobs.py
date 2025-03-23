@@ -35,7 +35,7 @@ env_vars = {
     "MTP_PVC_ROOT": f"/{mtp_root_name}",
     "MTP_DATA_CHUNKS": str(args.data_chunks),
     "MTP_GIT_BRANCH": args.branch,
-    "GPUS": str(args.gpu_limit),
+    "GPU": str(args.gpu_limit),
     "CUDA_VISIBLE_DEVICES": cuda_vis,
 }
 

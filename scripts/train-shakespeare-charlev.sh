@@ -10,6 +10,7 @@ n_embd=256
 #  lm.n_layer=$n_layer lm.n_head=$n_head lm.n_embd=$n_embd \
 #  lm.model.encoder_only=false \
 #  training.save_model_every=100
+#  training.expname=stp-shakespeare-charlev
 
 checkpoint="logs/2025-03-22/18-33-59/model@600.pt"  # to set
 
@@ -32,7 +33,8 @@ do
           lm.model.encoder_only=false \
           lm.model.freeze=true \
           lm.model.lm=null lm.model.from_checkpoint="$checkpoint" \
-          training.save_model_every=100
+          training.save_model_every=100 \
+          training.expname=mtp-shakespeare-charlev-$model-n-$n_token-r-$n_component-kl-$kl
       done
     done
   done

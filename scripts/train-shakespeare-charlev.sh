@@ -19,24 +19,26 @@ checkpoint="logs/2025-03-22/18-33-59/model@600.pt"  # to set
 # Run the multi-token prediction models
 for model in mtp-cp mtp-hmm;
 do
-  for n_token in 2 4 6;
+  for n_token in 4 6;
   do
     for n_component in 2 4 8;
     do
-      for kl in full binary_approx;
+      for kl in full;
       do
         torchrun --standalone --nproc_per_node=$GPU -m mtp.train data=shakespeare_char training=shakespeare_char \
           model=$model \
           model.n_token=$n_token \
           model.n_component=$n_component \
           model.model.kl_algorithm=$kl \
+          model.mt_head_hparams.tok_transformer_n_layer=1 \
+          model.mt_head_hparams.sum_transformer_n_layer=1 \
           model.mt_head_hparams.expander_type=linear \
           lm.n_layer=$n_layer lm.n_head=$n_head lm.n_embd=$n_embd \
           lm.model.encoder_only=false \
           lm.model.freeze=true \
           lm.model.lm=null lm.model.from_checkpoint="$checkpoint" \
           training.save_model_every=100 \
-          training.expname=mtp-shakespeare-charlev-$model-n-$n_token-r-$n_component-kl-$kl
+          training.expname=mtp-shakespeare-charlev-transf-$model-n-$n_token-r-$n_component-kl-$kl
       done
     done
   done

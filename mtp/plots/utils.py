@@ -17,12 +17,12 @@ def setup_tueplots(
     **kwargs
 ):
     if use_tex:
-        font_config = fonts.iclr2024_tex(family=family)
+        font_config = fonts.neurips2024_tex(family=family)
     else:
-        font_config = fonts.iclr2024(family=family)
+        font_config = fonts.neurips2024(family=family)
     if hw_ratio is not None:
         kwargs["height_to_width_ratio"] = hw_ratio
-    size = figsizes.iclr2024(
+    size = figsizes.neurips2024(
         rel_width=rel_width,
         nrows=nrows,
         ncols=ncols,
@@ -30,7 +30,7 @@ def setup_tueplots(
         constrained_layout=constrained_layout,
         **kwargs
     )
-    fontsize_config = fontsizes.iclr2024(default_smaller=default_smaller)
+    fontsize_config = fontsizes.neurips2024(default_smaller=default_smaller)
     rc_params = {
         **font_config,
         **size,

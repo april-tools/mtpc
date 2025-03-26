@@ -21,6 +21,8 @@ if __name__ == "__main__":
                         help='The device to use to run validation.')
     parser.add_argument('--random-seed', default=13, type=int,
                         help='The random seed to use.')
+    parser.add_argument('--device-batch-size', default=None, type=int,
+                        help='The device batch size to use.')
     args = parser.parse_args()
 
     set_deterministic(args.random_seed)
@@ -35,6 +37,9 @@ if __name__ == "__main__":
         cfg = ckp.config
         model = ckp.model
         global_step = ckp.global_step
+
+        if args.device_batch_size is not None:
+            cfg.training.device_batch_size = args.device_batch_size
 
         # Restore the model, optimizer and scheduler from checkpoint
         ckp.restore(model=model, optimizer=None, scheduler=None)
@@ -61,7 +66,8 @@ if __name__ == "__main__":
             val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)
             if master_process:
                 stats.update(**{k: v.item() for k, v in val_metrics.items()})
+        if master_process:
+            result = json.dumps(stats)
+            print(result)
     finally:
         dist.destroy_process_group()
-        result = json.dumps(stats)
-        print(result)

@@ -17,8 +17,9 @@ do
 	echo -e "Processing $file..."
 	torchrun \
 		--standalone \
-		--nproc_per_node=1 \
+		--nproc_per_node=$GPUS \
 		-m mtp.validate \
 		--device cuda \
+		--device-batch-size 4 \
 		--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/validate_models.jsonl
 done

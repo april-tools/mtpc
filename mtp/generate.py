@@ -111,7 +111,10 @@ if __name__ == "__main__":
         model.to(args.device)
         cfg = ckp
     else:
-        ckp = Checkpoint.load(args.checkpoint)
+        kv_overrides = [ovr.split("=") for ovr in args.overrides]
+        assert all(isinstance(kv, list) and len(kv) == 2 for kv in kv_overrides)
+        kv_overrides = dict(kv_overrides)
+        ckp = Checkpoint.load(args.checkpoint, kv_overrides)
         if args.speculative:
             ckp.config.lm.model.encoder_only = False
         model = ckp.model
@@ -221,6 +224,7 @@ if __name__ == "__main__":
     stats['checkpoint'] = '%s-%s@0' % (ckp.model.name, ckp.lm.name) if args.checkpoint is None else repr(ckp)
     # Below attributes only exist for MTP
     if 'stp' not in stats['model']:
+        stats['circuit'] = cfg.model.circuit.kind
         stats['beta'] = cfg.model.model.beta
         stats['gamma'] = cfg.model.model.gamma
         stats['kl_type'] = cfg.model.model.kl_type

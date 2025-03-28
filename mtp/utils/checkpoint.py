@@ -132,7 +132,7 @@ class Checkpoint(object):
 
     @classmethod
     @maskcwd
-    def load(cls, filepath):
+    def load(cls, filepath, overrides = None):
         # Omegaconf is a pain to use without an absolute path
         # so just bite the bullet and use the same for pytorch
         folder = os.path.abspath(os.path.dirname(filepath))
@@ -154,4 +154,7 @@ class Checkpoint(object):
             global_step = 0
         else:
             raise ValueError("Invalid checkpoint/config file: %s" % filepath)
+        if overrides is not None:
+            for key, value in overrides.items():
+                OmegaConf.update(config, key, value)
         return cls(folder=folder, config=config, global_step=global_step)

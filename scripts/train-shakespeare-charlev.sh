@@ -19,9 +19,9 @@ checkpoint="logs/2025-03-22/18-33-59/model@600.pt"  # to set
 # Run the multi-token prediction models
 for model in mtp-cp mtp-hmm;
 do
-  for n_token in 4 6;
+  for n_token in 4 6 8;
   do
-    for n_component in 2 4 8;
+    for n_component in 4;
     do
       for kl in full;
       do

@@ -2,7 +2,7 @@ name: mtp-hmm
 n_component: 4
 n_token: 4
 beta: .9
-gamma: 1
+gamma: .9
 
 circuit:
     _target_: mtp.models.circuits.CircuitModel

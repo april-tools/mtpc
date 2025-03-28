@@ -38,7 +38,7 @@ do
           lm.model.freeze=true \
           lm.model.lm=null lm.model.from_checkpoint="$checkpoint" \
           training.save_model_every=100 \
-          training.expname=shcharlev-transf-$model-n-$n_token-r-$n_component-kl-$kl-g0.9
+          training.expname=shcharlev-transf-$model-n-$n_token-r-$n_component-kl-$kl-g0.9-b0
       done
     done
   done

@@ -34,7 +34,7 @@ do
           model.mt_head_hparams.sum_transformer_n_layer=1 \
           model.mt_head_hparams.expander_type=linear \
           lm.n_layer=$n_layer lm.n_head=$n_head lm.n_embd=$n_embd \
-          lm.model.encoder_only=false \
+          lm.model.encoder_only=True \
           lm.model.freeze=true \
           lm.model.lm=null lm.model.from_checkpoint="$checkpoint" \
           training.save_model_every=100 \

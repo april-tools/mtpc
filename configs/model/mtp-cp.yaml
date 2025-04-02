@@ -18,11 +18,16 @@ mt_head_hparams:  # The hyperparameters of the multi token head
     expander_n_layer: 1          # Only used if the expander type is 'mlp'
     expander_type: 'linear'      # The available choices are 'linear', 'mlp'
     freeze_vocab_unembedding: false
+adaptor_params:  # Set adaptor params to None to disable adaptor
+  r: 8
+  lora_alpha: 16
+  lora_dropout: 0.
 model:
     _target_: mtp.models.mtp.MultiTokenLM
     lm: ${lm.model}
     circuit: ${model.circuit}
     mt_head_kwargs: ${model.mt_head_hparams}
+    adaptor_kwargs: ${model.adaptor_params}
     init_from_lm_head: true
     # Loss weighing
     kl_type: forward             # Can be forward or reverse

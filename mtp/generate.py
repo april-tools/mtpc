@@ -101,7 +101,7 @@ if __name__ == "__main__":
     # Initialize training context
     ctx = autocast(device_type=args.device, dtype=torch.bfloat16)
 
-    # If we do not pass in a checkpoint, read config and allow overrides
+    # If we do not pass in a checkpoint, read basic config with overrides
     if args.checkpoint is None:
         with hydra.initialize(version_base=None, config_path="../configs", job_name=None):
             ckp = hydra.compose(config_name="config", overrides=args.overrides)
@@ -111,14 +111,18 @@ if __name__ == "__main__":
         model.to(args.device)
         cfg = ckp
     else:
-        kv_overrides = [ovr.split("=") for ovr in args.overrides]
-        assert all(isinstance(kv, list) and len(kv) == 2 for kv in kv_overrides)
-        kv_overrides = dict(kv_overrides)
-        ckp = Checkpoint.load(args.checkpoint, kv_overrides)
+        ckp = Checkpoint.load(args.checkpoint)
+        # Hydra tries to make all paths global - urgh.
+        cfgfolder = os.path.relpath(f'{ckp.folder}', os.environ['MTP_ROOT'])
+        # Use Hydra so that we get the overrides
+        with hydra.initialize(version_base=None, config_path=f'../{cfgfolder}', job_name=None):
+            cfg = hydra.compose(config_name="config", overrides=args.overrides)
         if args.speculative:
-            ckp.config.lm.model.encoder_only = False
-        model = ckp.model
-        cfg = ckp.config
+            cfg.lm.model.encoder_only = False
+        model = hydra.utils.instantiate(cfg.model).model
+        # Restore the checkpoint
+        ckp.restore(model=model)
+        model.to(args.device)
     model = torch.compile(model)
     model.eval()
 

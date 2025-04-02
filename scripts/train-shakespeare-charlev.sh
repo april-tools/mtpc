@@ -21,24 +21,25 @@ for model in mtp-cp mtp-hmm;
 do
   for n_token in 4 6 8;
   do
-    for n_component in 4;
+    for n_component in 2 4;
     do
-      for kl in full;
+      for freeze in False True;
       do
         torchrun --standalone --nproc_per_node=$GPU -m mtp.train data=shakespeare_char training=shakespeare_char \
           model=$model \
           model.n_token=$n_token \
           model.n_component=$n_component \
-          model.model.kl_algorithm=$kl \
-          model.mt_head_hparams.tok_transformer_n_layer=1 \
-          model.mt_head_hparams.sum_transformer_n_layer=1 \
+          model.model.kl_algorithm=full \
+          model.mt_head_hparams.tok_transformer_n_layer=0 \
+          model.mt_head_hparams.sum_transformer_n_layer=0 \
           model.mt_head_hparams.expander_type=linear \
+          model.mt_head_hparams.freeze_vocab_unembedding=False \
           lm.n_layer=$n_layer lm.n_head=$n_head lm.n_embd=$n_embd \
           lm.model.encoder_only=True \
-          lm.model.freeze=true \
+          lm.model.freeze=$freeze \
           lm.model.lm=null lm.model.from_checkpoint="$checkpoint" \
           training.save_model_every=100 \
-          training.expname=shcharlev-transf-$model-n-$n_token-r-$n_component-kl-$kl-g0.9-b0
+          training.expname=shcharlev-fr-$freeze-$model-n-$n_token-r-$n_component-ce-g0.9
       done
     done
   done

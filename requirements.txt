@@ -1,4 +1,5 @@
 torch~=2.6.0
+peft~=0.15.1
 libcirkit@git+https://github.com/april-tools/cirkit@e259fb99ba4e701322085c4fdea17cf1cefca7f3
 datasets
 tqdm

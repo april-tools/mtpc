@@ -1,5 +1,9 @@
 These are the experiments checking out approx KL on the full Finewebedu 10B.
 
+```bash
+git checkout v0.2-kl
+```
+
 ## Results are cached
 
 The commands in `reproduce.sh`:

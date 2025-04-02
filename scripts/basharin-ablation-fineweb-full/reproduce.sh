@@ -1,4 +1,6 @@
-#!/bin/bash # Produce the output files we need
+#!/bin/bash
+
+# Code below should work with tag v0.2-kl code
 # produces throughput_models.jsonl 
 $MTP_ROOT/bin/compute_throughput_for_models outputs/models/finewebedu10B-full
 # produces validate_models.jsonl

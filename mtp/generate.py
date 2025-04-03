@@ -32,41 +32,100 @@ def load_vocabs(path):
                 decode=lambda x: ''.join([vocabs['itos'][i] for i in x]))
 
 
-# TODO: Maybe avoid loading vocabs twice (here and decode)
-def encode(text, cfg, device):
-    hf_model = get_huggingface_model(cfg)
-    if hf_model is not None:
-        tokeniser = AutoTokenizer.from_pretrained(hf_model)
-        tokeniser.add_bos_token = True
-        # TODO: Get reply about what is going on with BOS
-        # NOTE: for this model we need a prompt
-        # BOS is not added by default by the tokenizer
-        if hf_model.endswith('ablation-model-fineweb-edu'):
-            assert text != '', 'Empty prompt is not supported for %s, use a prompt.' % hf_model
-        x = tokeniser.encode(text, return_tensors='pt').to(device)
-    else:
+def encode(text, device):
+    if hf_model is None:
         # Below works for char level model only
         # TODO: Make below BOS - unsure what it is for the encoded docs
         if text is None:
             BOS = 1
             x = torch.full(size=(BATCH_SIZE, 1), fill_value=BOS, dtype=torch.int64, device=device)
         else:
-            vocabs = load_vocabs(cfg.data.vocabs)
+            assert vocabs is not None
             # TODO: Need tokenizer here for token models
             x = torch.tensor(vocabs['encode'](text), dtype=torch.int, device=device)
             x = x.unsqueeze(0)
+    else:
+        assert tokeniser is not None
+        # TODO: Get reply about what is going on with BOS
+        # NOTE: for this model we need a prompt
+        # BOS is not added by default by the tokenizer
+        if hf_model.endswith('ablation-model-fineweb-edu'):
+            assert text != '', 'Empty prompt is not supported for %s, use a prompt.' % hf_model
+        x = tokeniser.encode(text, return_tensors='pt').to(device)
     return x
 
 
-def decode(xx, cfg):
-    hf_model = get_huggingface_model(cfg)
-    if hf_model is not None:
-        tokeniser = AutoTokenizer.from_pretrained(hf_model)
-        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=True)[0]
-    else:
-        vocabs = load_vocabs(cfg.data.vocabs)
+def decode(xx):
+    if hf_model is None:
+        assert vocabs is not None
         text = vocabs['decode'](xx.ravel().tolist())
+    else:
+        assert tokeniser is not None
+        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=True)[0]
     return text
+
+
+def generate(x: torch.Tensor, disable_progress_bar: bool = True):
+    # Init model in case loading takes additional time - do not use this output
+    with ctx:
+        _ = model.generate(x, mode=args.mode, use_cache=args.use_cache)['tokens']
+
+    assert x.shape[0] == 1
+    init_length = x.shape[1]
+    num_tokens = []
+    past_key_values, past_last_hidden_states = None, None
+
+    if args.device == 'cpu':
+        start_time = time.perf_counter()
+    elif args.device == 'cuda':
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record(torch.cuda.current_stream(args.device))
+    else:
+        raise ValueError('Unexpected device %s' % args.device)
+
+    with tqdm.tqdm(total=args.num_tokens, disable=disable_progress_bar) as pbar:
+        # Keep track of total number of tokens generated
+        while (x.shape[1] - init_length) < args.num_tokens:
+            if args.speculative:
+                with ctx:
+                    outputs = model.self_speculative_generate(
+                        x,
+                        use_cache=args.use_cache,
+                        past_key_values=past_key_values,
+                        past_last_hidden_states=past_last_hidden_states
+                    )
+                tokens = outputs['tokens']
+                past_key_values = outputs['past_key_values']
+                past_last_hidden_states = outputs['past_last_hidden_states']
+            else:
+                with ctx:
+                    outputs = model.generate(
+                        x,
+                        mode=args.mode,
+                        use_cache=args.use_cache,
+                        past_key_values=past_key_values
+                    )
+                tokens = outputs['tokens']
+                past_key_values = outputs['past_key_values']
+            x = torch.cat([x, tokens], dim=1)
+            num_tokens.append(tokens.shape[1])
+            pbar.update(tokens.shape[1])
+
+    if args.device == 'cpu':
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+    elif args.device == 'cuda':
+        end.record(torch.cuda.current_stream(args.device))
+        # Synchronize CUDA Kernels before measuring time
+        torch.cuda.synchronize(args.device)
+        elapsed_time = start.elapsed_time(end) * 1e-3   # CUDA returns ms
+    else:
+        raise ValueError('Unexpected device %s' % args.device)
+
+    # print('Generation:\n\n', decode(x), '\n')
+
+    return elapsed_time, num_tokens
 
 
 if __name__ == "__main__":
@@ -80,7 +139,9 @@ if __name__ == "__main__":
     parser.add_argument('--device', default='cpu',
                         help='The device to use for generation.')
     parser.add_argument('--prompt', default=None,
-                        help='Prompt to use for generation.')
+                        help='Prompt to use for generation. If None use the prompts from spec_bench')
+    parser.add_argument('--subsample-prompts', type=int, default=0,
+                        help='Whether to randomly subsample a number of prompts from spec_bench if --prompt is not given')
     parser.add_argument('--speculative', action='store_true',
                         help='Whether to use speculative decoding.')
     parser.add_argument('--use-cache', action='store_true',
@@ -126,11 +187,59 @@ if __name__ == "__main__":
     model = torch.compile(model)
     model.eval()
 
-    x = encode(args.prompt or '', cfg, args.device)
+    # Load the prompts from the 'spec_bench' benchmark, if a particular prompt is not given
+    if args.prompt is None:
+        prompts = []
+        spec_bench_filepath = os.path.join(os.environ['MTP_ROOT'], 'data', 'spec_bench', 'question.jsonl')
+        with open(spec_bench_filepath, 'r') as f:
+            for line in f:
+                row = json.loads(line)
+                prompts.extend(row['turns'])
+    else:
+        prompts = [args.prompt]
 
-    # Init model in case loading takes additional time - do not use this output
-    with ctx:
-        tokens = model.generate(x, mode=args.mode, use_cache=args.use_cache)['tokens']
+    # Load the tokenizer once, if needed
+    # Otherwise, load the vocabulary (shakespeare models)
+    hf_model = get_huggingface_model(cfg)
+    if hf_model is None:
+        vocabs = load_vocabs(cfg.data.vocabs)
+        tokeniser = None
+    else:
+        tokeniser = AutoTokenizer.from_pretrained(hf_model)
+        tokeniser.add_bos_token = True
+        vocabs = None
+
+    # Encode all the prompts that can be encoded
+    # If not enable to encode (e.g., token missing in the vocabulary), we skip the prompt
+    xs = []
+    for prompt in prompts:
+        try:
+            x = encode(prompt, args.device)
+        except KeyError:
+            continue
+        xs.append(x)
+
+    if args.prompt is None and args.subsample_prompts > 0 and len(xs) > args.subsample_prompts:
+        # Make sure same seed => same prompts on which we compute the throughput
+        random_state = np.random.RandomState(args.random_seed)
+        indices = random_state.permutation(len(xs))[:args.subsample_prompts]
+        xs = [xs[i] for i in indices]
+    print(f"Computing throughput using {len(xs)} prompts")
+
+    # The number of generated token at each LLM generation step
+    # e.g., it is a list of ones in the case of a STP model or,
+    # in the case of speculative decoding, it is a list of numbers of the form #_of_accepted_tokens + 1
+    total_num_tokens = []
+    # The elapsed time to go through all the prompts
+    total_elapsed_time = 0.0
+
+    for x in tqdm.tqdm(xs, disable=len(prompts) == 1):
+        elapsed_time, num_tokens = generate(x, disable_progress_bar=len(prompts) > 1)
+        total_elapsed_time += elapsed_time
+        total_num_tokens.extend(num_tokens)
+
+    # Compute the TPS as the total number of generated tokens (across all prompts) by the total elapsed time
+    tps = sum(total_num_tokens) / total_elapsed_time
 
     n_token = 1
     n_component = 1
@@ -138,87 +247,21 @@ if __name__ == "__main__":
     if hasattr(model, 'mt_head'):
         n_token = model.circuit.n_token
         n_component = model.circuit.n_component
-    if args.mode == 'mtp':
-        assert tokens.shape[1] == n_token
-    else:
-        assert tokens.shape[1] == 1
-
-    if args.speculative:
-        num_accepted_tokens = []
-        assert args.mode == 'mtp', 'Meaningless to use speculative decoding with STP'
 
     stats = dict()
-    if args.device == 'cpu':
-        start_time = time.perf_counter()
-    elif args.device == 'cuda':
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record(torch.cuda.current_stream(args.device))
-    else:
-        raise ValueError('Unexpected device %s' % args.device)
-
-    assert x.shape[0] == 1
-
-    init_length = x.shape[1]
-
-    past_key_values, past_last_hidden_states = None, None
-    with tqdm.tqdm(total=args.num_tokens) as pbar:
-        # Keep track of total number of tokens generated
-        while (x.shape[1] - init_length) < args.num_tokens:
-            if args.speculative:
-                with ctx:
-                    outputs = model.self_speculative_generate(
-                        x,
-                        use_cache=args.use_cache,
-                        past_key_values=past_key_values,
-                        past_last_hidden_states=past_last_hidden_states
-                    )
-                tokens = outputs['tokens']
-                past_key_values = outputs['past_key_values']
-                past_last_hidden_states = outputs['past_last_hidden_states']
-                # The current self-speculative decoding implementation always
-                # returns at least one extra token. So, we subtract 1 to get
-                # the number of accepted tokens from the draft/circuit model
-                num_accepted_tokens.append(tokens.shape[1] - 1)
-            else:
-                with ctx:
-                    outputs = model.generate(
-                        x,
-                        mode=args.mode,
-                        use_cache=args.use_cache,
-                        past_key_values=past_key_values
-                    )
-                tokens = outputs['tokens']
-                past_key_values = outputs['past_key_values']
-            x = torch.cat([x, tokens], dim=1)
-            pbar.update(tokens.shape[1])
-
-    if args.device == 'cpu':
-        end_time = time.perf_counter()
-        elapsed_time = end_time - start_time
-    elif args.device == 'cuda':
-        end.record(torch.cuda.current_stream(args.device))
-        # Synchronize CUDA Kernels before measuring time
-        torch.cuda.synchronize(args.device)
-        elapsed_time = start.elapsed_time(end) * 1e-3   # CUDA returns ms
-    else:
-        raise ValueError('Unexpected device %s' % args.device)
-
-    print('Generation:\n\n', decode(x, cfg))
-
-    tps = args.num_tokens / elapsed_time
-
     stats['model'] = cfg.model.model._target_
     stats['ntoken'] = n_token
     stats['ncomponent'] = n_component
     stats['speculative'] = args.speculative
     stats['use_kv_cache'] = args.use_cache
     if args.speculative:
+        # The number of accepted tokens with speculative decoding at each generation step is the number of generated tokens minus one
+        total_num_accepted_tokens = list(map(lambda n: n - 1, total_num_tokens))
         num_token_idxs = n_token + 1
-        uniq_accepted_toks, hist_accepted_toks = np.unique(num_accepted_tokens, return_counts=True)
+        uniq_accepted_toks, hist_accepted_toks = np.unique(total_num_accepted_tokens, return_counts=True)
         full_hist_accepted_toks = np.zeros(num_token_idxs, dtype=np.int32)
         full_hist_accepted_toks[uniq_accepted_toks] = hist_accepted_toks
-        stats['avg_accepted_tokens'] = np.mean(num_accepted_tokens)
+        stats['avg_accepted_tokens'] = np.mean(total_num_accepted_tokens)
         stats['hist_accepted_tokens'] = [np.arange(num_token_idxs).tolist(), full_hist_accepted_toks.tolist()]
     stats['device'] = args.device
     stats['batch_size'] = BATCH_SIZE

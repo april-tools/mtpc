@@ -65,7 +65,6 @@ class MultiTokenLM(torch.nn.Module):
         if self.adaptor_kwargs is not None:
             peft_config = peft.LoraConfig(
                     task_type="CAUSAL_LM",
-                    target_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj', 'down_proj', 'up_proj', 'gate_proj'],
                     **self.adaptor_kwargs
                     )
             self.adaptor_lm = peft.get_peft_model(self.lm.encoder, peft_config)

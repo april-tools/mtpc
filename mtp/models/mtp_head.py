@@ -255,7 +255,7 @@ class MultiTokenHead(nn.Module):
         # Instantiate as many folded output heads as needed by the circuit parameters configuration
         sum_weights_heads = []
         categorical_log_probs_heads = []
-        for shape in config.sum_weights_shapes:
+        for k, shape in enumerate(config.sum_weights_shapes):
             n_folds, n_output_units, n_input_units = shape
             heads = [OutputHead(
                 TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=sum_transformer_n_layer),
@@ -263,11 +263,11 @@ class MultiTokenHead(nn.Module):
             ) for _ in range(n_folds)]
             proj = nn.Linear(self.n_embd, n_input_units, bias=False)
             sum_weights_heads.append(FoldOutputHead(heads, proj=proj))
-        for shape in config.categorical_log_probs_shapes:
+        for k, shape in enumerate(config.categorical_log_probs_shapes):
             n_folds, n_components, vocab_size = shape
             # We make the first token head init as an identity function (to match teacher)
             # while the remaining heads are initialised to produce a uniform distribution
-            get_init = lambda x: 'identity' if x == 0 else 'uniform'
+            get_init = lambda j: 'identity' if config.categorical_layers[k].scope_idx[j].item() == 0 else 'uniform'
             heads = [OutputHead(
                 TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=tok_transformer_n_layer),
                 ExpanderHead(n_embd, n_components, n_layer=expander_n_layer, expander_type=expander_type, init=get_init(i))

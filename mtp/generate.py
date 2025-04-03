@@ -32,49 +32,43 @@ def load_vocabs(path):
                 decode=lambda x: ''.join([vocabs['itos'][i] for i in x]))
 
 
-# TODO: Maybe avoid loading vocabs twice (here and decode)
-def encode(text, cfg, device):
-    hf_model = get_huggingface_model(cfg)
-    if hf_model is not None:
-        tokeniser = AutoTokenizer.from_pretrained(hf_model)
-        tokeniser.add_bos_token = True
-        # TODO: Get reply about what is going on with BOS
-        # NOTE: for this model we need a prompt
-        # BOS is not added by default by the tokenizer
-        if hf_model.endswith('ablation-model-fineweb-edu'):
-            assert text != '', 'Empty prompt is not supported for %s, use a prompt.' % hf_model
-        x = tokeniser.encode(text, return_tensors='pt').to(device)
-    else:
+def encode(text, device):
+    if hf_model is None:
         # Below works for char level model only
         # TODO: Make below BOS - unsure what it is for the encoded docs
         if text is None:
             BOS = 1
             x = torch.full(size=(BATCH_SIZE, 1), fill_value=BOS, dtype=torch.int64, device=device)
         else:
-            vocabs = load_vocabs(cfg.data.vocabs)
+            assert vocabs is not None
             # TODO: Need tokenizer here for token models
             x = torch.tensor(vocabs['encode'](text), dtype=torch.int, device=device)
             x = x.unsqueeze(0)
+    else:
+        assert tokeniser is not None
+        # TODO: Get reply about what is going on with BOS
+        # NOTE: for this model we need a prompt
+        # BOS is not added by default by the tokenizer
+        if hf_model.endswith('ablation-model-fineweb-edu'):
+            assert text != '', 'Empty prompt is not supported for %s, use a prompt.' % hf_model
+        x = tokeniser.encode(text, return_tensors='pt').to(device)
     return x
 
 
-def decode(xx, cfg):
-    hf_model = get_huggingface_model(cfg)
-    if hf_model is not None:
-        tokeniser = AutoTokenizer.from_pretrained(hf_model)
-        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=True)[0]
-    else:
-        vocabs = load_vocabs(cfg.data.vocabs)
+def decode(xx):
+    if hf_model is None:
+        assert vocabs is not None
         text = vocabs['decode'](xx.ravel().tolist())
+    else:
+        assert tokeniser is not None
+        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=True)[0]
     return text
 
 
-def generate(prompt: str, disable_progress_bar: bool = True):
-    x = encode(prompt, cfg, args.device)
-
+def generate(x: torch.Tensor, disable_progress_bar: bool = True):
     # Init model in case loading takes additional time - do not use this output
     with ctx:
-        tokens = model.generate(x, mode=args.mode, use_cache=args.use_cache)['tokens']
+        _ = model.generate(x, mode=args.mode, use_cache=args.use_cache)['tokens']
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
@@ -129,7 +123,7 @@ def generate(prompt: str, disable_progress_bar: bool = True):
     else:
         raise ValueError('Unexpected device %s' % args.device)
 
-    print('Generation:\n\n', decode(x, cfg))
+    # print('Generation:\n\n', decode(x), '\n')
 
     return elapsed_time, num_tokens
 
@@ -145,7 +139,9 @@ if __name__ == "__main__":
     parser.add_argument('--device', default='cpu',
                         help='The device to use for generation.')
     parser.add_argument('--prompt', default=None,
-                        help='Prompt to use for generation.')
+                        help='Prompt to use for generation. If None use the prompts from spec_bench')
+    parser.add_argument('--subsample-prompts', type=int, default=0,
+                        help='Whether to randomly subsample a number of prompts from spec_bench if --prompt is not given')
     parser.add_argument('--speculative', action='store_true',
                         help='Whether to use speculative decoding.')
     parser.add_argument('--use-cache', action='store_true',
@@ -198,13 +194,37 @@ if __name__ == "__main__":
         with open(spec_bench_filepath, 'r') as f:
             for line in f:
                 row = json.loads(line)
-                # Remove extremely long prompt and muti-lingual prompts for now
-                if row['category'] in ['summarization', 'rag', 'translation']:
-                    continue
                 prompts.extend(row['turns'])
     else:
         prompts = [args.prompt]
-    print(f"Computing throughput using {len(prompts)} prompts")
+
+    # Load the tokenizer once, if needed
+    # Otherwise, load the vocabulary (shakespeare models)
+    hf_model = get_huggingface_model(cfg)
+    if hf_model is None:
+        vocabs = load_vocabs(cfg.data.vocabs)
+        tokeniser = None
+    else:
+        tokeniser = AutoTokenizer.from_pretrained(hf_model)
+        tokeniser.add_bos_token = True
+        vocabs = None
+
+    # Encode all the prompts that can be encoded
+    # If not enable to encode (e.g., token missing in the vocabulary), we skip the prompt
+    xs = []
+    for prompt in prompts:
+        try:
+            x = encode(prompt, args.device)
+        except KeyError:
+            continue
+        xs.append(x)
+
+    if args.prompt is None and args.subsample_prompts > 0 and len(xs) > args.subsample_prompts:
+        # Make sure same seed => same prompts on which we compute the throughput
+        random_state = np.random.RandomState(args.random_seed)
+        indices = random_state.permutation(len(xs))[:args.subsample_prompts]
+        xs = [xs[i] for i in indices]
+    print(f"Computing throughput using {len(xs)} prompts")
 
     # The number of generated token at each LLM generation step
     # e.g., it is a list of ones in the case of a STP model or,
@@ -213,8 +233,8 @@ if __name__ == "__main__":
     # The elapsed time to go through all the prompts
     total_elapsed_time = 0.0
 
-    for prompt in prompts:
-        elapsed_time, num_tokens = generate(prompt, args.num_tokens)    
+    for x in tqdm.tqdm(xs, disable=len(prompts) == 1):
+        elapsed_time, num_tokens = generate(x, disable_progress_bar=len(prompts) > 1)
         total_elapsed_time += elapsed_time
         total_num_tokens.extend(num_tokens)
 

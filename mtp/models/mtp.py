@@ -1,5 +1,6 @@
 import os
 import torch
+import peft
 
 from torch import Tensor
 from copy import deepcopy
@@ -37,6 +38,7 @@ class MultiTokenLM(torch.nn.Module):
         lm: LM,
         circuit: CircuitModel,
         mt_head_kwargs: dict,
+        adaptor_kwargs: dict = None,
         init_from_lm_head: bool = True,
         beta: float = .9,
         gamma: float = 1.,
@@ -57,7 +59,17 @@ class MultiTokenLM(torch.nn.Module):
             expander_type=mt_head_kwargs.get('expander_type', 'mlp'),
             freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False)
         )
+        self.adaptor_kwargs = adaptor_kwargs
         self.init_from_lm_head = init_from_lm_head
+
+        if self.adaptor_kwargs is not None:
+            peft_config = peft.LoraConfig(
+                    task_type="CAUSAL_LM",
+                    **self.adaptor_kwargs
+                    )
+            self.adaptor_lm = peft.get_peft_model(self.lm.encoder, peft_config)
+        else:
+            self.adaptor_lm = None
 
         # Below are the params for weighting the kl and ce losses.
         # Keep these globally to avoid shooting ourselves in the foot
@@ -135,14 +147,18 @@ class MultiTokenLM(torch.nn.Module):
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
-        xx = self.lm.encoder(xx)['last_hidden_state']
+        xxd = self.compute_draft_features(xx)['last_hidden_state']
 
         # 2) Compute teacher log probs. We do this before truncating xx.
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
             with torch.no_grad():
+                if self.adaptor_lm is not None:
+                    xxv = self.compute_verifier_features(xx)['last_hidden_state']
+                else:
+                    xxv = xx
                 # shape: (B, S, V)
-                logits = self.lm.head(xx)
+                logits = self.lm.head(xxv)
                 # shape: B, S, V
                 teacher_log_probs = torch.log_softmax(logits, axis=-1)
 
@@ -172,20 +188,20 @@ class MultiTokenLM(torch.nn.Module):
         # For multi-token training, for each position, t, we predict the next
         # H tokens in one forward pass. This means we run out of future tokens
         # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
-        # xx :      | t1 |
+        # xxd:      | t1 |
         # yy :           | t2 | t3 | t4 |
         #                      ...
         #                      ...
-        # xx :      | t1 | t2 | t3 | t4 |
+        # xxd:      | t1 | t2 | t3 | t4 |
         # yy :                          | t5 | t6 | t7 |
         #
         # So S' = S - H + 1 = 6 - 3 + 1 = 4
         # xx: (B, S', D), where S' = S - H + 1
         history_idx = S - H + 1
-        xx = xx[:, : history_idx]
+        xxd = xxd[:, : history_idx]
 
         # 4) Parameterize the circuit with our NN activations
-        self._parameterize_circuit(xx)
+        self._parameterize_circuit(xxd)
 
         # 5) Make target idxs, yy, windowed
         # from yy: (B, S) to yy: (B, S', H)
@@ -255,6 +271,17 @@ class MultiTokenLM(torch.nn.Module):
 
         # Set the parameters to the circuit
         self.circuit.parameterize(circuit_params)
+
+    def compute_verifier_features(self, xx: torch.LongTensor, **kwargs):
+        xx = self.lm.encoder(xx, **kwargs)
+        return xx
+
+    def compute_draft_features(self, xx: torch.LongTensor, **kwargs):
+        if self.adaptor_lm is not None:
+            xx = self.adaptor_lm(xx, **kwargs)
+        else:
+            xx = self.lm.encoder(xx, **kwargs)
+        return xx
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
@@ -338,7 +365,7 @@ class MultiTokenLM(torch.nn.Module):
             seen_tokens = 0
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
-            outputs = self.lm.encoder(
+            outputs = self.compute_draft_features(
                 inputs[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values
@@ -350,7 +377,7 @@ class MultiTokenLM(torch.nn.Module):
                 xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
             past_key_values = outputs['past_key_values']
         else:
-            xx = self.lm.encoder(inputs)['last_hidden_state']
+            xx = self.compute_draft_features(inputs)['last_hidden_state']
 
         # Parameterize the circuit
         self._parameterize_circuit(xx, generate=True)
@@ -388,7 +415,7 @@ class MultiTokenLM(torch.nn.Module):
             seen_tokens = 0
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
-            outputs = self.lm.encoder(
+            outputs = self.compute_draft_features(
                 seq[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values
@@ -400,7 +427,7 @@ class MultiTokenLM(torch.nn.Module):
                 xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
             past_key_values = outputs['past_key_values']
         else:
-            xx = self.lm.encoder(seq)["last_hidden_state"]
+            xx = self.compute_draft_features(seq)["last_hidden_state"]
 
         assert xx.shape[1] == seq.shape[1]
         # Set the circuit parameters, based on the last embeddings
@@ -418,9 +445,9 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the next-token probabilities in parallel
         if use_cache:
             # zz: (B, S + H, D) -> (B, H + 1, D)
-            zz = self.lm.encoder(gen_seq[:, seen_tokens:], use_cache=use_cache, past_key_values=old_past_key_values)['last_hidden_state']
+            zz = self.compute_verifier_features(gen_seq[:, seen_tokens:], use_cache=use_cache, past_key_values=old_past_key_values)['last_hidden_state']
         else:
-            zz = self.lm.encoder(gen_seq)['last_hidden_state']
+            zz = self.compute_verifier_features(gen_seq)['last_hidden_state']
 
         zz = zz[:, -tokens.shape[1] - 1 :]
         # logits: (B, H + 1, V)

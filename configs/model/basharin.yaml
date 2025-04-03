@@ -19,7 +19,7 @@ mt_head_hparams:  # The hyperparameters of the multi token head
     expander_type: 'linear'      # The available choices are 'linear', 'mlp'
     freeze_vocab_unembedding: true
 adaptor_params:  # Set adaptor params to None to disable adaptor
-  r: 8
+  r: 32
   lora_alpha: 16
   lora_dropout: 0.
 model:

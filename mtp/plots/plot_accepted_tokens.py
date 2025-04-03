@@ -16,6 +16,8 @@ if __name__ == '__main__':
     parser.add_argument('--device', choices=('cuda', 'cpu'),
                         default='cuda', type=str,
                         help='Device to plot throughput for.')
+    parser.add_argument('--filter-experiments', nargs='*', default=None,
+                        help='Which experiments to keep')
 
     args = parser.parse_args()
 
@@ -26,7 +28,8 @@ if __name__ == '__main__':
             row = json.loads(line)
             row['model'], step = row['checkpoint'].split('@')
             row['step'] = int(step)
-            rows.append(row)
+            if args.filter_experiments is None or row['model'] in args.filter_experiments:
+                rows.append(row)
 
     if args.type == 'accepted_tokens':
         fig, ax = plt.subplots(figsize=(10, 6), nrows=1, sharex=True)

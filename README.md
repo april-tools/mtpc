@@ -96,10 +96,10 @@ If you want to keep the model (i.e. move it to `outputs/models/<dataset>/expname
 
 ## Visualise Metrics
 
-Assuming you have access to wandb, you can use the `plots.plot_metric` script to filter by dataset and `expname` (models) and plot the metrics locally:
+Assuming you have access to wandb, you can use the `plots.plot_wandb_metric` script to filter by dataset and `expname` (models) and plot the metrics locally:
 
 ```bash
-python -m plots.plot_metric --models autoregressive mtp-s=3-r=5 --metric valid/stp_loss --dataset shakespeare_char
+python -m plots.plot_wandb_metric --models autoregressive mtp-s=3-r=5 --metric valid/stp_loss --dataset shakespeare_char
 ```
 
 ## Generate from Models:
@@ -121,9 +121,25 @@ python -m mtp.generate --device cuda --checkpoint /path/to/stp/model@xxx.pth --m
 ## Shakespeare Char-Level Model
 
 
+### Throughput Evaluation (Untrained Models)
+
+A first question is what generation throughput we can get with MTP.
+We can get an upper bound on the throughput (without speculative decoding) even if we use an untrained model.
+We measure throughput in tokens per sec (tps) using a batch size of one.
+
+```bash
+source env.sh
+./bin/compute_throughput
+python -m plots.plot_throughput --device cuda --results outputs/results/throughput.jsonl
+```
+
+The command above will append a json line of throughput stats for each model to `$MTP_ROOT/outputs/results/throughput_models.jsonl`
+
+NOTE: tps will decrease as we increase the sequence length we are conditioning on, since the context increases.
+
 ### Train the models
 
-As a sanity check, we train models on the `shakespeare_char` dataset.
+To keep experiments in the example here fast, we train models on the `shakespeare_char` dataset.
 ```bash
 ./bin/train-shakespeare-char
 ```
@@ -131,30 +147,55 @@ As a sanity check, we train models on the `shakespeare_char` dataset.
 ### Plot the metrics
 
 ```bash
-python -m plots.plot_metric --models autoregressive mtp-s=1-r=3 mtp-s=2-r=3 mtp-s=3-r=3 mtp-s=4-r=3 mtp-s=5-r=3 --metric valid/stp_loss --dataset shakespeare_char
+python -m plots.plot_wandb_metric --models autoregressive mtp-s=1-r=3 mtp-s=2-r=3 mtp-s=3-r=3 mtp-s=4-r=3 mtp-s=5-r=3 --metric valid/stp_loss --dataset shakespeare_char
 ```
 
-### Download the models
+### Throughput Evaluation (Trained Models)
 
-The trained models can be downloaded via:
+While we keep track of validation metrics during training, we only compute those that we are tracking during training.
+To get full validation results for checkpointed models, run:
+
+#### Compute throughput for all models in a folder
+```bash
+./bin/validate_models /path/to/experiment/folder
+```
+
+The command above will append a json line of stats for each model to `$MTP_ROOT/outputs/results/throughput_models.jsonl`
+
+
+### Metrics Evaluation (Trained Models)
+
+While we keep track of validation metrics during training, we only compute those that we are tracking during training.
+To get full validation results for checkpointed models, run:
+
+#### Compute metrics for all models in a folder
+```bash
+./bin/validate_models /path/to/experiment/folder
+```
+
+The command above will append a json line of metrics for each model to `$MTP_ROOT/outputs/results/validate_models.jsonl`
+
+#### Plot validation metrics
+```bash
+python mtp/plots/plot_metrics_compare.py --metric-results $MTP_ROOT/outputs/results/validate_models.jsonl --experiment your-expname --metrics kl_loss_at_1 kl_loss_ba_at_1
+```
+where:
+
+* `--experiment`  is the experiment name you assigned via `training.expname` in the config or command line arguments.
+* `--metrics` are metric we want to plot/compare, e.g. `--metrics kl_loss_at_1 ce_loss_at_1` to plot full kl vs cross-entropy for the next token
+
+### Metric vs Throughput
+
+Putting the above together, we have:
 
 ```bash
-./bin/download_models
+python mtp/plots/plot_throughput_vs_metric.py --metric-results $MTP_ROOT/outputs/results/validate_models.jsonl --throughput-results $MTP_ROOT/outputs/results/throughput_models.jsonl --experiment your-expname --metric kl_loss_at_1
 ```
 
-### Throughput Evaluation
+where:
 
-A first question is what generation throughput we can get with MTP - we measure this in tokens per sec (tps) using a batch size of one.
-
-```bash
-source env.sh
-./bin/compute_throughput
-python -m plots.plot_throughput --device cuda --results outputs/results/throughput.jsonl
-python -m plots.plot_throughput --device cpu --results outputs/results/throughput.jsonl
-```
-
-NOTE: tps will decrease as we increase the sequence length we are conditioning on: since the context increases.
-
+* `--experiment`  is the experiment name you assigned via `training.expname` in the config or command line arguments.
+* `--metric` is the metric we want to plot, e.g. `--metric kl_loss_at_1` for full kl loss at 1.
 
 
 # Notes

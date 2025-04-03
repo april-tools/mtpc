@@ -1,5 +1,5 @@
 torch~=2.6.0
-libcirkit@git+https://github.com/april-tools/cirkit@e259fb99ba4e701322085c4fdea17cf1cefca7f3
+libcirkit@git+https://github.com/april-tools/cirkit@af0785106b98cfde53e83e38a994089d774278eb
 datasets
 tqdm
 hydra-core

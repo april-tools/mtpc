@@ -10,7 +10,7 @@ torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=finewebedu10B \
-    training=finewebedu \
+    training=finewebedu-lora \
     lm=finewebedu \
     model=basharin-lora \
     model.n_token=4 \
@@ -35,7 +35,7 @@ torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=finewebedu10B \
-    training=finewebedu \
+    training=finewebedu-lora \
     lm=finewebedu \
     model=basharin-lora \
     model.n_token=4 \
@@ -59,7 +59,7 @@ torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=finewebedu10B \
-    training=finewebedu \
+    training=finewebedu-lora \
     lm=finewebedu \
     model=basharin-lora \
     model.n_token=4 \
@@ -85,7 +85,7 @@ torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=finewebedu10B \
-    training=finewebedu \
+    training=finewebedu-lora \
     lm=finewebedu \
     model=basharin-lora \
     model.n_token=4 \
@@ -110,7 +110,7 @@ torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=finewebedu10B \
-    training=finewebedu \
+    training=finewebedu-lora \
     lm=finewebedu \
     model=basharin-lora \
     model.n_token=4 \
@@ -136,7 +136,7 @@ torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=finewebedu10B \
-    training=finewebedu \
+    training=finewebedu-lora \
     lm=finewebedu \
     model=basharin-lora \
     model.n_token=4 \

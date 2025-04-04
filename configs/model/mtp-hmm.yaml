@@ -18,11 +18,26 @@ mt_head_hparams:  # The hyperparameters of the multi token head
     expander_n_layer: 1          # Only used if the expander type is 'mlp'
     expander_type: 'linear'      # The available choices are 'linear', 'mlp'
     freeze_vocab_unembedding: false
+# See https://github.com/ctlllll/axolotl/blob/main/examples/medusa/vicuna_13b_qlora_stage1.yml
+adaptor_params:  # Uncomment below if you want to use adaptor
+  # r: 32
+  # lora_alpha: 16
+  # lora_dropout: 0.
+  # target_modules:
+  #   - gate_proj
+  #   - down_proj
+  #   - up_proj
+  #   - q_proj
+  #   - v_proj
+  #   - k_proj
+  #   - o_proj
+  #   # - lm_head
 model:
     _target_: mtp.models.mtp.MultiTokenLM
     lm: ${lm.model}
     circuit: ${model.circuit}
     mt_head_kwargs: ${model.mt_head_hparams}
+    adaptor_kwargs: ${model.adaptor_params}
     init_from_lm_head: true
     # Loss weighing
     kl_type: forward             # Can be forward or reverse

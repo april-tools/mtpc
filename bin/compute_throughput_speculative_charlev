@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# In this script we evaluate generation throughput
+# I.e. how many tokens we can generate per second (with a batch size of one)
+
+mkdir -p $MTP_ROOT/outputs/results
+
+device=cuda
+seed=12
+num_tokens=128
+# prompt="The king of"
+# Subsample 100 prompts from spec_bench. Set to 0 to use the whole spec_bench
+# Note that same random seed will imply same prompts selected from spec_bench
+subsample_prompts=100
+default_stp="<path-to-stp-model-checkpoint>"
+default_mtp="<path-to-mtp-model-checkpoints>"
+# If not overriden by cli, use default
+directory_stp="${1:-$default_stp}"
+directory_mtp="${2:-$default_mtp}"
+
+
+# Modify the STP model checkpoint path, as required
+checkpoint_stp="$directory_stp/<pt-model-file>"
+echo -e "Loading stp checkpoint $checkpoint_stp..."
+
+
+for file in $(find "$directory_mtp" -type f -name "model@2000.pt");
+do
+	python -m mtp.generate \
+		--device cuda \
+		--mode mtp \
+		--speculative \
+	   	--random-seed $seed \
+		--subsample-prompts $subsample_prompts \
+		--num-tokens $num_tokens \
+		lm.model.from_checkpoint=$checkpoint_stp \
+		--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
+done

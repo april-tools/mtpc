@@ -59,9 +59,9 @@ def validation_step(model, val_loader, val_steps, ctx):
     val_loader.reset()
     val_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
     for _ in range(val_steps):
-        x_val, y_val = val_loader.next_batch()
+        batch = val_loader.next_batch()
         with ctx:
-            results = model(x_val, y_val)
+            results = model(**batch)
             val_loss += results.pop('loss').detach()
             for k, v in results.items():
                 if '_loss_' in k:
@@ -82,10 +82,10 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
     model.train()
     train_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
     for i in range(1, train_accumulation_steps + 1):
-        x, y = train_loader.next_batch()
+        batch = train_loader.next_batch()
 
         with ctx:
-            results = model(x, y)
+            results = model(**batch)
             loss = results.pop('loss')
             train_loss += loss.detach()
             for k, v in results.items():

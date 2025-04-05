@@ -1,6 +1,8 @@
+import os
 import glob
-import numpy as np
+import yaml
 import torch
+import numpy as np
 
 
 def _peek_data_shard(filename):
@@ -52,6 +54,12 @@ class DistributedDataLoader:
             ntok_total += int(shard_ntok)
         self.ntok_total = ntok_total
 
+        # When using HF datasets, we need additional information
+        # such as the PAD token id so that we can create the attention masks
+        # and the max sequence length so that we make sure we do not accidentally
+        # try to run the model with a different seq len from the serialized one
+        self.config = self.load_config(filename_pattern)
+
         # kick things off
         self.reset()
 
@@ -65,6 +73,17 @@ class DistributedDataLoader:
         self.current_position = self.process_rank * self.B * self.T
         self.tokens = _load_data_shard(self.files[self.current_shard])
 
+    def load_config(self, filename_pattern):
+        # We assume the config file, if it exists, is called config.yaml
+        dir_path = os.path.dirname(filename_pattern)
+        conf_path = os.path.join(dir_path, 'config.yaml')
+        try:
+            with open(conf_path, 'r') as file:
+                config = yaml.safe_load(file)
+        except Exception:
+            config = None
+        return config
+
     def next_batch(self):
         B = self.B
         T = self.T
@@ -72,14 +91,21 @@ class DistributedDataLoader:
         buf = torch.tensor(buf.astype(np.int32), dtype=torch.long)
         x = (buf[:-1]).view(B, T)  # inputs
         y = (buf[1:]).view(B, T)   # targets
+
+        if self.config is None:
+            # These are the datasets that do not have variable sized sequences
+            # So attention mask is just a mask of ones
+            attention_mask = torch.ones_like(x, dtype=torch.int32)
+        else:
+            raise NotImplementedError('Need to implement padding')
+
         # advance current position and load next shard if necessary
         self.current_position += B * T * self.num_processes
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
             self.advance()
         if self.device == 'cuda':
-            return x.cuda(), y.cuda()
-        else:
-            return x, y
+            x, y, attention_mask = x.cuda(), y.cuda(), attention_mask.cuda()
+        return dict(input_ids=x, labels=y, attention_mask=attention_mask)
 
     def seek(self, num_steps):
         # Move the dataloader forward num_steps

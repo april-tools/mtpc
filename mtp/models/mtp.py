@@ -111,8 +111,9 @@ class MultiTokenLM(torch.nn.Module):
 
     def forward(
         self,
-        xx: torch.Tensor,
-        yy: torch.Tensor,
+        input_ids: torch.LongTensor,
+        labels: torch.LongTensor,
+        attention_mask: torch.LongTensor,
         return_log_probs: bool = False
     ) -> dict:
         r"""
@@ -127,11 +128,11 @@ class MultiTokenLM(torch.nn.Module):
         and summed over all tokens.
 
         Args:
-        xx: shape (B, S), the input token indices
-        yy: shape (B, S), the target token indices (offset by one)
+        input_ids: shape (B, S), the input token indices
+        labels: shape (B, S), the target token indices (offset by one)
 
-          xx :      | t1 | t2 | t3 | t4 | t5 | t6 |
-          yy :           | t2 | t3 | t4 | t5 | t6 | t7 |
+          input_ids :      | t1 | t2 | t3 | t4 | t5 | t6 |
+          labels    :           | t2 | t3 | t4 | t5 | t6 | t7 |
 
         Returns:
         A dictionary with keys:
@@ -142,21 +143,21 @@ class MultiTokenLM(torch.nn.Module):
                 return_log_probs is True.
         """
         H = self.n_token
-        # B = xx.shape[0]
-        S = xx.shape[1]
+        # B = input_ids.shape[0]
+        S = input_ids.shape[1]
         # R = self.circuit.n_component
         # V = self.vocab_size
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
-        xxd = self.lm.encoder(xx)['last_hidden_state']
+        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask)['last_hidden_state']
 
         # 2) Compute teacher log probs. We do this before truncating xx.
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
             with torch.no_grad(), self.lm.disable_adapter_if_any():
                 if self.lm.has_adapter:
-                    xxv = self.lm.encoder(xx)['last_hidden_state']
+                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask)['last_hidden_state']
                 else:  # If the LM has not adaptors, then the verifier hidden features are the same of the draft features
                     xxv = xxd
                 # logits: (B, S, V)
@@ -172,7 +173,7 @@ class MultiTokenLM(torch.nn.Module):
                     # We only need the log probs for the target category
                     # shape: B, S, 1
                     teacher_log_probs = torch.gather(
-                        teacher_log_probs, dim=-1, index=yy.unsqueeze(-1)
+                        teacher_log_probs, dim=-1, index=labels.unsqueeze(-1)
                     )
                 # Make teacher_log_probs windowed for kl with circuit logprobs
                 # TODO: Since we are using a for loop in the KL computation
@@ -187,12 +188,28 @@ class MultiTokenLM(torch.nn.Module):
         else:
             teacher_log_probs = None
 
-        # 3) Parameterize the circuit with our NN activations
-        self._parameterize_circuit(xxd)
+        # 3) Truncate the activations
+        # For multi-token training, for each position, t, we predict the next
+        # H tokens in one forward pass. This means we run out of future tokens
+        # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
+        # xxd:      | t1 |
+        # labels:        | t2 | t3 | t4 |
+        #                      ...
+        #                      ...
+        # xxd:      | t1 | t2 | t3 | t4 |
+        # labels:                       | t5 | t6 | t7 |
+        #
+        # So S' = S - H + 1 = 6 - 3 + 1 = 4
+        # xx: (B, S', D), where S' = S - H + 1
+        history_idx = S - H + 1
+        xxd = xxd[:, : history_idx]
 
-        # 4) Make target idxs, yy, windowed
-        # from yy: (B, S) to yy: (B, S', H)
-        yy = yy.unfold(dimension=1, size=H, step=1)
+        # 4) Parameterize the circuit with our NN activations
+        self._parameterize_circuit(xxd, attention_mask=attention_mask)
+
+        # 5) Make target idxs, yy, windowed
+        # from labels: (B, S) to yy: (B, S', H)
+        yy = labels.unfold(dimension=1, size=H, step=1)
         # yy: (B, S', H) -> (B * S', H)
         yy = yy.reshape(-1, H)
 

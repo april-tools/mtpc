@@ -1,4 +1,4 @@
-from torch import nn, Tensor
+from torch import nn, Tensor, LongTensor
 
 import torch
 import torch.nn.functional as F
@@ -92,8 +92,15 @@ class GPTEncoder(nn.Module):
         )
         self.apply(_init_weights)
 
-    def forward(self, xx: Tensor) -> Tensor:
-        xx = self.transformer.wte(xx)  # token embeddings of shape (B, S, n_embd)
+    def forward(self,
+                input_ids: LongTensor,
+                attention_mask: LongTensor | None = None,
+                ) -> Tensor:
+
+        if not (attention_mask is None or torch.all(attention_mask == 1)):
+            raise NotImplementedError('NanoGPT transformers cannot handle attention mask that is not all ones')
+
+        xx = self.transformer.wte(input_ids)  # token embeddings of shape (B, S, n_embd)
         # TODO: Decide RMS_NORM positioning
         xx = F.rms_norm(xx, (xx.size(-1),))
         for block in self.transformer.h:
@@ -127,18 +134,24 @@ class GPT(nn.Module):
         self.head: GPTHead | None = None if encoder_only else GPTHead(n_embd, vocab_size)
         self.apply(_init_weights)
 
-    def forward(
-        self, idx: Tensor, targets: Tensor | None = None, return_logits: bool = True
+    def forward(self,
+                input_ids: LongTensor,
+                labels: LongTensor | None = None,
+                attention_mask: LongTensor | None = None,
+                return_logits: bool = True
     ) -> tuple[Tensor | None, None]:
         assert self.head is not None, "The forward of GPT can only be called if encoder_only=False"
 
-        # forward the GPT model itself
-        x = self.encoder(idx)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
+        if not (attention_mask is None or torch.all(attention_mask == 1)):
+            raise NotImplementedError('NanoGPT transformers cannot handle attention mask that is not all ones')
 
-        if targets is not None:
-            # if we are given some desired targets also calculate the loss
+        # forward the GPT model itself
+        x = self.encoder(input_ids)['last_hidden_state']  # token embeddings of shape (b, t, n_embd)
+
+        if labels is not None:
+            # if we are given some desired labels also calculate the loss
             logits = self.head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1), ignore_index=-1)
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim

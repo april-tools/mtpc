@@ -1,7 +1,7 @@
 import os
 import torch
 
-from torch import Tensor
+from torch import Tensor, LongTensor
 from copy import deepcopy
 
 from transformers.cache_utils import Cache
@@ -111,9 +111,9 @@ class MultiTokenLM(torch.nn.Module):
 
     def forward(
         self,
-        input_ids: torch.LongTensor,
-        labels: torch.LongTensor,
-        attention_mask: torch.LongTensor,
+        input_ids: LongTensor,
+        labels: LongTensor,
+        attention_mask: LongTensor,
         return_log_probs: bool = False
     ) -> dict:
         r"""

@@ -156,7 +156,7 @@ class MultiTokenLM(torch.nn.Module):
                 if self.adaptor_lm is not None:
                     xxv = self.compute_verifier_features(xx)['last_hidden_state']
                 else:
-                    xxv = xx
+                    xxv = xxd
                 # shape: (B, S, V)
                 logits = self.lm.head(xxv)
                 # shape: B, S, V

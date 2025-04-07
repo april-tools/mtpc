@@ -5,6 +5,6 @@ n_component: 2  # Any number > 1
 model:
     _target_: mtp.models.circuits.CircuitModel
     vocab_size: ${data.vocab_size}
-    n_token: ${model.n_token}
-    n_component: ${model.n_component}
+    n_token: ${circuit.n_token}
+    n_component: ${circuit.n_component}
     kind: 'hmm'

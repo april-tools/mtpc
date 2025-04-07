@@ -18,16 +18,18 @@ def load_mtp(overrides):
 def test_zero_layer_encoder(expander, th_nlayer: int, swh_nlayer: int):
     cfg, model = load_mtp([
         'model=mtp',
+        'model.beta=0',
         'lm.n_layer=2',
         'lm.n_head=2',
         'lm.n_embd=32',
-        'model.n_component=2',
-        'model.n_token=3',
-        'model.beta=0',
-        f'model.mt_head_hparams.tok_transformer_n_layer={th_nlayer}',
-        f'model.mt_head_hparams.sum_transformer_n_layer={swh_nlayer}',
-        f'model.mt_head_hparams.expander_type={expander}']
-    )
+        'circuit=cp',
+        'circuit.n_component=2',
+        'circuit.n_token=3',
+        'mt_head=transformer',
+        f'mt_head.hyperparameters.tok_transformer_n_layer={th_nlayer}',
+        f'mt_head.hyperparameters.sum_transformer_n_layer={swh_nlayer}',
+        f'mt_head.hyperparameters.expander_type={expander}'
+    ])
 
     token_heads = model.mt_head.token_heads
     for head in token_heads:

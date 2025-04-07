@@ -1,8 +1,9 @@
 name: transformer
 
-n_embd: ${lm.n_embd}
-transformer_n_head: ${lm.n_head}
-tok_transformer_n_layer: 1   # Set to zero if you want no transformer encoder, for the Categoricals
-sum_transformer_n_layer: 1   # Set to zero if you want no transformer encoder, for the sum weights
-expander_type: 'linear'      # The available choices are 'linear', 'mlp'
-freeze_vocab_unembedding: false
+hyperparameters:
+  n_embd: ${lm.n_embd}
+  transformer_n_head: ${lm.n_head}
+  tok_transformer_n_layer: 1   # Set to zero if you want no transformer encoder, for the Categoricals
+  sum_transformer_n_layer: 1   # Set to zero if you want no transformer encoder, for the sum weights
+  expander_type: 'linear'      # The available choices are 'linear', 'mlp'
+  freeze_vocab_unembedding: false

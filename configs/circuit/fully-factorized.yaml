@@ -1,0 +1,10 @@
+name: fully_factorized
+n_token: 4      # Any number > 1
+n_component: 1  # CP with n_component=1 is a fully-factorized model
+
+model:
+    _target_: mtp.models.circuits.CircuitModel
+    vocab_size: ${data.vocab_size}
+    n_token: ${model.n_token}
+    n_component: ${model.n_component}
+    kind: 'cp'

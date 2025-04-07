@@ -134,9 +134,11 @@ def name_exp(cfg):
             config_name="config")
 def main(cfg: DictConfig):
     try:
+        # Needed for compile
+        torch._dynamo.config.suppress_errors = True
 
         # NOTE: Below seems needed if freeze=false for some LLMs
-        torch._dynamo.config.optimize_ddp = False
+        # torch._dynamo.config.optimize_ddp = False
 
         set_deterministic(cfg.training.random_seed)
         # Set DEVICE env variable, which is used by mtp.utils.distributed

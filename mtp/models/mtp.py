@@ -10,6 +10,7 @@ from .lm import LM
 
 from .circuits import CircuitModel
 from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
+from .loss import IGNORE_TOKEN_ID
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -207,13 +208,25 @@ class MultiTokenLM(torch.nn.Module):
         # 4) Parameterize the circuit with our NN activations
         self._parameterize_circuit(xxd, attention_mask=attention_mask)
 
-        # 5) Make target idxs, yy, windowed
+        # 5) Make target labels, yy, and attention masks, windowed
         # from labels: (B, S) to yy: (B, S', H)
         yy = labels.unfold(dimension=1, size=H, step=1)
         # yy: (B, S', H) -> (B * S', H)
         yy = yy.reshape(-1, H)
 
-        # 5) Compute draft log probs with the circuit
+        # Also process the attention mask which is the same shape as yy
+        yym = attention_mask.unfold(dimension=1, size=H, step=1)
+        # We condition on tokens with attention_mask = True, so negate
+        do_not_condition_mask = ~yym.reshape(-1, H)
+        # We do not predict tokens with IGNORE_TOKEN_ID
+        do_not_predict_mask = (yy == IGNORE_TOKEN_ID)
+
+        # We want to marginalise out tokens that should either not be predicted
+        # or tokens that should not be conditioned on
+        # TODO: pass mask to autoregressive conditionals
+        marg_mask = do_not_condition_mask | do_not_predict_mask
+
+        # 6) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == 'full':
             # shape: H, B * S', V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)

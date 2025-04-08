@@ -10,7 +10,7 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from collections import defaultdict
 import time
 
-from mtp.data.dataloader import DistributedDataLoader
+from mtp.data import DistributedDataLoader
 from mtp.utils.distributed import setup_distributed, wrap_model_distributed
 from mtp.utils.checkpoint import Checkpoint
 from mtp.utils.logger import Logger
@@ -217,8 +217,8 @@ def main(cfg: DictConfig):
 
         # ===================== BEGIN DATASET SETUP ==========================
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
-        train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
-        val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
+        train_loader = DistributedDataLoader.resolve(cfg.data.train_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='train')
+        val_loader = DistributedDataLoader.resolve(cfg.data.val_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
 
         ntok_train = cfg.training.batch_size * T * cfg.training.num_iterations
 

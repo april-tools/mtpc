@@ -69,12 +69,6 @@ class LM(nn.Module):
         else:
             self._lm = lm
 
-        # Keep lm head weights in case we want to use them during init
-        self._lm_head_weights = self.head.weight.detach().clone().data
-        # If encoder only, drop the head
-        if self.encoder_only:
-            setattr(self.lm_model, self.ref_head, None)
-
         # Set the parameters key to include in the state_dict of the model
         # NOTE: here we are assuming that the requires_grad of the LM model will NOT be changed elsewhere
         #       after the completion of this __init__()
@@ -90,6 +84,12 @@ class LM(nn.Module):
             # As such, we retain all the keys of the weights, as we do not know if the given model is stored permantently somewhere else
             # (i.e., we are conservative)
             self._filter_state_dict_keys: set = {}
+
+        # Keep lm head weights in case we want to use them during init
+        self._lm_head_weights = self.head.weight.detach().clone().data
+        # If encoder only, drop the head
+        if self.encoder_only:
+            setattr(self.lm_model, self.ref_head, None)
 
     def _load_lm(self):
         lm = None

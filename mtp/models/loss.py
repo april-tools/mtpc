@@ -4,6 +4,9 @@ import torch.nn.functional as F
 from mtp.utils.extern import log1mexp
 
 
+IGNORE_TOKEN_ID = -100
+
+
 def compute_full_kl(draft_log_probs: torch.Tensor,
                     teacher_log_probs: torch.Tensor,
                     kl_type: str) -> torch.Tensor:

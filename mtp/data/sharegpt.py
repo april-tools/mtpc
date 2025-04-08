@@ -84,9 +84,13 @@ def process_sharegpt(sources, tokenizer: transformers.PreTrainedTokenizer) -> di
                         indices.append(tok_index)
                 target[indices] = encoding.input_ids[conv_index][indices]
 
+    # NOTE: in our implementation we expect label @ i to be target for input_id @ i
+    input_ids = input_ids[:, :-1]
+    labels = targets[:, 1:]
+
     return dict(
         input_ids=input_ids,
-        labels=targets,
+        labels=labels,
         attention_mask=input_ids.ne(tokenizer.pad_token_id),
     )
 

@@ -31,7 +31,8 @@ class HFDistributedDataLoader(object):
         self.split = split
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.hf_model, model_max_length=self.T, padding_side="right", use_fast=True
+            # use max_length=T + 1 because we use input_ids[:, :-1] and labels[:, 1:]
+            self.hf_model, model_max_length=self.T + 1, padding_side="right", use_fast=True
         )
 
         self.reset()

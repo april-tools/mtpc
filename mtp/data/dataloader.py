@@ -28,7 +28,7 @@ def _load_data_shard(filename):
         ntok = header[2]  # number of tokens (claimed)
         # the rest of it are tokens, stored as uint16
         tokens = np.frombuffer(f.read(), dtype=np.uint16)
-    assert len(tokens) == ntok, "number of tokens read does not match header?"
+    assert len(tokens) == ntok, f"number of tokens read does not match header? found {len(tokens)} but expected {ntok}"
     return tokens
 
 

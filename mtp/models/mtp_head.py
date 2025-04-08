@@ -280,7 +280,7 @@ class MultiTokenHead(nn.Module):
     @property
     def token_heads(self) -> list:
         return list(self._categorical_log_probs_heads)
-    
+
     @property
     def sum_weight_heads(self) -> list:
         return list(self._sum_weights_heads)

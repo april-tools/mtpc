@@ -224,7 +224,7 @@ def main(cfg: DictConfig):
         logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
         logger(f"During training we will see {ntok_train} tokens")
         logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
-        if 'shakespeare' not in cfg.data.name:
+        if all(d not in cfg.data.name for d in ['shakespeare', 'mnistbyte']):
             assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
 
         # Calculate steps

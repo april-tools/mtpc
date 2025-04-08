@@ -1,6 +1,6 @@
 name: mtp
 
-beta: .0            # The weighting factor for the KL objective
+beta: 0.0           # The weighting factor for the KL objective
 gamma: 1            # Per-token loss exponential discounting hyperparameter
 kl_algorithm: full  # KL loss is computed only if beta > 0
 
@@ -9,7 +9,6 @@ model:
     lm: ${lm.model}
     circuit: ${circuit.model}
     mt_head_kwargs: ${mt_head.hyperparameters}
-    adaptor_kwargs: ${adaptor.hyperparameters}
     init_from_lm_head: true
     # Loss weighing
     kl_type: forward                     # Can be forward or reverse

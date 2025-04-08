@@ -1,9 +1,7 @@
-import copy
 import hydra
 import itertools
 
 import pytest
-import torch
 
 
 def load_mtp(overrides):

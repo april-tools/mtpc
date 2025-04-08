@@ -1,6 +1,5 @@
 import os
 import torch
-import peft
 
 from torch import Tensor
 from copy import deepcopy
@@ -38,10 +37,9 @@ class MultiTokenLM(torch.nn.Module):
         lm: LM,
         circuit: CircuitModel,
         mt_head_kwargs: dict,
-        adaptor_kwargs: dict = None,
         init_from_lm_head: bool = True,
-        beta: float = .9,
-        gamma: float = 1.,
+        beta: float = 0.9,
+        gamma: float = 1.0,
         kl_type: str = 'forward',
         kl_algorithm: str = 'binary_approx'
     ):
@@ -59,17 +57,7 @@ class MultiTokenLM(torch.nn.Module):
             expander_type=mt_head_kwargs.get('expander_type', 'mlp'),
             freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False)
         )
-        self.adaptor_kwargs = adaptor_kwargs
         self.init_from_lm_head = init_from_lm_head
-
-        if self.adaptor_kwargs is not None:
-            peft_config = peft.LoraConfig(
-                    task_type="CAUSAL_LM",
-                    **self.adaptor_kwargs
-                    )
-            self.adaptor_lm = peft.get_peft_model(self.lm.encoder, peft_config)
-        else:
-            self.adaptor_lm = None
 
         # Below are the params for weighting the kl and ce losses.
         # Keep these globally to avoid shooting ourselves in the foot
@@ -88,16 +76,15 @@ class MultiTokenLM(torch.nn.Module):
 
         if self.compute_kl:
             # NOTE: We compute teacher_log_probs in a no_grad block.
-            assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
-            assert self.lm.encoder_only is False, 'We need the LM head to compute KL'
+            assert self.lm.freeze, 'Unfreezing LM with KL loss is not currently supported'
+            assert not self.lm.encoder_only, 'We need the LM head to compute KL'
         else:
             # We need encoder_only is false during generation - due to speculative decoding
             if not (os.environ.get('MODE', None) == 'generate'):
-                assert self.lm.encoder_only is True, 'We do not need the LM head since we are not computing KL'
+                assert self.lm.encoder_only, 'We do not need the LM head since we are not computing KL'
 
         if self.init_from_lm_head:
             self.mt_head.set_unembedding_weights(lm.lm_head_weights)
-        del lm.lm_head_weights
 
     @property
     def vocab_size(self) -> int:
@@ -147,30 +134,31 @@ class MultiTokenLM(torch.nn.Module):
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
-        xxd = self.compute_draft_features(xx)['last_hidden_state']
+        xxd = self.lm.encoder(xx)['last_hidden_state']
 
         # 2) Compute teacher log probs. We do this before truncating xx.
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
-            with torch.no_grad():
-                if self.adaptor_lm is not None:
-                    xxv = self.compute_verifier_features(xx)['last_hidden_state']
-                else:
+            with torch.no_grad(), self.lm.disable_adapter_if_any():
+                if self.lm.has_adapter:
+                    xxv = self.lm.encoder(xx)['last_hidden_state']
+                else:  # If the LM has not adaptors, then the verifier hidden features are the same of the draft features
                     xxv = xxd
-                # shape: (B, S, V)
+                # logits: (B, S, V)
                 logits = self.lm.head(xxv)
+
                 # shape: B, S, V
                 teacher_log_probs = torch.log_softmax(logits, axis=-1)
 
-                B, S, V = teacher_log_probs.shape
+                _, S, V = teacher_log_probs.shape
                 assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
 
                 if self.kl_algorithm == 'binary_approx':
                     # We only need the log probs for the target category
                     # shape: B, S, 1
-                    teacher_log_probs = torch.gather(teacher_log_probs,
-                                                     dim=-1,
-                                                     index=yy.unsqueeze(-1))
+                    teacher_log_probs = torch.gather(
+                        teacher_log_probs, dim=-1, index=yy.unsqueeze(-1)
+                    )
                 # Make teacher_log_probs windowed for kl with circuit logprobs
                 # TODO: Since we are using a for loop in the KL computation
                 # shape: B, S', V, H
@@ -250,8 +238,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # We the loss to stay on same scale for more tokens
         # and for change of gamma - gamma should only scale relatively
-        sum_combined_loss = sum_combined_loss / sum([self.gamma ** k
-                                                     for k in range(H)])
+        sum_combined_loss = sum_combined_loss / sum([self.gamma ** k for k in range(H)])
 
         outputs = {'loss': sum_combined_loss}
         if self.compute_kl or self.compute_ce:
@@ -271,17 +258,6 @@ class MultiTokenLM(torch.nn.Module):
 
         # Set the parameters to the circuit
         self.circuit.parameterize(circuit_params)
-
-    def compute_verifier_features(self, xx: torch.LongTensor, **kwargs):
-        xx = self.lm.encoder(xx, **kwargs)
-        return xx
-
-    def compute_draft_features(self, xx: torch.LongTensor, **kwargs):
-        if self.adaptor_lm is not None:
-            xx = self.adaptor_lm(xx, **kwargs)
-        else:
-            xx = self.lm.encoder(xx, **kwargs)
-        return xx
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
@@ -350,12 +326,14 @@ class MultiTokenLM(torch.nn.Module):
         return losses
 
     @torch.no_grad()
-    def generate(self, inputs: Tensor,
-                 use_argmax: bool = False,
-                 mode: str = 'mtp',
-                 use_cache: bool = False,
-                 past_key_values: Tensor = None,
-                 past_last_hidden_states: Tensor = None) -> Tensor:
+    def generate(
+        self, inputs: Tensor,
+        use_argmax: bool = False,
+        mode: str = 'mtp',
+        use_cache: bool = False,
+        past_key_values: Tensor = None,
+        past_last_hidden_states: Tensor = None
+    ) -> Tensor:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
         if use_argmax and mode != 'stp':
@@ -365,7 +343,7 @@ class MultiTokenLM(torch.nn.Module):
             seen_tokens = 0
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
-            outputs = self.compute_draft_features(
+            outputs = self.lm.encoder(
                 inputs[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values
@@ -377,7 +355,7 @@ class MultiTokenLM(torch.nn.Module):
                 xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
             past_key_values = outputs['past_key_values']
         else:
-            xx = self.compute_draft_features(inputs)['last_hidden_state']
+            xx = self.lm.encoder(inputs)['last_hidden_state']
 
         # Parameterize the circuit
         self._parameterize_circuit(xx, generate=True)
@@ -400,10 +378,13 @@ class MultiTokenLM(torch.nn.Module):
 
     # TODO: Refactor to bring for-loop into function as per Edoardo's comment
     @torch.no_grad()
-    def self_speculative_generate(self, seq: Tensor,
-                                  use_cache: bool = False,
-                                  past_key_values: Tensor = None,
-                                  past_last_hidden_states: Tensor = None) -> Tensor:
+    def self_speculative_generate(
+        self,
+        seq: Tensor,
+        use_cache: bool = False,
+        past_key_values: Tensor = None,
+        past_last_hidden_states: Tensor = None
+    ) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
             raise NotImplementedError("Multi-batch self-speculative decoding not implemented yet")
             # seq: (B, S), with B = 1 and also possibly S = 1
@@ -415,7 +396,7 @@ class MultiTokenLM(torch.nn.Module):
             seen_tokens = 0
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
-            outputs = self.compute_draft_features(
+            outputs = self.lm.encoder(
                 seq[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values
@@ -427,7 +408,7 @@ class MultiTokenLM(torch.nn.Module):
                 xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
             past_key_values = outputs['past_key_values']
         else:
-            xx = self.compute_draft_features(seq)["last_hidden_state"]
+            xx = self.lm.encoder(seq)["last_hidden_state"]
 
         assert xx.shape[1] == seq.shape[1]
         # Set the circuit parameters, based on the last embeddings
@@ -443,15 +424,17 @@ class MultiTokenLM(torch.nn.Module):
         gen_seq = torch.cat([seq, tokens], dim=1)
 
         # Compute the next-token probabilities in parallel
-        if use_cache:
+        with self.lm.disable_adapter_if_any():
+            if use_cache:
+                results = self.lm.encoder(
+                    gen_seq[:, seen_tokens:], use_cache=use_cache, past_key_values=old_past_key_values
+                )
+            else:
+                results = self.lm.encoder(gen_seq)
             # zz: (B, S + H, D) -> (B, H + 1, D)
-            zz = self.compute_verifier_features(gen_seq[:, seen_tokens:], use_cache=use_cache, past_key_values=old_past_key_values)['last_hidden_state']
-        else:
-            zz = self.compute_verifier_features(gen_seq)['last_hidden_state']
-
-        zz = zz[:, -tokens.shape[1] - 1 :]
-        # logits: (B, H + 1, V)
-        logits = self.lm.head(zz)
+            zz = results['last_hidden_state'][:, -tokens.shape[1] - 1 :]
+            # logits: (B, H + 1, V)
+            logits = self.lm.head(zz)
 
         # Determine the number of accepted tokens,
         # by iteratively computing conditional probabilities with the circuit

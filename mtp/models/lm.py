@@ -1,5 +1,9 @@
+from contextlib import contextmanager
+
 import torch
 import torch.nn.functional as F
+import peft
+from peft import PeftModel
 
 from torch import nn, Tensor
 from transformers import AutoModelForCausalLM
@@ -16,6 +20,7 @@ class LM(nn.Module):
         lm: nn.Module = None,
         from_checkpoint: str = None,
         from_huggingface: str = None,
+        adaptor_kwargs: dict = None,
         ref_enc: str = "model",
         ref_head: str = "lm_head",
         encoder_only: bool = True,
@@ -43,26 +48,27 @@ class LM(nn.Module):
             [(False, True, True), (True, False, True), (True, True, False)]
         )
 
-        # We only save weights if a) the model is not frozen
-        # or b) if we initialised a model that does not have a checkpoint
-        self.save_weights = (lm is not None) or self.freeze is False
+        # Set the LLM
+        self._lm = lm if lm is not None else self._load_lm()
 
-        self.lm = lm or self._load_lm()
-
-        # Keep track of the keys which we set to None if save_weights=False
-        # we need to do this before we drop the head
-        self.none_keys = set("lm.%s" % k for k in self.lm.state_dict().keys())
+        # Use peft for lora
+        self.adaptor_kwargs = adaptor_kwargs
+        if self.adaptor_kwargs is not None and not isinstance(self._lm, PeftModel):
+            peft_config = peft.LoraConfig(
+                task_type="CAUSAL_LM",
+                **self.adaptor_kwargs
+            )
+            self._lm = peft.get_peft_model(self._lm, peft_config)
 
         # Keep lm head weights in case we want to use them during init
-        # We delete this in MultiTokenLM when we do not need it
-        self.lm_head_weights = self.head.weight.detach().clone().data
+        self._lm_head_weights = self.head.weight.detach().clone().data
 
         # If encoder only, drop the head
         if self.encoder_only:
-            setattr(self.lm, self.ref_head, None)
+            setattr(self.lm_model, 'lm_head', None)
 
         if self.freeze:
-            for p in self.lm.parameters():
+            for p in self._lm.parameters():
                 p.requires_grad = False
 
     def _load_lm(self):
@@ -80,32 +86,59 @@ class LM(nn.Module):
                     map_location=get_local_device(),
                 ).lm
         elif self.from_huggingface is not None:
+            if 'EvaByte' in self.from_huggingface:
+                kwargs = {'trust_remote_code': True}
+            else:
+                kwargs = {'attn_implementation': "flash_attention_2"}
             lm = AutoModelForCausalLM.from_pretrained(
                 self.from_huggingface,
-                attn_implementation="flash_attention_2",
                 torch_dtype=torch.bfloat16,
+                **kwargs
             )
+            if 'EvaByte' in self.from_huggingface:
+                # By default, we do not use caching in EvaByte, and always return dictionaries
+                lm.config.use_cache = False
+                lm.config.return_dict = True
         return lm
 
-    def state_dict(self, *args, **kwargs):
-        state = super().state_dict(*args, **kwargs)
-        # If we have loaded from checkpoint and the weights are frozen
-        # do not store the weights, we will load them again from the checkpoint
-        if not self.save_weights:
-            # NOTE: The complication here is that when we created none_keys
-            # we were not prefixing with the current modules prefix
-            prefix = kwargs.pop("prefix")
-            new_state = {("%s%s" % (prefix, k)): None for k in self.none_keys}
-            state.update(new_state)
-        return state
+    @property
+    def lm_head_weights(self) -> Tensor:
+        return self._lm_head_weights
+
+    @property
+    def lm_model(self):
+        if self.has_adapter:
+            return self._lm.base_model.model
+        return self._lm
 
     @property
     def encoder(self):
-        return getattr(self.lm, self.ref_enc)
+        return getattr(self.lm_model, self.ref_enc)
 
     @property
     def head(self):
-        return getattr(self.lm, self.ref_head)
+        return getattr(self.lm_model, self.ref_head)
+
+    @property
+    def has_adapter(self) -> bool:
+        return isinstance(self._lm, PeftModel)
+
+    @contextmanager
+    def disable_adapter(self):
+        assert self.has_adapter
+        # Forward the disable adapter context manager of the Peft-managed LM
+        with self._lm.disable_adapter():
+            yield
+
+    @contextmanager
+    def disable_adapter_if_any(self):
+        if self.has_adapter:
+            # Forward the disable adapter context manager of the Peft-managed LM,
+            # only if the lm is Peft-managed
+            with self._lm.disable_adapter():
+                yield
+        else:
+            yield
 
     def forward(
         self,

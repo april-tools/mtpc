@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from contextlib import contextmanager
 
 import torch
@@ -48,17 +49,18 @@ class LM(nn.Module):
             [(False, True, True), (True, False, True), (True, True, False)]
         )
 
-        # Set the LLM
+        # Set the LLM, and freeze its weights if required
         if lm is None:
             lm = self._load_lm()
-
         if self.freeze:
             for p in lm.parameters():
                 p.requires_grad = False
 
         # Use peft for lora
+        # Note that the lora weights are not freezed, even if freeze=True above
         self.adaptor_kwargs = adaptor_kwargs
-        if self.adaptor_kwargs is not None and not isinstance(lm, PeftModel):
+        if self.adaptor_kwargs is not None:
+            assert not isinstance(lm, PeftModel)
             peft_config = peft.LoraConfig(
                 task_type="CAUSAL_LM",
                 **self.adaptor_kwargs
@@ -73,20 +75,36 @@ class LM(nn.Module):
         if self.encoder_only:
             setattr(self.lm_model, self.ref_head, None)
 
+        # Set the parameters key to include in the state_dict of the model
+        # NOTE: here we are assuming that the requires_grad of the LM model will NOT be changed elsewhere
+        #       after the completion of this __init__()
+        state_dict = super().state_dict(keep_vars=True)
+        if self.from_checkpoint is not None or self.from_huggingface is not None:
+            # We are loading a checkpoint from either disk or from hugginface
+            # As such, we retain only the keys of weights that require gradients
+            self._filter_state_dict_keys: set = {k for k, v in state_dict.items() if not v.requires_grad}
+            # For instance, if we loaded a model from huggingface, freezed it, and the applied peft on it;
+            # then _state_dict_keys will contain only the keys of e.g., lora weights
+        else:
+            # An LM model has been initialized somewhere and passed to __init__()
+            # As such, we retain all the keys of the weights, as we do not know if the given model is stored permantently somewhere else
+            # (i.e., we are conservative)
+            self._filter_state_dict_keys: set = {}
+
     def _load_lm(self):
         lm = None
         if self.from_checkpoint is not None:
             # Assume that if we can find the conf, we saved the checkpoint
             try:
                 cp = Checkpoint.load(self.from_checkpoint)
-                lm = cp.model.lm.lm
+                lm = cp.model.lm._lm
             # otherwise try loading as default pt
             except Exception:
                 lm = torch.load(
                     self.from_checkpoint,
                     weights_only=False,
                     map_location=get_local_device(),
-                ).lm
+                )._lm
         elif self.from_huggingface is not None:
             if 'EvaByte' in self.from_huggingface:
                 kwargs = {'trust_remote_code': True}
@@ -102,6 +120,15 @@ class LM(nn.Module):
                 lm.config.use_cache = False
                 lm.config.return_dict = True
         return lm
+
+    def state_dict(self, *args, **kwargs):
+        sd = super().state_dict(*args, **kwargs)
+        # Retain only the required keys
+        # I.e., set to None those tensors that do not need to be serialized
+        prefix = kwargs.pop("prefix")
+        overriden_state = {f"{prefix}{k}": None for k in self._filter_state_dict_keys}
+        sd.update(overriden_state)
+        return sd
 
     @property
     def lm_head_weights(self) -> Tensor:

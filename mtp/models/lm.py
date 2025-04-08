@@ -49,27 +49,29 @@ class LM(nn.Module):
         )
 
         # Set the LLM
-        self._lm = lm if lm is not None else self._load_lm()
+        if lm is None:
+            lm = self._load_lm()
+
+        if self.freeze:
+            for p in lm.parameters():
+                p.requires_grad = False
 
         # Use peft for lora
         self.adaptor_kwargs = adaptor_kwargs
-        if self.adaptor_kwargs is not None and not isinstance(self._lm, PeftModel):
+        if self.adaptor_kwargs is not None and not isinstance(lm, PeftModel):
             peft_config = peft.LoraConfig(
                 task_type="CAUSAL_LM",
                 **self.adaptor_kwargs
             )
-            self._lm = peft.get_peft_model(self._lm, peft_config)
+            self._lm = peft.get_peft_model(lm, peft_config)
+        else:
+            self._lm = lm
 
         # Keep lm head weights in case we want to use them during init
         self._lm_head_weights = self.head.weight.detach().clone().data
-
         # If encoder only, drop the head
         if self.encoder_only:
-            setattr(self.lm_model, 'lm_head', None)
-
-        if self.freeze:
-            for p in self._lm.parameters():
-                p.requires_grad = False
+            setattr(self.lm_model, self.ref_head, None)
 
     def _load_lm(self):
         lm = None

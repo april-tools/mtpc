@@ -17,6 +17,7 @@ def test_zero_layer_encoder(expander, th_nlayer: int, swh_nlayer: int):
     cfg, model = load_mtp([
         'model=mtp',
         'model.beta=0',
+        'lm=nanogpt',
         'lm.n_layer=2',
         'lm.n_head=2',
         'lm.n_embd=32',

@@ -34,8 +34,10 @@ def _load_data_shard(filename):
     return tokens
 
 
-class DistributedDataLoader:
-    def __init__(self, filename_pattern, B, T, process_rank, num_processes, device):
+class LocalDistributedDataLoader:
+    def __init__(self, filename_pattern, model, B, T, process_rank, num_processes, device='cuda', split=None):
+        # NOTE: We currently do not use model or split - added options just to make interface the same
+        # as the huggingface models
         self.process_rank = process_rank
         self.num_processes = num_processes
         self.B = B

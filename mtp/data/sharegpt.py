@@ -120,6 +120,3 @@ class ShareGPTDataLoader(HFDistributedDataLoader):
             )
         else:
             raise ValueError("ShareGPT dataset has no %s split" % self.split)
-
-
-HFDistributedDataLoader.register("Aeala/ShareGPT_Vicuna_unfiltered", ShareGPTDataLoader)

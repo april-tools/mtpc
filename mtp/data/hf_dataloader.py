@@ -9,8 +9,6 @@ class HFDistributedDataLoader(object):
     To override this class, see other examples in the folder.
     """
 
-    _resolvers = {}
-
     def __init__(
         self,
         hf_dataset: str,
@@ -64,28 +62,3 @@ class HFDistributedDataLoader(object):
 
     def seek(self, num_steps):
         self.dataset = self.dataset.skip(num_steps)
-
-    @classmethod
-    def build(
-        cl,
-        hf_dataset: str,
-        hf_model: str,
-        B: int,
-        T: int,
-        process_rank: int,
-        num_processes: int,
-        device: str = "cuda",
-        split="train",
-    ):
-        if hf_dataset in cl._resolvers:
-            return cl._resolvers[hf_dataset](
-                hf_dataset, hf_model, B, T, process_rank, num_processes, device, split
-            )
-        else:
-            return cl(
-                hf_dataset, hf_model, B, T, process_rank, num_processes, device, split
-            )
-
-    @classmethod
-    def register(cl, key, constructor):
-        cl._resolvers[key] = constructor

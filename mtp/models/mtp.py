@@ -51,11 +51,11 @@ class MultiTokenLM(torch.nn.Module):
             self.circuit.vocab_size,
             n_embd=mt_head_kwargs['n_embd'],
             transformer_n_head=mt_head_kwargs.get('transformer_n_head', 1),
-            tok_transformer_n_layer=mt_head_kwargs.get('tok_transformer_n_layer', 0),
-            sum_transformer_n_layer=mt_head_kwargs.get('sum_transformer_n_layer', 0),
+            transformer_n_layer=mt_head_kwargs.get('transformer_n_layer', 0),
+            expander_type=mt_head_kwargs.get('expander_type', 'linear'),
             expander_n_layer=mt_head_kwargs.get('expander_n_layer', 1),
-            expander_type=mt_head_kwargs.get('expander_type', 'mlp'),
-            freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False)
+            freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False),
+            share_vocab_proj=mt_head_kwargs.get('share_vocab_proj', False)
         )
         self.init_from_lm_head = init_from_lm_head
 
@@ -84,7 +84,8 @@ class MultiTokenLM(torch.nn.Module):
                 assert self.lm.encoder_only, 'We do not need the LM head since we are not computing KL'
 
         if self.init_from_lm_head:
-            self.mt_head.set_unembedding_weights(lm.lm_head_weights)
+            self.mt_head.set_unembedding_weights(self.lm.lm_head_weights)
+        self.lm.drop_lm_head_weights()
 
     @property
     def vocab_size(self) -> int:

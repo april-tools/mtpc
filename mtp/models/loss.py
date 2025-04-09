@@ -95,7 +95,6 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
     assert draft_log_probs.shape == teacher_log_probs.shape
-    H, BS = teacher_log_probs.shape
 
     # Clamp log probs to avoid NaNs
     assert draft_log_probs.dtype == teacher_log_probs.dtype
@@ -113,12 +112,12 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
     rest_teacher_log_probs = log1mexp(teacher_log_probs)
 
     if kl_type == 'forward':
-        kl = torch.exp(teacher_log_probs) * (teacher_log_probs - draft_log_probs)
-        kl += torch.exp(rest_teacher_log_probs) * (rest_teacher_log_probs - rest_draft_log_probs)
+        kl = torch.exp(teacher_log_probs) * (teacher_log_probs - draft_log_probs) + \
+            torch.exp(rest_teacher_log_probs) * (rest_teacher_log_probs - rest_draft_log_probs)
         kl_losses = kl.mean(axis=-1)
     else:
-        kl = torch.exp(draft_log_probs) * (draft_log_probs - teacher_log_probs)
-        kl += torch.exp(rest_draft_log_probs) * (rest_draft_log_probs - rest_teacher_log_probs)
+        kl = torch.exp(draft_log_probs) * (draft_log_probs - teacher_log_probs) + \
+            torch.exp(rest_draft_log_probs) * (rest_draft_log_probs - rest_teacher_log_probs)
         kl_losses = kl.mean(axis=-1)
     return kl_losses
 

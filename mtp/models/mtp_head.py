@@ -230,18 +230,17 @@ class MultiTokenHead(nn.Module):
         *,
         n_embd: int = 768,
         transformer_n_head: int = 6,
-        tok_transformer_n_layer: int = 2,
-        sum_transformer_n_layer: int = 2,
+        transformer_n_layer: int = 2,
         expander_n_layer: int = 2,
         expander_type: str = 'linear',
-        freeze_vocab_unembedding: bool = False
+        freeze_vocab_unembedding: bool = False,
+        **kwargs
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_embd = n_embd
         self.transformer_n_head = transformer_n_head
-        self.tok_transformer_n_layer = tok_transformer_n_layer
-        self.sum_transformer_n_layer = sum_transformer_n_layer
+        self.transformer_n_layer = transformer_n_layer
         self.expander_n_layer = expander_n_layer
         self.expander_type = expander_n_layer
         self.freeze_vocab_unembedding = freeze_vocab_unembedding
@@ -258,7 +257,7 @@ class MultiTokenHead(nn.Module):
         for k, shape in enumerate(config.sum_weights_shapes):
             n_folds, n_output_units, n_input_units = shape
             heads = [OutputHead(
-                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=sum_transformer_n_layer),
+                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=transformer_n_layer),
                 ExpanderHead(n_embd, n_output_units, n_layer=expander_n_layer, expander_type=expander_type, init='uniform')
             ) for _ in range(n_folds)]
             proj = nn.Linear(self.n_embd, n_input_units, bias=False)
@@ -269,7 +268,7 @@ class MultiTokenHead(nn.Module):
             # while the remaining heads are initialised to produce a uniform distribution
             get_init = lambda j: 'identity' if config.categorical_layers[k].scope_idx[j].item() == 0 else 'uniform'
             heads = [OutputHead(
-                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=tok_transformer_n_layer),
+                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=transformer_n_layer),
                 ExpanderHead(n_embd, n_components, n_layer=expander_n_layer, expander_type=expander_type, init=get_init(i))
             ) for i in range(n_folds)]
             # Share the same unembedding matrix for each token

@@ -131,8 +131,11 @@ class LM(nn.Module):
         return sd
 
     @property
-    def lm_head_weights(self) -> Tensor:
+    def lm_head_weights(self):
         return self._lm_head_weights
+
+    def drop_lm_head_weights(self):
+        self._lm_head_weights = None
 
     @property
     def lm_model(self):

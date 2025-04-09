@@ -238,6 +238,7 @@ class MultiTokenHead(nn.Module):
     ):
         super().__init__()
         self.vocab_size = vocab_size
+        self.n_token = config.n_token
         self.n_embd = n_embd
         self.transformer_n_head = transformer_n_head
         self.transformer_n_layer = transformer_n_layer
@@ -289,6 +290,8 @@ class MultiTokenHead(nn.Module):
 
     def forward(self, xx: Tensor, generate: bool = False) -> dict:
         # xx: (B, S, D)
+        if not generate:
+            xx = xx[:, :xx.shape[1] - self.n_token + 1]
         # Compute the parameters of the circuit
         sum_weights = []            # A list of tensors (B, S, F, K, J)
         categorical_log_probs = []  # A list of tensors (B, S, F, K, V)

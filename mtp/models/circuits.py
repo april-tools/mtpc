@@ -15,11 +15,21 @@ from .pipeline import setup_pipeline_context
 
 
 class ParametersConfig:
-    def __init__(self):
+    def __init__(self, n_token: int, n_component: int):
+        self._n_token = n_token
+        self._n_component = n_component
         self._sum_layers = []
         self._categorical_layers = []
         self._sum_weights_shapes = []
         self._categorical_log_probs_shapes = []
+
+    @property
+    def n_token(self) -> int:
+        return self._n_token
+
+    @property
+    def n_component(self) -> int:
+        return self._n_component
 
     @property
     def sum_layers(self) -> list:
@@ -98,7 +108,7 @@ class CircuitModel(torch.nn.Module):
         self._circuit: TorchCircuit = self._ctx.compile(symb_circuit)
 
         # Retrieve the circuit layers to parameterize
-        self._parameters_config = ParametersConfig()
+        self._parameters_config = ParametersConfig(self.n_token, self.n_component)
         for i, layer in enumerate(self._circuit.topological_ordering()):
             if isinstance(layer, (TorchHadamardLayer, TorchKroneckerLayer)):
                 continue

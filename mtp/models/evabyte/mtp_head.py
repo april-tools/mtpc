@@ -170,10 +170,14 @@ class ExpanderHead(nn.Module):
 class TransformerHead(nn.Module):
     def __init__(self, config: EvaByteConfig, n_layer: int = 1):
         super().__init__()
+        # Evabyte transformers necessarily work with bfloat16
+        prev_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
         self._layers = nn.ModuleList([
             EvaByteDecoderLayer(config)
             for _ in range(n_layer)
-        ])
+   	    ])
+        torch.set_default_dtype(prev_dtype)
 
     def forward(self, xx: Tensor, **kwargs):
         for layer in self._layers:
@@ -187,7 +191,7 @@ class MultiTokenHead(nn.Module):
         config: ParametersConfig,
         vocab_size: int,
         *,
-        n_embd: int = 2048,
+        n_embd: int = 4096,
         transformer_n_head: int = 32,
         transformer_n_layer: int = 1,
         expander_type: str = 'linear',
@@ -199,6 +203,7 @@ class MultiTokenHead(nn.Module):
             raise NotImplementedError()
         super().__init__()
         self.vocab_size = vocab_size
+        self.n_token = config.n_token
         self.n_embd = n_embd
         self.transformer_n_head = transformer_n_head
         self.transformer_n_layer = transformer_n_layer
@@ -208,11 +213,24 @@ class MultiTokenHead(nn.Module):
 
         # Instantiate transformers to parameterize the token's Categorical and the sum weights of the circuit
         if transformer_n_layer > 0:
+            # Taking some values from the Evabyte model on HF
+            # and hoping for the best
+            # https://huggingface.co/EvaByte/EvaByte/blob/main/config.json
             transformer_config = EvaByteConfig(
                 hidden_size=n_embd,
                 num_attention_heads=transformer_n_head,
                 intermediate_size=int(n_embd * 2.6875),
-                fp32_skip_add=False
+                fp32_ln=False,
+                fp32_skip_add=True,
+                mixedp_attn=True,
+                lazy_init=True,
+                init_fn="v2",
+                init_std=0.01275,
+                initializer_range=0.01275,
+                max_position_embeddings=32768,
+                chunk_size=16,
+                window_size=2048,
+                rms_norm_eps=1e-05,
             )
             self._rotary_emb = EvaByteRotaryEmbedding(
                 transformer_config.hidden_size // transformer_config.num_attention_heads,
@@ -300,9 +318,11 @@ class MultiTokenHead(nn.Module):
         # Paramterize the sum layer weights of the circuit
         if generate:
             zz_sum = zz_sum[:, [-1]]
-        sum_weights = []            # A list of tensors (F, B, S, Ko, Ki)
+        else:
+            zz_sum = zz_sum[:, :zz_sum.shape[1] - self.n_token + 1]
+        sum_weights = []            # A list of tensors (B, S, F, Ko, Ki)
         for sum_weight_fn in self._sum_weights_heads:
-            # sum_logits: (B, S, F, Ko, Ki)
+            # sum_logits: (F, B, S, Ko, Ki)
             sum_logits = sum_weight_fn(zz_sum)
             sum_weights.append(
                 torch.softmax(sum_logits.permute(2, 0, 1, 3, 4), dim=-1)
@@ -311,9 +331,11 @@ class MultiTokenHead(nn.Module):
         # Parameterize the token Categoricals of the circuit
         if generate:
             zz_tok = zz_tok[:, [-1]]
+        else:
+            zz_tok = zz_tok[:, :zz_tok.shape[1] - self.n_token + 1]
         categorical_log_probs = []  # A list of tensors (F, B, S, R, V)
         for categorical_log_probs_fn in self._categorical_log_probs_heads:
-            # categorical_logits: (B, S, F, R, V)
+            # categorical_logits: (F, B, S, R, V)
             categorical_logits = categorical_log_probs_fn(zz_tok)
             categorical_log_probs.append(
                 torch.log_softmax(categorical_logits.permute(2, 0, 1, 3, 4), dim=-1)

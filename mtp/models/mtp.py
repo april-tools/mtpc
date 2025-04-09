@@ -52,7 +52,7 @@ class MultiTokenLM(torch.nn.Module):
             from .mtp_head import MultiTokenHead as VanillaMultiTokenHead
             mtp_head_cls = VanillaMultiTokenHead
         elif mt_head_type == 'evabyte':
-            from .mtp_head import MultiTokenHead as EvabyteMultiTokenHead
+            from .evabyte.mtp_head import MultiTokenHead as EvabyteMultiTokenHead
             mtp_head_cls = EvabyteMultiTokenHead
         else:
             raise NotImplementedError(f"Uknown multi-token head called {mt_head_type}")
@@ -185,32 +185,16 @@ class MultiTokenLM(torch.nn.Module):
         else:
             teacher_log_probs = None
 
-        # 3) Truncate the activations
-        # For multi-token training, for each position, t, we predict the next
-        # H tokens in one forward pass. This means we run out of future tokens
-        # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
-        # xxd:      | t1 |
-        # yy :           | t2 | t3 | t4 |
-        #                      ...
-        #                      ...
-        # xxd:      | t1 | t2 | t3 | t4 |
-        # yy :                          | t5 | t6 | t7 |
-        #
-        # So S' = S - H + 1 = 6 - 3 + 1 = 4
-        # xx: (B, S', D), where S' = S - H + 1
-        history_idx = S - H + 1
-        xxd = xxd[:, : history_idx]
-
-        # 4) Parameterize the circuit with our NN activations
+        # 3) Parameterize the circuit with our NN activations
         self._parameterize_circuit(xxd)
 
-        # 5) Make target idxs, yy, windowed
+        # 4) Make target idxs, yy, windowed
         # from yy: (B, S) to yy: (B, S', H)
         yy = yy.unfold(dimension=1, size=H, step=1)
         # yy: (B, S', H) -> (B * S', H)
         yy = yy.reshape(-1, H)
 
-        # 6) Compute draft log probs with the circuit
+        # 5) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == 'full':
             # shape: H, B * S', V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
@@ -218,14 +202,14 @@ class MultiTokenLM(torch.nn.Module):
             # shape: H, B * S'  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
 
-        # 7) Compute CE loss per token and, optionally, KL loss
+        # 6) Compute CE loss per token and, optionally, KL loss
         losses = self.compute_per_token_losses(
             yy,
             draft_log_probs=log_probs,
             teacher_log_probs=teacher_log_probs
         )
 
-        # 8) Weigh the losses and optionally discount
+        # 7) Weigh the losses and optionally discount
         kl_loss = losses['kl_loss'] if self.compute_kl else 0.0
         ce_loss = losses['ce_loss'] if self.compute_ce else 0.0
         # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )

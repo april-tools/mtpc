@@ -1,4 +1,0 @@
-name: mnistbyte
-vocab_size: 320
-train_bin: '${oc.env:MTP_ROOT}/data/mnistbyte/mnistbyte_train_*.bin'
-val_bin: '${oc.env:MTP_ROOT}/data/mnistbyte/mnistbyte_val_*.bin'

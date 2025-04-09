@@ -125,7 +125,7 @@ def name_exp(cfg):
         return cfg.training.expname
     name = cfg.model.name
     if name == 'mtp':
-        name = '%s-n=%d-r=%d' % (name, cfg.model.n_token, cfg.model.n_component)
+        name = '%s-n=%d-r=%d' % (name, cfg.circuit.n_token, cfg.circuit.n_component)
     return name
 
 

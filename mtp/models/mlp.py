@@ -23,7 +23,7 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, n_head: int, n_embd: int):
         super().__init__()
-        from .attention import CausalSelfAttention
+        from .gpt import CausalSelfAttention
         self.attn = CausalSelfAttention(n_head, n_embd)
         self.mlp = MLP(n_embd)
 

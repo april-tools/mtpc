@@ -137,6 +137,9 @@ class MultiTokenLM(torch.nn.Module):
           input_ids :      | t1 | t2 | t3 | t4 | t5 | t6 |
           labels    :           | t2 | t3 | t4 | t5 | t6 | t7 |
 
+        attention_mask: shape(B, S), mask specifying which positions should
+            be conditioned on (true for active).
+
         Returns:
         A dictionary with keys:
             'loss': the combined loss used for training
@@ -220,26 +223,26 @@ class MultiTokenLM(torch.nn.Module):
 
         # Also process the attention mask which is the same shape as yy
         yym = attention_mask.unfold(dimension=1, size=H, step=1)
-        # We condition on tokens with attention_mask = True, so negate
+        # We condition on tokens with attention_mask = True
+        # so we want to marginalise out those with attention_mask=False
         do_not_condition_mask = ~yym.reshape(-1, H)
         # We do not predict tokens with IGNORE_TOKEN_ID
         do_not_predict_mask = yy == IGNORE_TOKEN_ID
 
         # We want to marginalise out tokens that should either not be predicted
         # or tokens that should not be conditioned on
-        # TODO: pass mask to autoregressive conditionals
         marg_mask = do_not_condition_mask | do_not_predict_mask
 
         # 6) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == "full":
             # shape: H, B * S', V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(
-                yy=yy, with_logits=True
+                yy=yy, marg_mask=marg_mask, with_logits=True
             )
         else:
             # shape: H, B * S'  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(
-                yy=yy, with_logits=False
+                yy=yy, marg_mask=marg_mask, with_logits=False
             )
 
         # 6) Compute CE loss per token and, optionally, KL loss

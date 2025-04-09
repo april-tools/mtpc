@@ -200,7 +200,11 @@ class CircuitModel(torch.nn.Module):
 
     @torch._dynamo.disable
     def univariate_marginal_at_k(
-        self, k: int, yy: Tensor | None = None, with_logits: bool = False
+        self,
+        k: int,
+        yy: Tensor | None = None,
+        marg_mask: Tensor | None = None,
+        with_logits: bool = False,
     ):
         assert 0 <= k <= self.n_token
         if with_logits:
@@ -213,7 +217,10 @@ class CircuitModel(torch.nn.Module):
             assert len(yy.shape) == 2
             BS, H = yy.shape
             assert H == self.n_token
-        log_probs = self.marginalizer(yy, integrate_vars=self._univariate_mar_mask[k])
+        mask = self._univariate_mar_mask[k]
+        if marg_mask is not None:
+            mask = mask | marg_mask
+        log_probs = self.marginalizer(yy, integrate_vars=mask)
         if with_logits is True:
             log_probs = log_probs.reshape(BS, self.vocab_size)
         else:
@@ -223,7 +230,11 @@ class CircuitModel(torch.nn.Module):
 
     @torch._dynamo.disable
     def autoregressive_marginal_at_k(
-        self, k: int, yy: Tensor, with_logits: bool = False
+        self,
+        k: int,
+        yy: Tensor,
+        marg_mask: Tensor | None = None,
+        with_logits: bool = False,
     ):
         # Marginalises out future tokens
         assert len(yy.shape) == 2
@@ -235,9 +246,10 @@ class CircuitModel(torch.nn.Module):
             # we expand to all possible realisations of that random variable
             yy = yy.clone()
             yy[:, k] = -1
-        log_probs = self.marginalizer(
-            yy, integrate_vars=self._autoregressive_mar_mask[k]
-        )
+        mask = self._autoregressive_mar_mask[k]
+        if marg_mask is not None:
+            mask = mask | marg_mask
+        log_probs = self.marginalizer(yy, integrate_vars=mask)
         if with_logits:
             log_probs = log_probs.reshape(BS, self.vocab_size)
         else:
@@ -245,7 +257,9 @@ class CircuitModel(torch.nn.Module):
         # BS, V if with_logits else BS
         return log_probs
 
-    def autoregressive_conditionals(self, yy: Tensor, with_logits: bool = False):
+    def autoregressive_conditionals(
+        self, yy: Tensor, marg_mask: Tensor | None = None, with_logits: bool = False
+    ):
         BS, H = yy.shape
         assert H == self.n_token
 
@@ -255,7 +269,7 @@ class CircuitModel(torch.nn.Module):
             # Compute P(x_{t+1}, x_{t+2}, .. , x_{t+k} | x_{<=t})
             # BS x V if with_logits else BS x 1
             marginal = self.autoregressive_marginal_at_k(
-                k, yy=yy, with_logits=with_logits
+                k, yy=yy, marg_mask=marg_mask, with_logits=with_logits
             )
             marginals.append(marginal)
         marginals = torch.stack(marginals)

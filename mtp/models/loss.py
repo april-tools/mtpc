@@ -147,13 +147,17 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
     else:
         assert len(draft_log_probs.shape) == 3
         assert yy.shape == (BS, H)
-    ce_losses = torch.zeros(H, device=draft_log_probs.device)
-    for h in range(H):
-        if yy is None:
-            # Cross-entropy with one-hot targets == negative log-likelihood
-            # The circuit has only computed the log probs for the targets
-            ce_losses[h] = -draft_log_probs[h].mean()
-        else:
-            # NOTE: log_probs are logits, but not vice-versa
-            ce_losses[h] = F.cross_entropy(draft_log_probs[h], yy[:, h].ravel())
+    if yy is None:  # draft_log_probs: (H, BS)
+        ce_losses = -draft_log_probs.mean(dim=1)
+    else:  # draft_log_probs: (H, BS, V)   NOTE: using torch.vmap instead of for loop
+        ce_losses = torch.vmap(F.cross_entropy, in_dims=(0, 1))(draft_log_probs, yy)
+    # ce_losses = torch.zeros(H, device=draft_log_probs.device)
+    # for h in range(H):
+    #     if yy is None:
+    #         # Cross-entropy with one-hot targets == negative log-likelihood
+    #         # The circuit has only computed the log probs for the targets
+    #         ce_losses[h] = -draft_log_probs[h].mean()
+    #     else:
+    #         # NOTE: log_probs are logits, but not vice-versa
+    #         ce_losses[h] = F.cross_entropy(draft_log_probs[h], yy[:, h].ravel())
     return ce_losses

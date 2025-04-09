@@ -5,7 +5,6 @@ from torch import Tensor
 from copy import deepcopy
 
 from .lm import LM
-from .mtp_head import MultiTokenHead
 
 from .circuits import CircuitModel
 from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
@@ -46,7 +45,18 @@ class MultiTokenLM(torch.nn.Module):
         super().__init__()
         self.lm = lm
         self.circuit = circuit
-        self.mt_head = MultiTokenHead(
+
+        # Select and instantiate the MTP head
+        mt_head_type = mt_head_kwargs.get('type', 'vanilla')
+        if mt_head_type == 'vanilla':
+            from .mtp_head import MultiTokenHead as VanillaMultiTokenHead
+            mtp_head_cls = VanillaMultiTokenHead
+        elif mt_head_type == 'evabyte':
+            from .mtp_head import MultiTokenHead as EvabyteMultiTokenHead
+            mtp_head_cls = EvabyteMultiTokenHead
+        else:
+            raise NotImplementedError(f"Uknown multi-token head called {mt_head_type}")
+        self.mt_head = mtp_head_cls(
             self.circuit.parameters_config,
             self.circuit.vocab_size,
             n_embd=mt_head_kwargs['n_embd'],
@@ -70,6 +80,8 @@ class MultiTokenLM(torch.nn.Module):
         self.gamma = gamma
         self.kl_type = kl_type
         self.kl_algorithm = kl_algorithm
+        self.register_buffer('_exp_gamma_weights', torch.tensor([self.gamma ** k for k in range(self.circuit.n_token)]))
+        self._exp_gamma_normalizer = torch.sum(self._exp_gamma_weights).item()
 
         # Keep track of what we need to compute
         self.compute_ce, self.compute_kl = self.beta < 1, self.beta > 0
@@ -214,43 +226,35 @@ class MultiTokenLM(torch.nn.Module):
         )
 
         # 8) Weigh the losses and optionally discount
-        sum_combined_loss = 0
-        loss_for_log = dict()
-        for k in range(H):
-
-            kl_loss = losses['kl_loss'][k] if self.compute_kl else 0.
-            ce_loss = losses['ce_loss'][k] if self.compute_ce else 0.
-
-            # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
-            combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
-
-            # Possibly discount by gamma^k (no discount if gamma = 1.)
-            sum_combined_loss += (self.gamma ** k) * combined_loss
-
-            # Compute losses for logging / these are detached outside
-            if self.compute_kl:
-                if self.kl_algorithm == 'full':
-                    loss_for_log['kl_loss_at_%d' % (k+1)] = kl_loss
-                elif self.kl_algorithm == 'binary_approx':
-                    loss_for_log['kl_loss_ba_at_%d' % (k+1)] = kl_loss
-
-            if self.compute_ce:
-                loss_for_log['ce_loss_at_%d' % (k+1)] = ce_loss
-
+        kl_loss = losses['kl_loss'] if self.compute_kl else 0.0
+        ce_loss = losses['ce_loss'] if self.compute_ce else 0.0
+        # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
+        combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
+        # Possibly discount by gamma^k (no discount if gamma = 1.)
         # We the loss to stay on same scale for more tokens
         # and for change of gamma - gamma should only scale relatively
-        sum_combined_loss = sum_combined_loss / sum([self.gamma ** k for k in range(H)])
-
-        outputs = {'loss': sum_combined_loss}
+        avg_combined_loss = torch.sum(combined_loss * self._exp_gamma_weights, dim=-1) / self._exp_gamma_normalizer
+        
+        # Set the losses for logging / these are detached outside
+        outputs = {'loss': avg_combined_loss}
         if self.compute_kl or self.compute_ce:
-            outputs.update(loss_for_log)
+            for k in range(H):
+                if self.compute_kl:
+                    if self.kl_algorithm == 'full':
+                        outputs[f'kl_loss_at_{k+1}'] = kl_loss[k]
+                    elif self.kl_algorithm == 'binary_approx':
+                        outputs[f'kl_loss_ba_at_{k+1}'] = kl_loss[k]
+                if self.compute_ce:
+                    outputs[f'ce_loss_at_{k+1}'] = ce_loss[k]
+
         if return_log_probs:
             # TODO: fix below. We should not be recomputing things here
             # but we would need to standardize what log probs we return
             # currently this would differ depending on with_logits or not
             lp = self.circuit(yy)
             outputs['log_probs'] = lp
-            outputs['full_log_probs'] = log_probs
+            outputs['full_log_probs'] = log_probs  # ??? What is a full log probs ???
+
         return outputs
 
     def _parameterize_circuit(self, xx: Tensor, generate: bool = False):

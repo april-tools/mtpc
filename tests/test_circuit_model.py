@@ -58,14 +58,14 @@ def test_circuit_conditionals_with_logits(circuit: CircuitModel):
     log_probs = circuit.autoregressive_conditionals(yy, with_logits=False)
 
     log_probs_all = circuit.autoregressive_conditionals(yy, with_logits=True)
-    match = log_probs_all[
+    should_match = log_probs_all[
         torch.arange(circuit.n_token)[:, None],
         torch.arange(BATCH_SIZE)[None, :],
         yy.permute(1, 0)
     ]
 
     # Assert entries we get without all logits agree with all logits case
-    assert torch.allclose(log_probs, match)
+    assert torch.allclose(log_probs, should_match)
 
 
 def test_circuit_ntp_equals_univariate(circuit: CircuitModel):
@@ -91,18 +91,30 @@ def test_circuit_joint(circuit: CircuitModel):
     assert torch.allclose(joint_log_probs_from_cond, joint)
 
 
+def test_circuit_joint_with_batch_mask_all_out(circuit: CircuitModel):
+    yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))
+
+    marg_mask = torch.ones_like(yy, dtype=torch.bool)
+
+    # The product of the conditionals should be equal to the joint
+    cond_log_probs = circuit.autoregressive_conditionals(yy, marg_mask=marg_mask, with_logits=False)
+    joint_log_probs_from_cond = sum(cond_log_probs)
+
+    assert torch.allclose(joint_log_probs_from_cond, torch.zeros_like(joint_log_probs_from_cond))
+
+
 def test_circuit_joint_with_logits(circuit: CircuitModel):
     yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))
 
     # The product of the conditionals should be equal to the joint
     cond_log_probs = circuit.autoregressive_conditionals(yy, with_logits=True)
-    match = torch.zeros(BATCH_SIZE)
+    should_match = torch.zeros(BATCH_SIZE)
     for i, clp in enumerate(cond_log_probs):
-        match += clp[torch.arange(BATCH_SIZE), yy[:, i].ravel()]
+        should_match += clp[torch.arange(BATCH_SIZE), yy[:, i].ravel()]
 
     joint = circuit(yy)
 
-    assert torch.allclose(match, joint)
+    assert torch.allclose(should_match, joint)
 
 
 def test_circuit_conditional_dependency(circuit: CircuitModel):

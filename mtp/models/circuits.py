@@ -6,9 +6,8 @@ from cirkit.backend.torch.layers import TorchHadamardLayer, TorchKroneckerLayer
 from cirkit.pipeline import PipelineContext
 from cirkit.utils.scope import Scope
 from cirkit.templates import utils, tensor_factorizations, pgms
-from cirkit.backend.torch.queries import SamplingQuery, IntegrateQuery
 
-from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
+from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer, SamplingQuery, IntegrateQuery
 
 # from cirkit.templates import tensor_factorizations, utils
 from .pipeline import setup_pipeline_context

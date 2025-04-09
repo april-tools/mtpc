@@ -58,7 +58,7 @@ class MultiTokenLM(torch.nn.Module):
             from .evabyte.mtp_head import MultiTokenHead as EvabyteMultiTokenHead
             mtp_head_cls = EvabyteMultiTokenHead
         else:
-            raise NotImplementedError(f"Uknown multi-token head called {mt_head_type}")
+            raise NotImplementedError(f"Unknown multi-token head called {mt_head_type}")
         self.mt_head = mtp_head_cls(
             self.circuit.parameters_config,
             self.circuit.vocab_size,
@@ -75,10 +75,12 @@ class MultiTokenLM(torch.nn.Module):
         # Below are the params for weighting the kl and ce losses.
         # Keep these globally to avoid shooting ourselves in the foot
         # by computing train and validation with different hyperparams
-        assert 0 <= beta <= 1, 'Expected 0 <= beta <= 1, got: %.2f' % beta
-        assert 0 < gamma <= 1, 'Expected 0 <= gamma <= 1, got: %.2f' % gamma
-        assert kl_type in ('forward', 'reverse'), 'Unknown kl_type: %s' % kl_type
-        assert kl_algorithm in ('full', 'binary_approx'), 'Unknown kl_algorithm: %s' % kl_algorithm
+        assert 0 <= beta <= 1, "Expected 0 <= beta <= 1, got: %.2f" % beta
+        assert 0 < gamma <= 1, "Expected 0 <= gamma <= 1, got: %.2f" % gamma
+        assert kl_type in ("forward", "reverse"), "Unknown kl_type: %s" % kl_type
+        assert kl_algorithm in ("full", "binary_approx"), (
+            "Unknown kl_algorithm: %s" % kl_algorithm
+        )
         self.beta = beta
         self.gamma = gamma
         self.kl_type = kl_type
@@ -115,7 +117,7 @@ class MultiTokenLM(torch.nn.Module):
         input_ids: LongTensor,
         labels: LongTensor,
         attention_mask: LongTensor,
-        return_log_probs: bool = False
+        return_log_probs: bool = False,
     ) -> dict:
         r"""
         Reference: https://arxiv.org/abs/2410.17765 , Eq 14.
@@ -170,7 +172,7 @@ class MultiTokenLM(torch.nn.Module):
                 _, S, V = teacher_log_probs.shape
                 assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
 
-                if self.kl_algorithm == 'binary_approx':
+                if self.kl_algorithm == "binary_approx":
                     # We only need the log probs for the target category
                     # shape: B, S, 1
                     teacher_log_probs = torch.gather(
@@ -179,7 +181,9 @@ class MultiTokenLM(torch.nn.Module):
                 # Make teacher_log_probs windowed for kl with circuit logprobs
                 # TODO: Since we are using a for loop in the KL computation
                 # shape: B, S', V, H
-                teacher_log_probs = teacher_log_probs.unfold(dimension=1, size=H, step=1)
+                teacher_log_probs = teacher_log_probs.unfold(
+                    dimension=1, size=H, step=1
+                )
                 # shape: H, B, S', V
                 teacher_log_probs = teacher_log_probs.permute(3, 0, 1, 2)
                 # shape: H, B * S', V
@@ -203,7 +207,7 @@ class MultiTokenLM(torch.nn.Module):
         # So S' = S - H + 1 = 6 - 3 + 1 = 4
         # xx: (B, S', D), where S' = S - H + 1
         history_idx = S - H + 1
-        xxd = xxd[:, : history_idx]
+        xxd = xxd[:, :history_idx]
 
         # 4) Parameterize the circuit with our NN activations
         self._parameterize_circuit(xxd, attention_mask=attention_mask)
@@ -219,7 +223,7 @@ class MultiTokenLM(torch.nn.Module):
         # We condition on tokens with attention_mask = True, so negate
         do_not_condition_mask = ~yym.reshape(-1, H)
         # We do not predict tokens with IGNORE_TOKEN_ID
-        do_not_predict_mask = (yy == IGNORE_TOKEN_ID)
+        do_not_predict_mask = yy == IGNORE_TOKEN_ID
 
         # We want to marginalise out tokens that should either not be predicted
         # or tokens that should not be conditioned on
@@ -227,18 +231,20 @@ class MultiTokenLM(torch.nn.Module):
         marg_mask = do_not_condition_mask | do_not_predict_mask
 
         # 6) Compute draft log probs with the circuit
-        if self.compute_kl and self.kl_algorithm == 'full':
+        if self.compute_kl and self.kl_algorithm == "full":
             # shape: H, B * S', V   We need the full conditional distributions
-            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
+            log_probs = self.circuit.autoregressive_conditionals(
+                yy=yy, with_logits=True
+            )
         else:
             # shape: H, B * S'  We need conditional distributions for yy only
-            log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
+            log_probs = self.circuit.autoregressive_conditionals(
+                yy=yy, with_logits=False
+            )
 
         # 6) Compute CE loss per token and, optionally, KL loss
         losses = self.compute_per_token_losses(
-            yy,
-            draft_log_probs=log_probs,
-            teacher_log_probs=teacher_log_probs
+            yy, draft_log_probs=log_probs, teacher_log_probs=teacher_log_probs
         )
 
         # 7) Weigh the losses and optionally discount
@@ -313,28 +319,31 @@ class MultiTokenLM(torch.nn.Module):
         #
         # yy: (B * S', H)
         # all_log_probs: (H, B * S')
-        all_log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
+        all_log_probs = self.circuit.autoregressive_conditionals(
+            yy=yy, with_logits=False
+        )
         stp_losses = -all_log_probs.mean(dim=1)
         # H dims
         return stp_losses
 
     def compute_next_token_log_probs(self) -> Tensor:
-        next_token_log_probs = self.circuit.univariate_marginal_at_k(k=0, with_logits=True)
+        next_token_log_probs = self.circuit.univariate_marginal_at_k(
+            k=0, with_logits=True
+        )
         # BS, V
         return next_token_log_probs
 
     def compute_all_token_log_probs(self, yy: Tensor) -> Tensor:
-        all_token_log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
+        all_token_log_probs = self.circuit.autoregressive_conditionals(
+            yy=yy, with_logits=True
+        )
         # H, BS, V
         return all_token_log_probs
 
     def compute_per_token_losses(
-        self,
-        yy: Tensor,
-        draft_log_probs: Tensor,
-        teacher_log_probs: Tensor = None
+        self, yy: Tensor, draft_log_probs: Tensor, teacher_log_probs: Tensor = None
     ) -> dict:
-        """ Compute per token losses.
+        """Compute per token losses.
 
         Args:
             yy: shape (H, BS), the target token indices
@@ -343,28 +352,33 @@ class MultiTokenLM(torch.nn.Module):
                 from the teacher model, windowed for easy kl computation.
         """
         if self.compute_kl:
-            assert teacher_log_probs is not None, 'Expected teacher_log_probs != None'
+            assert teacher_log_probs is not None, "Expected teacher_log_probs != None"
 
         losses = dict()
         if self.compute_kl:
-            if self.kl_algorithm == 'full':
-                losses['kl_loss'] = compute_full_kl(draft_log_probs, teacher_log_probs, self.kl_type)
-            elif self.kl_algorithm == 'binary_approx':
-                losses['kl_loss'] = compute_binary_approx_kl(draft_log_probs, teacher_log_probs, self.kl_type)
+            if self.kl_algorithm == "full":
+                losses["kl_loss"] = compute_full_kl(
+                    draft_log_probs, teacher_log_probs, self.kl_type
+                )
+            elif self.kl_algorithm == "binary_approx":
+                losses["kl_loss"] = compute_binary_approx_kl(
+                    draft_log_probs, teacher_log_probs, self.kl_type
+                )
             else:
-                raise ValueError('Unknown kl_algorithm = %s' % self.kl_algorithm)
+                raise ValueError("Unknown kl_algorithm = %s" % self.kl_algorithm)
         if self.compute_ce:
             # If we have only computed the gold log probs
             if len(draft_log_probs.shape) == 2:
-                losses['ce_loss'] = compute_cross_entropy(draft_log_probs, yy=None)
+                losses["ce_loss"] = compute_cross_entropy(draft_log_probs, yy=None)
             else:
-                losses['ce_loss'] = compute_cross_entropy(draft_log_probs, yy)
+                losses["ce_loss"] = compute_cross_entropy(draft_log_probs, yy)
 
         return losses
 
     @torch.no_grad()
     def generate(
-        self, inputs: Tensor,
+        self,
+        inputs: Tensor,
         use_argmax: bool = False,
         mode: str = 'mtp',
         use_cache: bool = False,
@@ -384,7 +398,7 @@ class MultiTokenLM(torch.nn.Module):
             outputs = self.lm.encoder(
                 inputs[:, seen_tokens:],
                 use_cache=use_cache,
-                past_key_values=past_key_values
+                past_key_values=past_key_values,
             )
         else:
             outputs = self.lm.encoder(inputs)
@@ -404,10 +418,10 @@ class MultiTokenLM(torch.nn.Module):
             past_key_values = outputs['past_key_values']
             head_past_key_values = next_head_past_key_values
 
-        if mode == 'mtp':
+        if mode == "mtp":
             # Sample the next tokens
             tokens, _ = self.circuit.sample(num_samples=1)
-        elif mode == 'stp':
+        elif mode == "stp":
             next_token_probs = torch.exp(self.compute_next_token_log_probs())
             if use_argmax:
                 tokens = torch.argmax(next_token_probs, dim=1)
@@ -432,7 +446,9 @@ class MultiTokenLM(torch.nn.Module):
         head_past_key_values: Cache = None,
     ) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
-            raise NotImplementedError("Multi-batch self-speculative decoding not implemented yet")
+            raise NotImplementedError(
+                "Multi-batch self-speculative decoding not implemented yet"
+            )
             # seq: (B, S), with B = 1 and also possibly S = 1
 
         # Compute the embeddings
@@ -445,7 +461,7 @@ class MultiTokenLM(torch.nn.Module):
             outputs = self.lm.encoder(
                 seq[:, seen_tokens:],
                 use_cache=use_cache,
-                past_key_values=past_key_values
+                past_key_values=past_key_values,
             )
         else:
             outputs = self.lm.encoder(seq)
@@ -501,7 +517,8 @@ class MultiTokenLM(torch.nn.Module):
         #
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
         log_marginal_probs = self.circuit.marginalizer(
-            tokens.expand(size=(tokens.shape[1], -1)), integrate_vars=self.circuit._autoregressive_mar_mask
+            tokens.expand(size=(tokens.shape[1], -1)),
+            integrate_vars=self.circuit._autoregressive_mar_mask,
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
@@ -518,7 +535,9 @@ class MultiTokenLM(torch.nn.Module):
             # which avoids many floating point divisions and is more numerically stable
             lm_next_token_log_probs = torch.log_softmax(logits[:, j], dim=1)
             # lm_jth_token_log_prob: (B, 1)
-            lm_jth_token_log_prob = torch.gather(lm_next_token_log_probs, dim=1, index=tokens[:, [j]]).cpu()
+            lm_jth_token_log_prob = torch.gather(
+                lm_next_token_log_probs, dim=1, index=tokens[:, [j]]
+            ).cpu()
             # Compute log conditional probabilities, conditioned on the context
             if j == 0:
                 # q(x_{t+1}\mid x_{\leq t})
@@ -528,7 +547,9 @@ class MultiTokenLM(torch.nn.Module):
                 # q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) = \
                 #     q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j-1}\mid x_{\leq t})
                 # mtp_jth_token_log_prob: (B, 1)
-                mtp_jth_token_log_prob = log_marginal_probs[:, j].cpu() - log_marginal_probs[:, j - 1].cpu()
+                mtp_jth_token_log_prob = (
+                    log_marginal_probs[:, j].cpu() - log_marginal_probs[:, j - 1].cpu()
+                )
             # Check noise > \
             #     (p(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) / q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}))
             if log_noise[:, j] > (lm_jth_token_log_prob - mtp_jth_token_log_prob):
@@ -561,17 +582,26 @@ class MultiTokenLM(torch.nn.Module):
                 # mtp_jp1th_token_log_probs: (B * V, 1, 1)
                 mtp_jp1th_token_log_probs = self.circuit.marginalizer(
                     mtp_jp1th_tokens,
-                    integrate_vars=self.circuit._autoregressive_mar_mask[num_accepted_tokens],
+                    integrate_vars=self.circuit._autoregressive_mar_mask[
+                        num_accepted_tokens
+                    ],
                 )
             # mtp_jp1th_token_log_probs: (B * V, 1, 1) -> (B, V)
-            mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(tokens.shape[0], self.vocab_size)
+            mtp_jp1th_token_log_probs = mtp_jp1th_token_log_probs.view(
+                tokens.shape[0], self.vocab_size
+            )
             # mtp_last_probs: (B, V)
             if num_accepted_tokens == 0:
                 mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs)
             else:
-                mtp_last_probs = torch.exp(mtp_jp1th_token_log_probs - log_marginal_probs[:, num_accepted_tokens - 1])
+                mtp_last_probs = torch.exp(
+                    mtp_jp1th_token_log_probs
+                    - log_marginal_probs[:, num_accepted_tokens - 1]
+                )
             adj_last_probs = torch.clamp_min(lm_last_probs - mtp_last_probs, min=1e-15)
-            adj_last_probs = adj_last_probs / torch.sum(adj_last_probs, dim=1, keepdim=True)
+            adj_last_probs = adj_last_probs / torch.sum(
+                adj_last_probs, dim=1, keepdim=True
+            )
             # Sample the last token
             last_token = torch.multinomial(adj_last_probs, num_samples=1)
 

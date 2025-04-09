@@ -222,12 +222,12 @@ class MultiTokenLM(torch.nn.Module):
         yy = yy.reshape(-1, H)
 
         # Also process the attention mask which is the same shape as yy
-        yym = attention_mask.unfold(dimension=1, size=H, step=1)
+        yym = attention_mask.bool().unfold(dimension=1, size=H, step=1)
         # We condition on tokens with attention_mask = True
         # so we want to marginalise out those with attention_mask=False
         do_not_condition_mask = ~yym.reshape(-1, H)
         # We do not predict tokens with IGNORE_TOKEN_ID
-        do_not_predict_mask = yy == IGNORE_TOKEN_ID
+        do_not_predict_mask = (yy == IGNORE_TOKEN_ID)
 
         # We want to marginalise out tokens that should either not be predicted
         # or tokens that should not be conditioned on

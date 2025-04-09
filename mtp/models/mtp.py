@@ -116,7 +116,7 @@ class MultiTokenLM(torch.nn.Module):
         self,
         input_ids: LongTensor,
         labels: LongTensor,
-        attention_mask: LongTensor,
+        attention_mask: LongTensor | None = None,
         return_log_probs: bool = False,
     ) -> dict:
         r"""
@@ -153,6 +153,9 @@ class MultiTokenLM(torch.nn.Module):
         S = input_ids.shape[1]
         # R = self.circuit.n_component
         # V = self.vocab_size
+
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=torch.int32)
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
@@ -399,12 +402,12 @@ class MultiTokenLM(torch.nn.Module):
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
             outputs = self.lm.encoder(
-                inputs[:, seen_tokens:],
+                input_ids=inputs[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values,
             )
         else:
-            outputs = self.lm.encoder(inputs)
+            outputs = self.lm.encoder(input_ids=inputs)
         # Parameterize the circuit
         xx = outputs['last_hidden_state']
         next_head_past_key_values = self._parameterize_circuit(
@@ -462,12 +465,12 @@ class MultiTokenLM(torch.nn.Module):
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
             outputs = self.lm.encoder(
-                seq[:, seen_tokens:],
+                input_ids=seq[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values,
             )
         else:
-            outputs = self.lm.encoder(seq)
+            outputs = self.lm.encoder(input_ids=seq)
         # Parameterize the circuit
         xx = outputs['last_hidden_state']
         next_head_past_key_values = self._parameterize_circuit(
@@ -496,13 +499,13 @@ class MultiTokenLM(torch.nn.Module):
         with self.lm.disable_adapter_if_any():
             if use_cache:
                 outputs = self.lm.encoder(
-                    gen_seq[:, seen_tokens:],
+                    input_ids=gen_seq[:, seen_tokens:],
                     use_cache=use_cache,
                     past_key_values=verifier_past_key_values
                 )
                 past_key_values = verifier_past_key_values
             else:
-                outputs = self.lm.encoder(gen_seq)
+                outputs = self.lm.encoder(input_ids=gen_seq)
             # zz: (B, S + H, D) -> (B, H + 1, D)
             zz = outputs['last_hidden_state']
             zz = zz[:, -tokens.shape[1] - 1 :]

@@ -65,7 +65,7 @@ def decode(xx):
     return text
 
 
-def generate(x: torch.Tensor, disable_progress_bar: bool = True):
+def generate(x: torch.Tensor, disable_progress_bar: bool = True, print_generation=False):
     # Init model in case loading takes additional time - do not use this output
     with ctx:
         _ = model.generate(x, mode=args.mode, use_cache=args.use_cache)['tokens']
@@ -132,7 +132,8 @@ def generate(x: torch.Tensor, disable_progress_bar: bool = True):
     else:
         raise ValueError('Unexpected device %s' % args.device)
 
-    # print('Generation:\n\n', decode(x), '\n')
+    if print_generation:
+        print('Generation:\n\n', decode(x), '\n')
 
     return elapsed_time, num_tokens
 
@@ -153,6 +154,8 @@ if __name__ == "__main__":
                         help='Whether to randomly subsample a number of prompts from spec_bench if --prompt is not given')
     parser.add_argument('--speculative', action='store_true',
                         help='Whether to use speculative decoding.')
+    parser.add_argument('--print', action='store_true',
+                        help='Whether to print the generated texts.')
     parser.add_argument('--use-cache', default=False, action='store_true',
                         help='Whether to use a kv cache.')
     parser.add_argument('--random-seed', default=13, type=int,
@@ -249,7 +252,7 @@ if __name__ == "__main__":
     total_elapsed_time = 0.0
 
     for x in tqdm.tqdm(xs, disable=len(prompts) == 1):
-        elapsed_time, num_tokens = generate(x, disable_progress_bar=len(prompts) > 1)
+        elapsed_time, num_tokens = generate(x, disable_progress_bar=len(prompts) > 1, print_generation=args.print)
         total_elapsed_time += elapsed_time
         total_num_tokens.extend(num_tokens)
 

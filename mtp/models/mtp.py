@@ -10,7 +10,7 @@ from .lm import LM
 
 from .circuits import CircuitModel
 from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
-from .loss import IGNORE_TOKEN_ID
+from .loss import compute_valid_mask
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -230,7 +230,7 @@ class MultiTokenLM(torch.nn.Module):
         # so we want to marginalise out those with attention_mask=False
         do_not_condition_mask = ~yym.reshape(-1, H)
         # We do not predict tokens with IGNORE_TOKEN_ID
-        do_not_predict_mask = (yy == IGNORE_TOKEN_ID)
+        do_not_predict_mask = ~ compute_valid_mask(yy)
 
         # We want to marginalise out tokens that should either not be predicted
         # or tokens that should not be conditioned on
@@ -364,11 +364,11 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl:
             if self.kl_algorithm == "full":
                 losses["kl_loss"] = compute_full_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type
+                    draft_log_probs, teacher_log_probs, self.kl_type, mask=compute_valid_mask(yy)
                 )
             elif self.kl_algorithm == "binary_approx":
                 losses["kl_loss"] = compute_binary_approx_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type
+                    draft_log_probs, teacher_log_probs, self.kl_type, mask=compute_valid_mask(yy)
                 )
             else:
                 raise ValueError("Unknown kl_algorithm = %s" % self.kl_algorithm)

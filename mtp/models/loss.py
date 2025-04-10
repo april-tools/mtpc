@@ -7,9 +7,21 @@ from mtp.utils.extern import log1mexp
 IGNORE_TOKEN_ID = -100
 
 
+def compute_valid_mask(yy: torch.Tensor):
+    return yy != IGNORE_TOKEN_ID
+
+
+def compute_num_valid_tokens(mask: torch.Tensor):
+    num_valid_tokens = mask.sum().item()
+    # Make sure we do not divide by zero
+    num_valid_tokens = max(num_valid_tokens, 1)
+    return num_valid_tokens
+
+
 def compute_full_kl(draft_log_probs: torch.Tensor,
                     teacher_log_probs: torch.Tensor,
-                    kl_type: str) -> torch.Tensor:
+                    kl_type: str,
+                    mask: torch.Tensor | None = None) -> torch.Tensor:
     """
     Computes the Kullback–Leibler (KL) divergence between two distributions.
 
@@ -23,6 +35,8 @@ def compute_full_kl(draft_log_probs: torch.Tensor,
         teacher model, shape (H, BS, V).
         kl_type (str): Specifies the type of KL divergence to compute
         ('forward' or 'reverse').
+        mask (torch.Tensor): A boolean mask specifying whether each output should
+        be predicted or not (affects mean loss computation), shape (H, BS)
 
     Returns:
         kl_losses (torch.Tensor of shape H): KL divergence loss computed
@@ -42,6 +56,7 @@ def compute_full_kl(draft_log_probs: torch.Tensor,
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
     H, BS, V = draft_log_probs.shape
+    assert mask is None or mask.shape == (BS, H)
 
     kl_losses = torch.zeros(H, device=teacher_log_probs.device)
     for h in range(H):
@@ -55,21 +70,36 @@ def compute_full_kl(draft_log_probs: torch.Tensor,
             # kl_f_pt = F.kl_div(torch.log(draft), torch.log(target), log_target=True, reduction='batchmean')
             # assert torch.allclose(kl_f, kl_f_pt)
             # So we do draft, target order for forward KL:
-            kl_losses[h] = F.kl_div(draft_log_probs[h],
-                                    teacher_log_probs[h],
-                                    log_target=True,
-                                    reduction='batchmean')
+            if mask is None:
+                kl_losses[h] = F.kl_div(draft_log_probs[h],
+                                        teacher_log_probs[h],
+                                        log_target=True,
+                                        reduction='batchmean')
+            else:
+                kl_losses[h] = F.kl_div(draft_log_probs[h],
+                                        teacher_log_probs[h],
+                                        log_target=True,
+                                        reduction='sum')
+                kl_losses[h] /= compute_num_valid_tokens(mask[:, h])
         else:
-            kl_losses[h] = F.kl_div(teacher_log_probs[h],
-                                    draft_log_probs[h],
-                                    log_target=True,
-                                    reduction='batchmean')
+            if mask is None:
+                kl_losses[h] = F.kl_div(teacher_log_probs[h],
+                                        draft_log_probs[h],
+                                        log_target=True,
+                                        reduction='batchmean')
+            else:
+                kl_losses[h] = F.kl_div(teacher_log_probs[h],
+                                        draft_log_probs[h],
+                                        log_target=True,
+                                        reduction='sum')
+                kl_losses[h] /= compute_num_valid_tokens(mask[:, h])
     return kl_losses
 
 
 def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
                              teacher_log_probs: torch.Tensor,
-                             kl_type: str) -> torch.Tensor:
+                             kl_type: str = 'forward',
+                             mask: torch.Tensor | None = None) -> torch.Tensor:
     """
     Computes an approximate KL divergence between two distributions by grouping
     the probabilities into two categories: target and rest, and computing a KL
@@ -98,6 +128,8 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
     assert draft_log_probs.shape == teacher_log_probs.shape
+    H, BS = teacher_log_probs.shape
+    assert mask is None or mask.shape == (BS, H)
 
     # Clamp log probs to avoid NaNs
     assert draft_log_probs.dtype == teacher_log_probs.dtype
@@ -117,11 +149,13 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
     if kl_type == 'forward':
         kl = torch.exp(teacher_log_probs) * (teacher_log_probs - draft_log_probs) + \
             torch.exp(rest_teacher_log_probs) * (rest_teacher_log_probs - rest_draft_log_probs)
-        kl_losses = kl.mean(axis=-1)
     else:
         kl = torch.exp(draft_log_probs) * (draft_log_probs - teacher_log_probs) + \
             torch.exp(rest_draft_log_probs) * (rest_draft_log_probs - rest_teacher_log_probs)
+    if mask is None:
         kl_losses = kl.mean(axis=-1)
+    else:
+        kl_losses = kl.sum(axis=-1) / compute_num_valid_tokens(mask)
     return kl_losses
 
 
@@ -152,9 +186,8 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
         if len(draft_log_probs.shape) == 2:
             # Cross-entropy with one-hot targets == negative log-likelihood
             # The circuit has only computed the log probs for the targets
-            num_valid_tokens = (yy[:, h] != IGNORE_TOKEN_ID).sum().item()
-            # Make sure we do not divide by zero
-            num_valid_tokens = max(num_valid_tokens, 1)
+            mask = compute_valid_mask(yy[:, h])
+            num_valid_tokens = compute_num_valid_tokens(mask)
             ce_losses[h] = - draft_log_probs[h].sum() / num_valid_tokens
         elif len(draft_log_probs.shape) == 3:
             # NOTE: log_probs are logits, but not vice-versa

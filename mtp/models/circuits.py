@@ -7,7 +7,9 @@ from cirkit.pipeline import PipelineContext
 from cirkit.utils.scope import Scope
 from cirkit.templates import utils, tensor_factorizations, pgms
 
-from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer, SamplingQuery, IntegrateQuery
+from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
+from mtp.models.circuit_layers import SamplingQuery, IntegrateQuery
+from mtp.models.circuit_layers import sanitize_input
 
 # from cirkit.templates import tensor_factorizations, utils
 from .pipeline import setup_pipeline_context
@@ -183,10 +185,6 @@ class CircuitModel(torch.nn.Module):
             # weight: (F, B, S', K1, K2) -> (F, B * S', K1, K2)
             layer.weight = weight.flatten(1, 2)
 
-    @torch._dynamo.disable
-    def forward(self, yy):
-        return self._circuit(yy).ravel()
-
     @property
     def _batch_size(self) -> int:
         # Hack to get the batch size of the parameters in the circuit
@@ -198,6 +196,14 @@ class CircuitModel(torch.nn.Module):
         return self._parameters_config.categorical_layers[0].log_probs.device
 
     @torch._dynamo.disable
+    def forward(self, yy: Tensor, marg_mask: Tensor | None = None):
+        if marg_mask is not None:
+            log_probs = self.marginalizer(yy, integrate_vars=marg_mask)
+        else:
+            log_probs = self._circuit(yy)
+        return log_probs.ravel()
+
+    @torch._dynamo.disable
     def univariate_marginal_at_k(
         self,
         k: int,
@@ -206,6 +212,8 @@ class CircuitModel(torch.nn.Module):
         with_logits: bool = False,
     ):
         assert 0 <= k <= self.n_token
+
+        # Construct yy if it is None
         if with_logits:
             if yy is not None:
                 raise ValueError("Expected yy=None, got: %s" % yy)
@@ -216,9 +224,11 @@ class CircuitModel(torch.nn.Module):
             assert len(yy.shape) == 2
             BS, H = yy.shape
             assert H == self.n_token
+
         mask = self._univariate_mar_mask[k]
         if marg_mask is not None:
             mask = mask | marg_mask
+
         log_probs = self.marginalizer(yy, integrate_vars=mask)
         if with_logits is True:
             log_probs = log_probs.reshape(BS, self.vocab_size)
@@ -240,14 +250,17 @@ class CircuitModel(torch.nn.Module):
         BS, H = yy.shape
         assert H == self.n_token
         assert 0 <= k <= self.n_token
+
         if with_logits:
             # In the circuit implementation if we see -1 for a categorical
             # we expand to all possible realisations of that random variable
             yy = yy.clone()
             yy[:, k] = -1
+
         mask = self._autoregressive_mar_mask[k]
         if marg_mask is not None:
             mask = mask | marg_mask
+
         log_probs = self.marginalizer(yy, integrate_vars=mask)
         if with_logits:
             log_probs = log_probs.reshape(BS, self.vocab_size)
@@ -261,6 +274,12 @@ class CircuitModel(torch.nn.Module):
     ):
         BS, H = yy.shape
         assert H == self.n_token
+
+        # NOTE: In the marginals at the end of the function, when we use
+        # `with_logits` we need to pick what to condition on. When
+        # yy=-100 (IGNORE_TOKEN_ID), we will get an error, so replace values
+        # here. NOTE: Irrespective of what idx we set, the value is the same.
+        yy = sanitize_input(yy)
 
         # NOTE: Below can be computed in parallel
         marginals = []

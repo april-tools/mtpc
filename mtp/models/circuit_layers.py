@@ -13,6 +13,27 @@ from cirkit.backend.torch.semiring import Semiring, LSESumSemiring
 from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.utils.scope import Scope
 
+from mtp.models.loss import IGNORE_TOKEN_ID
+
+
+def sanitize_input(yy: Tensor) -> Tensor:
+    """
+    Sanitizes the input tensor, yy, by replacing IGNORE_TOKEN_ID values
+    which cannot be processed by cirkit.
+
+    Args:
+        yy (Tensor): The input tensor containing values to be sanitized.
+
+    Returns:
+        Tensor: The sanitized tensor with invalid values corrected.
+    """
+    yyc = yy.clone()
+    # 0 is just a placeholder value - the random variables we are setting
+    # will be marginalised out via marg_mask, so the value does not matter.
+    NO_ERROR_PLACEHOLDER = 0
+    yyc[yy == IGNORE_TOKEN_ID] = NO_ERROR_PLACEHOLDER
+    return yyc
+
 
 class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
     # pylint: disable-next=too-many-arguments
@@ -92,6 +113,12 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
     def log_unnormalized_likelihood(self, x: Tensor) -> Tensor:
         if x.is_floating_point():
             x = x.long()  # The input to Categorical should be discrete
+
+        # NOTE: Below is because we use -100 for tokens that should not be
+        # predicted. While we will marginalise those out, cirkit chokes on -100
+        # so replace it with a placeholder value (it does not matter which value).
+        x = sanitize_input(x)
+
         # x: (F, B, 1) -> (F, B)
         x = x.squeeze(dim=2)
         F, B = x.shape

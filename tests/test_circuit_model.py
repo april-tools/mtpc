@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from mtp.models.circuits import CircuitModel
+from mtp.models.loss import IGNORE_TOKEN_ID
 
 
 BATCH_SIZE = 8
@@ -52,7 +53,48 @@ def test_circuit_marginalisation_with_logits(circuit: CircuitModel):
     assert torch.allclose(torch.exp(log_probs_all).sum(axis=1), torch.ones(BATCH_SIZE))
 
 
-def test_circuit_conditionals_with_logits(circuit: CircuitModel):
+def test_circuit_conditionals_mask_batch(circuit: CircuitModel):
+    yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))
+
+    log_probs_all = circuit.autoregressive_conditionals(yy, with_logits=False)
+
+    # All heads for Batch 2
+    yy[2] = IGNORE_TOKEN_ID
+    # Single head for Batch 5 (we marginalise out last head - since if we marginalise out earlier
+    # it affects the follow-up probs
+    yy[5, -1] = IGNORE_TOKEN_ID
+    marg_mask = (yy == IGNORE_TOKEN_ID)
+    log_probs_all_but_one = circuit.autoregressive_conditionals(yy, marg_mask=marg_mask, with_logits=False)
+
+    assert torch.allclose(log_probs_all_but_one[:, 2], torch.zeros_like(log_probs_all[:, 2]))
+    assert torch.allclose(log_probs_all_but_one[-1, 5], torch.zeros_like(log_probs_all[-1, 5]))
+    # Assert entries we get without all logits agree with all logits case
+    not_marginalised = ~marg_mask.permute(1, 0)
+    assert torch.allclose(log_probs_all[not_marginalised], log_probs_all_but_one[not_marginalised])
+
+
+def test_circuit_conditionals_with_logits_mask_batch(circuit: CircuitModel):
+    yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))
+
+    log_probs_all = circuit.autoregressive_conditionals(yy, with_logits=True)
+
+    # All heads for Batch 2
+    yy[2] = IGNORE_TOKEN_ID
+    # Single head for Batch 5 (we marginalise out last head - since if we marginalise out earlier
+    # it affects the follow-up probs
+    yy[5, -1] = IGNORE_TOKEN_ID
+    marg_mask = (yy == IGNORE_TOKEN_ID)
+
+    log_probs_all_but_one = circuit.autoregressive_conditionals(yy, marg_mask=marg_mask, with_logits=True)
+
+    assert torch.allclose(log_probs_all_but_one[:, 2], torch.zeros_like(log_probs_all[:, 2]))
+    assert torch.allclose(log_probs_all_but_one[-1, 5], torch.zeros_like(log_probs_all[-1, 5]))
+    # Assert entries we get without all logits agree with all logits case
+    not_marginalised = ~marg_mask.permute(1, 0)
+    assert torch.allclose(log_probs_all[not_marginalised, :], log_probs_all_but_one[not_marginalised, :])
+
+
+def test_circuit_conditionals_with_masked_logits(circuit: CircuitModel):
     yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))
 
     log_probs = circuit.autoregressive_conditionals(yy, with_logits=False)

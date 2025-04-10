@@ -159,6 +159,27 @@ def test_circuit_joint_with_logits(circuit: CircuitModel):
     assert torch.allclose(should_match, joint)
 
 
+def test_circuit_joint_with_logits_and_marginalisation(circuit: CircuitModel):
+    yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))
+
+    yyc = yy.clone()
+    # All heads for Batch 2
+    yyc[2] = IGNORE_TOKEN_ID
+    # Single head for Batch 5
+    yyc[5, 1] = IGNORE_TOKEN_ID
+    marg_mask = (yyc == IGNORE_TOKEN_ID)
+
+    # The product of the conditionals should be equal to the joint
+    cond_log_probs = circuit.autoregressive_conditionals(yyc, marg_mask=marg_mask, with_logits=True)
+    should_match = torch.zeros(BATCH_SIZE)
+    for i, clp in enumerate(cond_log_probs):
+        should_match += clp[torch.arange(BATCH_SIZE), yy[:, i].ravel()]
+
+    joint = circuit(yyc, marg_mask=marg_mask)
+
+    assert torch.allclose(should_match, joint)
+
+
 def test_circuit_conditional_dependency(circuit: CircuitModel):
     marg_idx = 2
     yy = torch.randint(circuit.vocab_size, (BATCH_SIZE, circuit.n_token))

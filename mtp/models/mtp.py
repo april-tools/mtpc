@@ -373,11 +373,7 @@ class MultiTokenLM(torch.nn.Module):
             else:
                 raise ValueError("Unknown kl_algorithm = %s" % self.kl_algorithm)
         if self.compute_ce:
-            # If we have only computed the gold log probs
-            if len(draft_log_probs.shape) == 2:
-                losses["ce_loss"] = compute_cross_entropy(draft_log_probs, yy=None)
-            else:
-                losses["ce_loss"] = compute_cross_entropy(draft_log_probs, yy)
+            losses["ce_loss"] = compute_cross_entropy(draft_log_probs, yy)
 
         return losses
 

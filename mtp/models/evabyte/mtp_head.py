@@ -1,3 +1,4 @@
+from functools import cached_property
 import math
 import torch
 
@@ -29,16 +30,6 @@ class ResBlock(nn.Module):
         self.hidden_size = hidden_size
         self.weight = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size, hidden_size))
         self.bias = nn.Parameter(torch.empty(n_fold, n_expand, output_size))
-
-        # Initialize based on default initialization of nn.Linear
-        with torch.no_grad():
-            torch.vmap(
-                torch.vmap(torch.nn.init.kaiming_uniform_, randomness='different'),
-                randomness='different'
-            )(self.proj)
-            fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.weight[0, 0])
-            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-            torch.nn.init.uniform_(self.bias, -bound, bound)
 
         # Use SiLU activation to keep consistent with the Llama model
         self.act = nn.SiLU()
@@ -73,20 +64,19 @@ class LinearHead(nn.Module):
         self.n_expand = n_expand  # R
         self.hidden_size = hidden_size  # D
         self.output_size = output_size
+        self.share_proj = share_proj
         
         # Instantiate the projection layer
+        n_fold_proj = 1 if share_proj else n_fold
         n_expand_proj = 1 if share_proj else n_expand
-        self.proj = nn.Parameter(torch.empty(n_fold, n_expand_proj, output_size, hidden_size))
-        # Initialize based on default initialization of nn.Linear
-        with torch.no_grad():
-            torch.vmap(
-                torch.vmap(torch.nn.init.kaiming_uniform_, randomness='different'),
-                randomness='different'
-            )(self.proj)
+        self.proj = nn.Parameter(torch.empty(n_fold_proj, n_expand_proj, output_size, hidden_size))
 
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, F, R, O)
-        return torch.einsum('frod,bsd->bsfro', self.proj, xx)
+        xx = torch.einsum('frod,bsd->bsfro', self.proj, xx)
+        if not self.share_proj:
+            return xx
+        return xx.expand(size=(xx.shape[0], xx.shape[1], self.n_fold, self.n_expand, xx.shape[4]))
 
 
 class MLPHead(nn.Module):
@@ -106,6 +96,7 @@ class MLPHead(nn.Module):
         self.hidden_size = hidden_size  # D
         self.output_size = output_size  # e.g., V or Ki
         self.n_layer = n_layer
+        self.share_proj = share_proj
 
         # Instantiate the MLPs with residual blocks
         self.mlp = nn.Sequential(*[ResBlock(n_expand, hidden_size) for _ in range(self.n_layer)])
@@ -114,11 +105,6 @@ class MLPHead(nn.Module):
         n_fold_proj = 1 if share_proj else n_fold
         n_expand_proj = 1 if share_proj else n_expand
         self.proj = nn.Parameter(torch.empty(n_fold_proj, n_expand_proj, output_size, hidden_size))
-        with torch.no_grad():
-            torch.vmap(
-                torch.vmap(torch.nn.init.kaiming_uniform_, randomness='different'),
-                randomness='different'
-            )(self.proj)
 
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, 1, D) -> (B, S, F, R, D)
@@ -175,8 +161,8 @@ class TransformerHead(nn.Module):
         torch.set_default_dtype(torch.bfloat16)
         self._layers = nn.ModuleList([
             EvaByteDecoderLayer(config)
-            for _ in range(n_layer)
-   	    ])
+        for _ in range(n_layer)
+        ])
         torch.set_default_dtype(prev_dtype)
 
     def forward(self, xx: Tensor, **kwargs):
@@ -213,32 +199,19 @@ class MultiTokenHead(nn.Module):
 
         # Instantiate transformers to parameterize the token's Categorical and the sum weights of the circuit
         if transformer_n_layer > 0:
-            # Taking some values from the Evabyte model on HF
-            # and hoping for the best
-            # https://huggingface.co/EvaByte/EvaByte/blob/main/config.json
-            transformer_config = EvaByteConfig(
-                hidden_size=n_embd,
-                num_attention_heads=transformer_n_head,
-                intermediate_size=int(n_embd * 2.6875),
-                fp32_ln=False,
-                fp32_skip_add=True,
-                mixedp_attn=True,
-                lazy_init=True,
-                init_fn="v2",
-                init_std=0.01275,
-                initializer_range=0.01275,
-                max_position_embeddings=32768,
-                chunk_size=16,
-                window_size=2048,
-                rms_norm_eps=1e-05,
-            )
             self._rotary_emb = EvaByteRotaryEmbedding(
-                transformer_config.hidden_size // transformer_config.num_attention_heads,
-                max_position_embeddings=transformer_config.max_position_embeddings,
-                base=transformer_config.rope_theta
+                self._evabyte_config.hidden_size // self._evabyte_config.num_attention_heads,
+                max_position_embeddings=self._evabyte_config.max_position_embeddings,
+                base=self._evabyte_config.rope_theta
             )
-            self._tok_transformer_head = TransformerHead(transformer_config, transformer_n_layer)
-            self._sum_transformer_head = TransformerHead(transformer_config, transformer_n_layer)
+            if len(config.categorical_log_probs_shapes) > 0:
+                self._tok_transformer_head = TransformerHead(self._evabyte_config, transformer_n_layer)
+            else:
+                self._tok_transformer_head = None
+            if len(config._sum_weights_shapes) > 0:
+                self._sum_transformer_head = TransformerHead(self._evabyte_config, transformer_n_layer)
+            else:
+                self._sum_transformer_head = None
         else:
             self._rotary_emb = None
             self._tok_transformer_head = None
@@ -274,6 +247,50 @@ class MultiTokenHead(nn.Module):
         self._sum_weights_heads = nn.ModuleList(sum_weights_heads)
         self._categorical_log_probs_heads = nn.ModuleList(categorical_log_probs_heads)
 
+        # Initialize the parameters
+        self.reset_parameters()
+
+    @cached_property
+    def _evabyte_config(self) -> EvaByteConfig:
+        # Taking some values from the Evabyte model on HF
+        # and hoping for the best
+        # https://huggingface.co/EvaByte/EvaByte/blob/main/config.json
+        return EvaByteConfig(
+            hidden_size=self.n_embd,
+            num_attention_heads=self.transformer_n_head,
+            intermediate_size=int(self.n_embd * 2.6875),
+            fp32_ln=False,
+            fp32_skip_add=True,
+            mixedp_attn=True,
+            lazy_init=True,
+            init_fn="v2",
+            init_std=0.01275,
+            initializer_range=0.01275,
+            max_position_embeddings=32768,
+            chunk_size=16,
+            window_size=2048,
+            rms_norm_eps=1e-05,
+        )
+
+    def reset_parameters(self):
+        std = getattr(self._evabyte_config, "initializer_range", 0.02)
+
+        @torch.no_grad()
+        def _init_weights(module):
+            if isinstance(module, (nn.Linear, ResBlock)):
+                module.weight.data.normal_(mean=0.0, std=std)
+                if module.bias is not None:
+                    module.bias.data.zero_()
+            elif isinstance(module, nn.Embedding):
+                module.weight.data.normal_(mean=0.0, std=std)
+                if module.padding_idx is not None:
+                    module.weight.data[module.padding_idx].zero_()
+            elif isinstance(module, (LinearHead, MLPHead)):
+                module.proj.data.normal_(mean=0.0, std=std)
+
+        for module in self.modules():
+            _init_weights(module)
+
     @property
     def token_heads(self) -> list:
         return list(self._categorical_log_probs_heads)
@@ -292,7 +309,7 @@ class MultiTokenHead(nn.Module):
     ) -> dict:
         # xx: (B, S, D)
 
-        if self._rotary_emb is not None:
+        if self._sum_transformer_head is not None or self._tok_transformer_head is not None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             max_seq_length = past_seen_tokens + xx.shape[1]
             cos, sin = self._rotary_emb(xx, max_seq_length)
@@ -305,41 +322,48 @@ class MultiTokenHead(nn.Module):
             sin = sin[position_ids]
             cos = cos.unsqueeze(1)
             sin = sin.unsqueeze(1)
-            zz_sum = self._sum_transformer_head(
-                xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
-            )
-            zz_tok = self._tok_transformer_head(
-                xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
-            )
         else:
-            zz_sum = xx
-            zz_tok = xx
+            cos = sin = None
 
         # Paramterize the sum layer weights of the circuit
-        if generate:
-            zz_sum = zz_sum[:, [-1]]
-        else:
-            zz_sum = zz_sum[:, :zz_sum.shape[1] - self.n_token + 1]
         sum_weights = []            # A list of tensors (B, S, F, Ko, Ki)
-        for sum_weight_fn in self._sum_weights_heads:
-            # sum_logits: (F, B, S, Ko, Ki)
-            sum_logits = sum_weight_fn(zz_sum)
-            sum_weights.append(
-                torch.softmax(sum_logits.permute(2, 0, 1, 3, 4), dim=-1)
-            )
+        if len(self._sum_weights_heads) > 0:
+            if self._sum_transformer_head is not None:
+                zz_sum = self._sum_transformer_head(
+                    xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
+                )
+            else:
+                zz_sum = xx
+            if generate:
+                zz_sum = zz_sum[:, [-1]]
+            else:
+                zz_sum = zz_sum[:, :zz_sum.shape[1] - self.n_token + 1]
+            for sum_weight_fn in self._sum_weights_heads:
+                # sum_logits: (F, B, S, Ko, Ki)
+                sum_logits = sum_weight_fn(zz_sum)
+                sum_weights.append(
+                    torch.softmax(sum_logits.permute(2, 0, 1, 3, 4), dim=-1)
+                )
 
         # Parameterize the token Categoricals of the circuit
-        if generate:
-            zz_tok = zz_tok[:, [-1]]
-        else:
-            zz_tok = zz_tok[:, :zz_tok.shape[1] - self.n_token + 1]
         categorical_log_probs = []  # A list of tensors (F, B, S, R, V)
-        for categorical_log_probs_fn in self._categorical_log_probs_heads:
-            # categorical_logits: (F, B, S, R, V)
-            categorical_logits = categorical_log_probs_fn(zz_tok)
-            categorical_log_probs.append(
-                torch.log_softmax(categorical_logits.permute(2, 0, 1, 3, 4), dim=-1)
-            )
+        if len(self._categorical_log_probs_heads) > 0:
+            if self._tok_transformer_head is not None:
+                zz_tok = self._tok_transformer_head(
+                    xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
+                )
+            else:
+                zz_tok = xx
+            if generate:
+                zz_tok = zz_tok[:, [-1]]
+            else:
+                zz_tok = zz_tok[:, :zz_tok.shape[1] - self.n_token + 1]
+            for categorical_log_probs_fn in self._categorical_log_probs_heads:
+                # categorical_logits: (F, B, S, R, V)
+                categorical_logits = categorical_log_probs_fn(zz_tok)
+                categorical_log_probs.append(
+                    torch.log_softmax(categorical_logits.permute(2, 0, 1, 3, 4), dim=-1)
+                )
 
         return {
             'sum': sum_weights,

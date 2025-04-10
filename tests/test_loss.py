@@ -1,6 +1,44 @@
 import torch
 
-from mtp.models.loss import compute_full_kl, compute_binary_approx_kl
+from mtp.models.loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
+from mtp.models.loss import IGNORE_TOKEN_ID
+
+
+def test_cross_entropy_with_mask():
+
+    pp = torch.tensor([[.1, .7, .2],
+                       [.4, .5, .1],
+                       [.2, .7, .1],
+                       [.1, .85, .05]])
+    logprobs = torch.log(pp).reshape(1, 4, 3)
+    yy = torch.tensor([0, IGNORE_TOKEN_ID, 1, IGNORE_TOKEN_ID], dtype=torch.long)
+
+    masked_loss = compute_cross_entropy(logprobs, yy.reshape(-1, 1))
+
+    pp2 = pp[yy != IGNORE_TOKEN_ID]
+    yy2 = yy[yy != IGNORE_TOKEN_ID]
+    logprobs2 = torch.log(pp2).reshape(1, 2, 3)
+
+    loss = compute_cross_entropy(logprobs2, yy2.reshape(-1, 1))
+
+    assert torch.allclose(masked_loss, loss)
+
+
+def test_cross_entropy_single_log_prob_with_mask():
+
+    pp = torch.tensor([.1, 1., .2, 1., .5])
+    logprobs = torch.log(pp).reshape(1, 5)
+    yy = torch.tensor([0, IGNORE_TOKEN_ID, 1, IGNORE_TOKEN_ID, 0], dtype=torch.int32)
+
+    masked_loss = compute_cross_entropy(logprobs, yy.reshape(-1, 1))
+
+    pp2 = pp[yy != IGNORE_TOKEN_ID]
+    yy2 = yy[yy != IGNORE_TOKEN_ID]
+    logprobs2 = torch.log(pp2).reshape(1, 3)
+
+    loss = compute_cross_entropy(logprobs2, yy2.reshape(-1, 1))
+
+    assert torch.allclose(masked_loss, loss)
 
 
 def test_zero_kl():

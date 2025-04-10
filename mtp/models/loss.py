@@ -156,7 +156,6 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
             # Make sure we do not divide by zero
             num_valid_tokens = max(num_valid_tokens, 1)
             ce_losses[h] = - draft_log_probs[h].sum() / num_valid_tokens
-            print(num_valid_tokens)
         elif len(draft_log_probs.shape) == 3:
             # NOTE: log_probs are logits, but not vice-versa
             ce_losses[h] = F.cross_entropy(draft_log_probs[h], yy[:, h].ravel(), ignore_index=IGNORE_TOKEN_ID)

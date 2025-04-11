@@ -285,7 +285,8 @@ class MultiTokenHead(nn.Module):
     def sum_weight_heads(self) -> list:
         return list(self._sum_weights_heads)
 
-    def set_unembedding_weights(self, weights):
+    @torch.no_grad()
+    def set_unembedding_weights(self, weights: Tensor):
         self.vocab_proj.weight.data = weights
 
     def forward(self, xx: Tensor, generate: bool = False) -> dict:

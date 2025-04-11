@@ -23,11 +23,20 @@ class ResBlock(nn.Module):
     # https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
     """
 
-    def __init__(self, n_fold: int, n_expand: int, hidden_size: int, output_size: int = None):
+    def __init__(
+        self,
+        n_fold: int,
+        n_expand: int,
+        hidden_size: int,
+        output_size: int = None,
+        use_skip: bool = True
+    ):
         super().__init__()
         self.n_fold = n_fold
         self.n_expand = n_expand
         self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.use_skip = use_skip
         self.weight = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size, hidden_size))
         self.bias = nn.Parameter(torch.empty(n_fold, n_expand, output_size))
 
@@ -47,7 +56,10 @@ class ResBlock(nn.Module):
         # xx: (B, S, F, R, D)
         # zz: (B, S, F, R, D)
         zz = torch.einsum('frcd,bsfrd->bsfrc', self.weight, xx)
-        return xx + self.act(zz + self.bias)
+        zz = self.act(zz + self.bias)
+        if not self.use_skip:
+            return zz
+        return xx + zz
 
 
 class LinearHead(nn.Module):
@@ -56,27 +68,20 @@ class LinearHead(nn.Module):
         n_fold: int,
         n_expand: int,
         hidden_size: int,
-        output_size: int,
-        share_proj: bool = False
+        output_size: int
     ):
         super().__init__()
         self.n_fold = n_fold
         self.n_expand = n_expand  # R
         self.hidden_size = hidden_size  # D
         self.output_size = output_size
-        self.share_proj = share_proj
         
         # Instantiate the projection layer
-        n_fold_proj = 1 if share_proj else n_fold
-        n_expand_proj = 1 if share_proj else n_expand
-        self.proj = nn.Parameter(torch.empty(n_fold_proj, n_expand_proj, output_size, hidden_size))
+        self.proj = nn.Parameter(torch.empty(n_fold, n_expand, output_size, hidden_size))
 
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, F, R, O)
-        xx = torch.einsum('frod,bsd->bsfro', self.proj, xx)
-        if not self.share_proj:
-            return xx
-        return xx.expand(size=(xx.shape[0], xx.shape[1], self.n_fold, self.n_expand, xx.shape[4]))
+        return torch.einsum('frod,bsd->bsfro', self.proj, xx)
 
 
 class MLPHead(nn.Module):
@@ -87,7 +92,7 @@ class MLPHead(nn.Module):
         hidden_size: int,
         output_size: int,
         n_layer: int = 1,
-        share_proj: bool = False
+        use_skip: bool = True,
     ):
         super().__init__()
         assert n_layer >= 1
@@ -96,15 +101,16 @@ class MLPHead(nn.Module):
         self.hidden_size = hidden_size  # D
         self.output_size = output_size  # e.g., V or Ki
         self.n_layer = n_layer
-        self.share_proj = share_proj
+        self.use_skip = use_skip
 
         # Instantiate the MLPs with residual blocks
-        self.mlp = nn.Sequential(*[ResBlock(n_expand, hidden_size) for _ in range(self.n_layer)])
+        self.mlp = nn.Sequential(*[
+            ResBlock(n_fold, n_expand, hidden_size, use_skip=use_skip)
+            for _ in range(self.n_layer)
+        ])
 
         # Instantiate the projection layer
-        n_fold_proj = 1 if share_proj else n_fold
-        n_expand_proj = 1 if share_proj else n_expand
-        self.proj = nn.Parameter(torch.empty(n_fold_proj, n_expand_proj, output_size, hidden_size))
+        self.proj = nn.Parameter(torch.empty(n_fold, n_expand, output_size, hidden_size))
 
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, 1, D) -> (B, S, F, R, D)
@@ -124,7 +130,7 @@ class ExpanderHead(nn.Module):
         output_size: int,
         type: str = 'linear',
         n_layer: int = 1,
-        share_proj: bool = False,
+        use_skip: bool = True,
         **kwargs
     ):
         super().__init__()
@@ -134,7 +140,6 @@ class ExpanderHead(nn.Module):
                 n_expand,
                 hidden_size,
                 output_size,
-                share_proj=share_proj
             )
         elif type == 'mlp':
             self.head = MLPHead(
@@ -143,7 +148,7 @@ class ExpanderHead(nn.Module):
                 hidden_size,
                 output_size,
                 n_layer=n_layer,
-                share_proj=share_proj
+                use_skip=use_skip,
             )
         else:
             raise NotImplementedError(f"Unknown expander layer type called '{type}'")
@@ -182,12 +187,11 @@ class MultiTokenHead(nn.Module):
         transformer_n_layer: int = 1,
         expander_type: str = 'linear',
         expander_n_layer: int = 2,
+        expander_use_skip: bool = True,
         freeze_vocab_unembedding: bool = False,
-        share_vocab_proj: bool = False
     ):
-        if freeze_vocab_unembedding:
-            raise NotImplementedError()
         super().__init__()
+        self.config = config
         self.vocab_size = vocab_size
         self.n_token = config.n_token
         self.n_embd = n_embd
@@ -195,7 +199,6 @@ class MultiTokenHead(nn.Module):
         self.transformer_n_layer = transformer_n_layer
         self.expander_type = expander_n_layer
         self.expander_n_layer = expander_n_layer
-        self.share_vocab_proj = share_vocab_proj
 
         # Instantiate transformers to parameterize the token's Categorical and the sum weights of the circuit
         if transformer_n_layer > 0:
@@ -233,7 +236,7 @@ class MultiTokenHead(nn.Module):
                 hidden_size=n_embd,
                 output_size=n_input_units,
                 n_layer=expander_n_layer,
-                share_proj=False
+                use_skip=expander_use_skip
             )
             sum_weights_heads.append(head)
         for k, shape in enumerate(config.categorical_log_probs_shapes):
@@ -245,7 +248,7 @@ class MultiTokenHead(nn.Module):
                 hidden_size=n_embd,
                 output_size=vocab_size,
                 n_layer=expander_n_layer,
-                share_proj=share_vocab_proj
+                use_skip=expander_use_skip
             )
             categorical_log_probs_heads.append(head)
         self._sum_weights_heads = nn.ModuleList(sum_weights_heads)
@@ -253,6 +256,11 @@ class MultiTokenHead(nn.Module):
 
         # Initialize the parameters
         self.reset_parameters()
+
+        if freeze_vocab_unembedding:
+            for tok_head in self._categorical_log_probs_heads:
+                assert isinstance(tok_head, (LinearHead, MLPHead))
+                tok_head.head.proj.requires_grad = False
 
     @cached_property
     def _evabyte_config(self) -> EvaByteConfig:
@@ -304,6 +312,20 @@ class MultiTokenHead(nn.Module):
     @property
     def sum_weight_heads(self) -> list:
         return list(self._sum_weights_heads)
+
+    @torch.no_grad()
+    def set_unembedding_weights(self, weights: Tensor):
+        assert weights.shape[0] % self.config.vocab_size == 0 and weights.shape[1] == self.n_embd, f"{weights.shape}"
+        weights = weights.view(-1, self.config.vocab_size, self.n_embd)
+        for k, tok_head in enumerate(self._categorical_log_probs_heads):
+            assert isinstance(tok_head.head, (LinearHead, MLPHead))
+            n_folds, n_components, _ = self.config.categorical_log_probs_shapes[k]
+            assert tok_head.head.proj.shape == (n_folds, n_components, weights.shape[1], weights.shape[2]), f"{tok_head.head.proj.shape.shape}"
+            for j in range(n_folds):
+                var_idx = self.config.categorical_layers[k].scope_idx[j].item()
+                if not (0 <= var_idx < weights.shape[0]):
+                    continue
+                tok_head.head.proj[j].data.copy_(weights[var_idx])
 
     def forward(
         self,

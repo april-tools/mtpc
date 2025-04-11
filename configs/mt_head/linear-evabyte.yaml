@@ -6,4 +6,4 @@ hyperparameters:
   transformer_n_head: ${lm.n_head}
   transformer_n_layer: 0       # Set to zero if you want no transformer encoder
   expander_type: 'linear'      # The available choices are 'linear', 'mlp'
-  share_vocab_proj: false
+  freeze_vocab_unembedding: false

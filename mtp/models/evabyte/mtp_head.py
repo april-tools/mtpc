@@ -9,7 +9,7 @@ from transformers.cache_utils import Cache
 
 from mtp.models.circuits import ParametersConfig
 from mtp.models.evabyte.configuration_evabyte import EvaByteConfig
-from mtp.models.evabyte.modeling_evabyte import EvaByteDecoderLayer, EvaByteRotaryEmbedding
+from mtp.models.evabyte.modeling_evabyte import EvaByteDecoderLayer, EvaByteRMSNorm, EvaByteRotaryEmbedding
 
 
 class ResBlock(nn.Module):
@@ -206,16 +206,20 @@ class MultiTokenHead(nn.Module):
             )
             if len(config.categorical_log_probs_shapes) > 0:
                 self._tok_transformer_head = TransformerHead(self._evabyte_config, transformer_n_layer)
+                self._tok_transformer_norm = EvaByteRMSNorm(self._evabyte_config)
             else:
                 self._tok_transformer_head = None
             if len(config._sum_weights_shapes) > 0:
                 self._sum_transformer_head = TransformerHead(self._evabyte_config, transformer_n_layer)
+                self._sum_transformer_norm = EvaByteRMSNorm(self._evabyte_config)
             else:
                 self._sum_transformer_head = None
+            self._norm = None
         else:
             self._rotary_emb = None
             self._tok_transformer_head = None
             self._sum_transformer_head = None
+            self._norm = EvaByteRMSNorm(self._evabyte_config)
 
         # Instantiate as many expander heads as needed by the circuit parameters configuration
         sum_weights_heads = []
@@ -266,6 +270,7 @@ class MultiTokenHead(nn.Module):
             init_fn="v2",
             init_std=0.01275,
             initializer_range=0.01275,
+            norm_add_unit_offset=True,
             max_position_embeddings=32768,
             chunk_size=16,
             window_size=2048,
@@ -273,20 +278,21 @@ class MultiTokenHead(nn.Module):
         )
 
     def reset_parameters(self):
-        std = getattr(self._evabyte_config, "initializer_range", 0.02)
-
         @torch.no_grad()
         def _init_weights(module):
             if isinstance(module, (nn.Linear, ResBlock)):
+                std = getattr(self._evabyte_config, "initializer_range", 0.02)
                 module.weight.data.normal_(mean=0.0, std=std)
                 if module.bias is not None:
                     module.bias.data.zero_()
             elif isinstance(module, nn.Embedding):
+                std = getattr(self._evabyte_config, "initializer_range", 0.02)
                 module.weight.data.normal_(mean=0.0, std=std)
                 if module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
             elif isinstance(module, (LinearHead, MLPHead)):
-                module.proj.data.normal_(mean=0.0, std=std)
+                bound = getattr(self._evabyte_config, "initializer_range", 0.02)
+                module.proj.data.uniform_(-bound, bound)
 
         for module in self.modules():
             _init_weights(module)
@@ -324,6 +330,7 @@ class MultiTokenHead(nn.Module):
             sin = sin.unsqueeze(1)
         else:
             cos = sin = None
+            xx = self._norm(xx)
 
         # Paramterize the sum layer weights of the circuit
         sum_weights = []            # A list of tensors (B, S, F, Ko, Ki)
@@ -332,6 +339,7 @@ class MultiTokenHead(nn.Module):
                 zz_sum = self._sum_transformer_head(
                     xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
                 )
+                zz_sum = self._sum_transformer_norm(zz_sum)
             else:
                 zz_sum = xx
             if generate:
@@ -352,6 +360,7 @@ class MultiTokenHead(nn.Module):
                 zz_tok = self._tok_transformer_head(
                     xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
                 )
+                zz_tok = self._tok_transformer_norm(zz_tok)
             else:
                 zz_tok = xx
             if generate:

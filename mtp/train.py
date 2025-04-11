@@ -239,11 +239,11 @@ def main(cfg: DictConfig):
         if master_process:
             # Save model at step 0
             if cfg.training.save_model and global_step == 0:
+                logger(f'step:{global_step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                 ckp.save(global_step=global_step,
                          model=model,
                          optimizer=optimizer if cfg.training.save_optimizer else None,
                          scheduler=scheduler if cfg.training.save_optimizer else None)
-                logger(f'step:{global_step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
 
         # ===================== BEGIN TRAINING LOOP ==========================
         for step in range(1 + global_step, cfg.training.num_iterations + 1):
@@ -284,11 +284,11 @@ def main(cfg: DictConfig):
                 if last_step or (step % cfg.training.save_model_every == 0):
                     # TODO: save best / do not overwrite best
                     if cfg.training.save_model:
+                        logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                         ckp.save(global_step=step,
                                  model=model,
                                  optimizer=optimizer if cfg.training.save_optimizer else None,
                                  scheduler=scheduler if cfg.training.save_optimizer else None)
-                    logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.10f} time/step:{dt:.2f}s")
                 wandb.log({

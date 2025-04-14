@@ -1,3 +1,5 @@
+import os
+import torch
 from transformers import AutoTokenizer
 from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
@@ -31,35 +33,54 @@ class HFDistributedDataLoader(object):
         self.split = split
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            # use max_length=T + 1 because we use input_ids[:, :-1] and labels[:, 1:]
-            self.hf_model, model_max_length=self.T + 1, padding_side="right", use_fast=True
+            self.hf_model,
+            model_max_length=self.model_max_length,
+            padding_side="right",
+            use_fast=True,
+            trust_remote_code=True,
         )
-
-        self.reset()
 
     def reset(self):
         self.dataset = self.load_dataset()
+        self.dataset = self.dataset.to_iterable_dataset()
+        self.dataset = self.dataset.map(lambda x: self.process(x))
+        self.dataset = self.dataset.filter(function=lambda x: self.filter(x))
         self.dataset = split_dataset_by_node(
             self.dataset, rank=self.process_rank, world_size=self.num_processes
         )
         self.dataset = self.dataset.batch(self.B)
-        self.dataset = self.dataset.map(lambda x: self.process(x))
+        self.dataset_iterator = None
+        return self
 
     def load_dataset(self):
-        return load_dataset(self.hf_dataset, split=self.split, streaming=True)
+        return load_dataset(self.hf_dataset, split=self.split)
+
+    @property
+    def model_max_length(self):
+        # use max_length=T + 1 because we use input_ids[:, :-1] and labels[:, 1:]
+        return self.T + 1
 
     def process(self, x):
         raise NotImplementedError()
 
+    def filter(self, x):
+        raise NotImplementedError()
+
     def next_batch(self):
-        fields = next(iter(self.dataset.take(1)))
+        if self.dataset_iterator is None:
+            self.dataset_iterator = iter(self.dataset)
+        fields = next(self.dataset_iterator)
         batch = dict()
         if self.device == "cuda":
             for k in fields:
                 # Filter outputs to only include needed
                 if k in ("input_ids", "labels", "attention_mask"):
+                    if isinstance(fields[k], list):
+                        fields[k] = torch.cat(fields[k])
                     batch[k] = fields[k].cuda()
         return batch
 
     def seek(self, num_steps):
+        self.reset()
         self.dataset = self.dataset.skip(num_steps)
+        self.dataset_iterator = iter(self.dataset)

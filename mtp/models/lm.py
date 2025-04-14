@@ -1,4 +1,3 @@
-from collections import OrderedDict
 from contextlib import contextmanager
 
 import torch
@@ -8,6 +7,7 @@ from peft import PeftModel
 
 from torch import nn, Tensor
 from transformers import AutoModelForCausalLM
+from transformers.cache_utils import Cache
 
 from mtp.utils.distributed import get_local_device
 from mtp.utils.checkpoint import Checkpoint
@@ -206,6 +206,19 @@ class LM(nn.Module):
 
         return dict(logits=logits, loss=loss)
 
+    def head_logits(self, xx: Tensor) -> Tensor:
+        # Compute the logits with the head
+        logits = self.head(xx)
+
+        # Checker whether the LM is multi-token model
+        # In that case, return the logits of the first part of the head only
+        if hasattr(self._lm.config, "num_pred_heads") and self._lm.config.num_pred_heads > 1:
+            num_pred_heads, vocab_size = self._lm.config.num_pred_heads, self._lm.config.vocab_size
+            assert logits.shape == (logits.shape[0], logits.shape[1], num_pred_heads * vocab_size)
+            logits = logits.view(logits.shape[0], logits.shape[1], num_pred_heads, vocab_size)
+            logits = logits[:, :, 0]  # (B, S, V)
+        return logits
+
     @torch.no_grad()
     def generate(
         self,
@@ -213,8 +226,8 @@ class LM(nn.Module):
         use_argmax: bool = False,
         mode: str = "stp",
         use_cache: bool = True,
-        past_key_values: Tensor = None,
-    ) -> Tensor:
+        past_key_values: Cache = None,
+    ) -> dict:
         self.eval()
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
@@ -234,9 +247,7 @@ class LM(nn.Module):
         else:
             xx = self.encoder(inputs)["last_hidden_state"]
 
-        logits = self.head(
-            xx[:, [-1], :]
-        )  # note: using list [-1] to preserve the time dim
+        logits = self.head_logits(xx[:, [-1], :])  # note: using list [-1] to preserve the time dim
         if use_argmax:
             tokens = torch.argmax(logits, dim=2)
         else:

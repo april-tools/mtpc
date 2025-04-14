@@ -4,6 +4,8 @@ import torch
 from torch import Tensor
 from copy import deepcopy
 
+from transformers.cache_utils import Cache
+
 from .lm import LM
 
 from .circuits import CircuitModel
@@ -158,7 +160,7 @@ class MultiTokenLM(torch.nn.Module):
                 else:  # If the LM has not adaptors, then the verifier hidden features are the same of the draft features
                     xxv = xxd
                 # logits: (B, S, V)
-                logits = self.lm.head(xxv)
+                logits = self.lm.head_logits(xxv)
 
                 # shape: B, S, V
                 teacher_log_probs = torch.log_softmax(logits, axis=-1)
@@ -241,12 +243,28 @@ class MultiTokenLM(torch.nn.Module):
 
         return outputs
 
-    def _parameterize_circuit(self, xx: Tensor, generate: bool = False):
+    def _parameterize_circuit(
+        self,
+        xx: Tensor,
+        use_cache: bool = False,
+        attention_mask: Tensor = None,
+        past_key_values: Cache = None,
+        position_ids: Tensor = None,
+        generate: bool = False
+    ) -> Cache:
         # Obtain dictionary of circuit parameters
-        circuit_params = self.mt_head(xx, generate=generate)
+        circuit_params, past_key_values = self.mt_head(
+            xx,
+            use_cache=use_cache,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            position_ids=position_ids,
+            generate=generate
+        )
 
         # Set the parameters to the circuit
         self.circuit.parameterize(circuit_params)
+        return past_key_values
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
@@ -320,8 +338,8 @@ class MultiTokenLM(torch.nn.Module):
         use_argmax: bool = False,
         mode: str = 'mtp',
         use_cache: bool = False,
-        past_key_values: Tensor = None,
-        past_last_hidden_states: Tensor = None
+        past_key_values: Cache = None,
+        head_past_key_values: Cache = None,
     ) -> Tensor:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
@@ -337,17 +355,23 @@ class MultiTokenLM(torch.nn.Module):
                 use_cache=use_cache,
                 past_key_values=past_key_values
             )
-            if past_last_hidden_states is None:
-                # xx: (B, S, D)
-                xx = outputs['last_hidden_state']
-            else:
-                xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
-            past_key_values = outputs['past_key_values']
         else:
-            xx = self.lm.encoder(inputs)['last_hidden_state']
-
+            outputs = self.lm.encoder(inputs)
         # Parameterize the circuit
-        self._parameterize_circuit(xx, generate=True)
+        xx = outputs['last_hidden_state']
+        next_head_past_key_values = self._parameterize_circuit(
+            xx,
+            use_cache=use_cache,
+            attention_mask=None,
+            past_key_values=head_past_key_values,
+            position_ids=None,
+            generate=True
+        )
+
+        # Update caches for the next iteration
+        if use_cache:
+            past_key_values = outputs['past_key_values']
+            head_past_key_values = next_head_past_key_values
 
         if mode == 'mtp':
             # Sample the next tokens
@@ -362,7 +386,7 @@ class MultiTokenLM(torch.nn.Module):
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,
-            past_last_hidden_states=xx
+            head_past_key_values=head_past_key_values
         )
 
     # TODO: Refactor to bring for-loop into function as per Edoardo's comment
@@ -371,8 +395,8 @@ class MultiTokenLM(torch.nn.Module):
         self,
         seq: Tensor,
         use_cache: bool = False,
-        past_key_values: Tensor = None,
-        past_last_hidden_states: Tensor = None
+        past_key_values: Cache = None,
+        head_past_key_values: Cache = None,
     ) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
             raise NotImplementedError("Multi-batch self-speculative decoding not implemented yet")
@@ -381,7 +405,7 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the embeddings
         if use_cache:
             # NOTE: keep track of old values, needed for second lm eval
-            old_past_key_values = deepcopy(past_key_values)
+            verifier_past_key_values = deepcopy(past_key_values)
             seen_tokens = 0
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
@@ -390,18 +414,22 @@ class MultiTokenLM(torch.nn.Module):
                 use_cache=use_cache,
                 past_key_values=past_key_values
             )
-            # xx: (B, S, D)
-            if past_last_hidden_states is None:
-                xx = outputs['last_hidden_state']
-            else:
-                xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
-            past_key_values = outputs['past_key_values']
         else:
-            xx = self.lm.encoder(seq)["last_hidden_state"]
+            outputs = self.lm.encoder(seq)
+        # Parameterize the circuit
+        xx = outputs['last_hidden_state']
+        next_head_past_key_values = self._parameterize_circuit(
+            xx,
+            use_cache=use_cache,
+            attention_mask=None,
+            past_key_values=head_past_key_values,
+            position_ids=None,
+            generate=True
+        )
 
-        assert xx.shape[1] == seq.shape[1]
-        # Set the circuit parameters, based on the last embeddings
-        self._parameterize_circuit(xx, generate=True)
+        # Update caches for the next iteration
+        if use_cache:
+            head_past_key_values = next_head_past_key_values
 
         # Sample the next H tokens
         # tokens: (B=1, H)
@@ -415,15 +443,19 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the next-token probabilities in parallel
         with self.lm.disable_adapter_if_any():
             if use_cache:
-                results = self.lm.encoder(
-                    gen_seq[:, seen_tokens:], use_cache=use_cache, past_key_values=old_past_key_values
+                outputs = self.lm.encoder(
+                    gen_seq[:, seen_tokens:],
+                    use_cache=use_cache,
+                    past_key_values=verifier_past_key_values
                 )
+                past_key_values = verifier_past_key_values
             else:
-                results = self.lm.encoder(gen_seq)
+                outputs = self.lm.encoder(gen_seq)
             # zz: (B, S + H, D) -> (B, H + 1, D)
-            zz = results['last_hidden_state'][:, -tokens.shape[1] - 1 :]
+            zz = outputs['last_hidden_state']
+            zz = zz[:, -tokens.shape[1] - 1 :]
             # logits: (B, H + 1, V)
-            logits = self.lm.head(zz)
+            logits = self.lm.head_logits(zz)
 
         # Determine the number of accepted tokens,
         # by iteratively computing conditional probabilities with the circuit
@@ -515,5 +547,5 @@ class MultiTokenLM(torch.nn.Module):
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,
-            past_last_hidden_states=xx
+            head_past_key_values=head_past_key_values
         )

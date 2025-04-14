@@ -49,8 +49,8 @@ def encode(text, device):
         # TODO: Get reply about what is going on with BOS
         # NOTE: for this model we need a prompt
         # BOS is not added by default by the tokenizer
-        if hf_model.endswith('ablation-model-fineweb-edu'):
-            assert text != '', 'Empty prompt is not supported for %s, use a prompt.' % hf_model
+        #if hf_model.endswith('ablation-model-fineweb-edu'):
+        assert text != '', f'Empty prompt is not supported for {hf_model}, use a prompt.'
         x = tokeniser.encode(text, return_tensors='pt').to(device)
     return x
 
@@ -73,7 +73,7 @@ def generate(x: torch.Tensor, disable_progress_bar: bool = True):
     assert x.shape[0] == 1
     init_length = x.shape[1]
     num_tokens = []
-    past_key_values, past_last_hidden_states = None, None
+    past_key_values, head_past_key_values = None, None
 
     if args.device == 'cpu':
         start_time = time.perf_counter()
@@ -84,28 +84,37 @@ def generate(x: torch.Tensor, disable_progress_bar: bool = True):
     else:
         raise ValueError('Unexpected device %s' % args.device)
 
-    with tqdm.tqdm(total=args.num_tokens, disable=disable_progress_bar) as pbar:
+    with tqdm.tqdm(total=args.num_tokens, disable=disable_progress_bar) as pbar, ctx:
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
             if args.speculative:
-                with ctx:
-                    outputs = model.self_speculative_generate(
-                        x,
-                        use_cache=args.use_cache,
-                        past_key_values=past_key_values,
-                        past_last_hidden_states=past_last_hidden_states
-                    )
+                outputs = model.self_speculative_generate(
+                    x,
+                    use_cache=args.use_cache,
+                    past_key_values=past_key_values,
+                    head_past_key_values=head_past_key_values
+                )
                 tokens = outputs['tokens']
                 past_key_values = outputs['past_key_values']
-                past_last_hidden_states = outputs['past_last_hidden_states']
+                head_past_key_values = outputs['head_past_key_values']
+            elif args.mode == 'mtp':
+                outputs = model.generate(
+                    x,
+                    mode='mtp',
+                    use_cache=args.use_cache,
+                    past_key_values=past_key_values,
+                    head_past_key_values=head_past_key_values
+                )
+                tokens = outputs['tokens']
+                past_key_values = outputs['past_key_values']
+                head_past_key_values = outputs['head_past_key_values']
             else:
-                with ctx:
-                    outputs = model.generate(
-                        x,
-                        mode=args.mode,
-                        use_cache=args.use_cache,
-                        past_key_values=past_key_values
-                    )
+                assert args.mode == 'stp'
+                outputs = model.generate(
+                    x,
+                    use_cache=args.use_cache,
+                    past_key_values=past_key_values
+                )
                 tokens = outputs['tokens']
                 past_key_values = outputs['past_key_values']
             x = torch.cat([x, tokens], dim=1)
@@ -144,13 +153,15 @@ if __name__ == "__main__":
                         help='Whether to randomly subsample a number of prompts from spec_bench if --prompt is not given')
     parser.add_argument('--speculative', action='store_true',
                         help='Whether to use speculative decoding.')
-    parser.add_argument('--use-cache', action='store_true',
+    parser.add_argument('--use-cache', default=False, action='store_true',
                         help='Whether to use a kv cache.')
     parser.add_argument('--random-seed', default=13, type=int,
                         help='The random seed to use for sampling.')
     parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
                         help='Single Token Prediction (stp) is available both for MTP and autoregressive models. '
                         'MTP is available only for MTP models')
+    parser.add_argument('--compile', default=False, action='store_true',
+                        help="Whether to compile the model")
     parser.add_argument('overrides', nargs="*")
     args = parser.parse_args()
 
@@ -184,7 +195,8 @@ if __name__ == "__main__":
         # Restore the checkpoint
         ckp.restore(model=model)
         model.to(args.device)
-    model = torch.compile(model)
+    if args.compile:
+        model = torch.compile(model)
     model.eval()
 
     # Load the prompts from the 'spec_bench' benchmark, if a particular prompt is not given
@@ -205,7 +217,10 @@ if __name__ == "__main__":
         vocabs = load_vocabs(cfg.data.vocabs)
         tokeniser = None
     else:
-        tokeniser = AutoTokenizer.from_pretrained(hf_model)
+        kwargs = {}
+        if 'EvaByte' in hf_model:
+            kwargs['trust_remote_code'] = True
+        tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
         tokeniser.add_bos_token = True
         vocabs = None
 
@@ -271,14 +286,14 @@ if __name__ == "__main__":
     stats['checkpoint'] = '%s-%s@0' % (ckp.model.name, ckp.lm.name) if args.checkpoint is None else repr(ckp)
     # Below attributes only exist for MTP
     if 'stp' not in stats['model']:
-        stats['beta'] = cfg.model.model.beta
-        stats['gamma'] = cfg.model.model.gamma
-        stats['kl_type'] = cfg.model.model.kl_type
-        stats['kl_algorithm'] = cfg.model.model.kl_algorithm
-        stats['expander_type'] = cfg.model.mt_head_hparams.expander_type
-        stats['expander_n_layer'] = cfg.model.mt_head_hparams.expander_n_layer
-        stats['tok_transformer_n_layer'] = cfg.model.mt_head_hparams.tok_transformer_n_layer
-        stats['sum_transformer_n_layer'] = cfg.model.mt_head_hparams.sum_transformer_n_layer
+        stats['beta'] = cfg.model.beta
+        stats['gamma'] = cfg.model.gamma
+        stats['kl_type'] = cfg.model.kl_type
+        stats['kl_algorithm'] = cfg.model.kl_algorithm
+        stats['expander_type'] = cfg.mt_head.hyperparameters.expander_type
+        stats['expander_n_layer'] = cfg.mt_head.hyperparameters.expander_n_layer
+        stats['transformer_n_head'] = cfg.mt_head.hyperparameters.transformer_n_head
+        stats['transformer_n_layer'] = cfg.mt_head.hyperparameters.transformer_n_layer
 
     result = json.dumps(stats)
 

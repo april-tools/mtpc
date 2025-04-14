@@ -9,7 +9,8 @@ from transformers.cache_utils import Cache
 
 from mtp.models.circuits import ParametersConfig
 from mtp.models.evabyte.configuration_evabyte import EvaByteConfig
-from mtp.models.evabyte.modeling_evabyte import EvaByteDecoderLayer, EvaByteRMSNorm, EvaByteRotaryEmbedding
+from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
+from mtp.models.evabyte.modeling_evabyte import EvaByteDecoderLayer, EvaByteRMSNorm, EvaByteRotaryEmbedding, prepare_eva_generation_attn_mask_triton
 
 
 class ResBlock(nn.Module):
@@ -159,21 +160,23 @@ class ExpanderHead(nn.Module):
 
 
 class TransformerHead(nn.Module):
-    def __init__(self, config: EvaByteConfig, n_layer: int = 1):
+    def __init__(self, config: EvaByteConfig, n_layer: int = 1, layer_start_idx: int = 0):
         super().__init__()
         # Evabyte transformers necessarily work with bfloat16
         prev_dtype = torch.get_default_dtype()
         torch.set_default_dtype(torch.bfloat16)
         self._layers = nn.ModuleList([
-            EvaByteDecoderLayer(config)
-        for _ in range(n_layer)
+            EvaByteDecoderLayer(config, layer_idx=layer_start_idx + i)
+            for i in range(n_layer)
         ])
         torch.set_default_dtype(prev_dtype)
+        self._norm = EvaByteRMSNorm(config)
 
     def forward(self, xx: Tensor, **kwargs):
         for layer in self._layers:
-            xx, = layer(xx, **kwargs)
-        return xx
+            outputs = layer(xx, **kwargs)
+            xx = outputs[0]
+        return self._norm(xx)
 
 
 class MultiTokenHead(nn.Module):
@@ -207,16 +210,18 @@ class MultiTokenHead(nn.Module):
                 max_position_embeddings=self._evabyte_config.max_position_embeddings,
                 base=self._evabyte_config.rope_theta
             )
-            if len(config.categorical_log_probs_shapes) > 0:
-                self._tok_transformer_head = TransformerHead(self._evabyte_config, transformer_n_layer)
-                self._tok_transformer_norm = EvaByteRMSNorm(self._evabyte_config)
-            else:
-                self._tok_transformer_head = None
             if len(config._sum_weights_shapes) > 0:
-                self._sum_transformer_head = TransformerHead(self._evabyte_config, transformer_n_layer)
-                self._sum_transformer_norm = EvaByteRMSNorm(self._evabyte_config)
-            else:
-                self._sum_transformer_head = None
+                self._sum_transformer_head = TransformerHead(
+                    self._evabyte_config,
+                    transformer_n_layer,
+                    layer_start_idx=0
+                )
+            if len(config.categorical_log_probs_shapes) > 0:
+                self._tok_transformer_head = TransformerHead(
+                    self._evabyte_config,
+                    transformer_n_layer,
+                    layer_start_idx=transformer_n_layer
+                )
             self._norm = None
         else:
             self._rotary_emb = None
@@ -268,6 +273,7 @@ class MultiTokenHead(nn.Module):
         # and hoping for the best
         # https://huggingface.co/EvaByte/EvaByte/blob/main/config.json
         return EvaByteConfig(
+            num_hidden_layers=32,
             hidden_size=self.n_embd,
             num_attention_heads=self.transformer_n_head,
             intermediate_size=int(self.n_embd * 2.6875),
@@ -327,29 +333,92 @@ class MultiTokenHead(nn.Module):
                     continue
                 tok_head.head.proj[j].data.copy_(weights[var_idx])
 
-    def forward(
+    def _prepare_transformer_heads(
         self,
         xx: Tensor,
+        use_cache: bool = False,
         attention_mask: Tensor = None,
         past_key_values: Cache = None,
         position_ids: Tensor = None,
+        multibyte_decoding: bool = None,
+    ) -> tuple:
+        batch_size, seq_len = xx.shape[0], xx.shape[1]
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        max_seq_length = past_seen_tokens + seq_len
+        # Shamelessly copying preparation of Evabyte transformer's arguments from the Evabyte pre-trained model
+        if (not self.training) and (not use_cache) and (not multibyte_decoding):
+            # forward-only inference mode. 
+            # We tweak use_cache to be True to reuse code for generation
+            use_cache = True
+            if position_ids is None:
+                position_ids = torch.arange(0, seq_len, device=xx.device, dtype=int).unsqueeze(dim=0).expand(batch_size, -1)
+        if position_ids is None:
+            assert not use_cache, "during decoding we must explicitly pass position_ids to the model call"
+            position_ids = torch.arange(past_seen_tokens, max_seq_length, device=xx.device, dtype=int).unsqueeze(dim=0).expand(batch_size, -1)
+
+        # Prepare caches and causal masks if in inference mode
+        if use_cache:
+            if past_key_values is not None:
+                assert isinstance(past_key_values, Cache)
+            else:
+                past_key_values = EvaStaticCacheForTriton(
+                    xx.shape[0],
+                    self._evabyte_config.num_attention_heads,
+                    self._evabyte_config.window_size,
+                    self._evabyte_config.hidden_size // self._evabyte_config.num_attention_heads,
+                    2 * self.transformer_n_layer,
+                    xx.dtype,
+                    xx.device,
+                )
+
+        if not multibyte_decoding:
+            if use_cache:
+                causal_mask = prepare_eva_generation_attn_mask_triton(
+                    xx,
+                    attention_mask=attention_mask,
+                    use_cache=use_cache,
+                    past_key_values=past_key_values,
+                    config=self._evabyte_config
+                )
+            else:
+                assert self.training
+                assert xx.shape[1] % self._evabyte_config.window_size == 0, "Training is only tested for sequences that are a multiple of window_size"
+                causal_mask = attention_mask
+        else:
+            assert use_cache
+            causal_mask = attention_mask
+
+        # Compute rotary embeddings
+        cos, sin = self._rotary_emb(xx, seq_len=max_seq_length)
+        assert len(cos.shape) == 2, f"cos should be of shape (max_seq_len, head_dim), got {cos.shape} instead"
+        assert sin.shape == cos.shape, f"sin should be of shape (max_seq_len, head_dim), got {sin.shape} instead"
+        assert len(position_ids.shape) == 2, f"position_ids should be of 2D, got {position_ids.shape} instead"
+        cos = cos[position_ids]
+        sin = sin[position_ids]
+        cos = cos.unsqueeze(1)
+        sin = sin.unsqueeze(1)
+        return use_cache, causal_mask, past_key_values, position_ids, cos, sin
+
+    def forward(
+        self,
+        xx: Tensor,
+        use_cache: bool = False,
+        attention_mask: Tensor = None,
+        past_key_values: Cache = None,
+        position_ids: Tensor = None,
+        multibyte_decoding: bool = None,
         generate: bool = False,
     ) -> dict:
         # xx: (B, S, D)
-
         if self._sum_transformer_head is not None or self._tok_transformer_head is not None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            max_seq_length = past_seen_tokens + xx.shape[1]
-            cos, sin = self._rotary_emb(xx, max_seq_length)
-            if position_ids is None:
-                position_ids = torch.arange(past_seen_tokens, max_seq_length, device=xx.device, dtype=int).unsqueeze(dim=0).expand(xx.shape[0], -1)
-            assert len(cos.shape) == 2, f"cos should be of shape (max_seq_len, head_dim), got {cos.shape} instead"
-            assert sin.shape == cos.shape, f"sin should be of shape (max_seq_len, head_dim), got {sin.shape} instead"
-            assert len(position_ids.shape) == 2, f"position_ids should be of 2D, got {position_ids.shape} instead"
-            cos = cos[position_ids]
-            sin = sin[position_ids]
-            cos = cos.unsqueeze(1)
-            sin = sin.unsqueeze(1)
+            use_cache, causal_mask, past_key_values, position_ids, cos, sin = self._prepare_transformer_heads(
+                xx,
+                use_cache=use_cache,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                position_ids=position_ids,
+                multibyte_decoding=multibyte_decoding,
+            )
         else:
             cos = sin = None
             xx = self._norm(xx)
@@ -359,9 +428,15 @@ class MultiTokenHead(nn.Module):
         if len(self._sum_weights_heads) > 0:
             if self._sum_transformer_head is not None:
                 zz_sum = self._sum_transformer_head(
-                    xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
+                    xx,
+                    use_cache=use_cache,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_value=past_key_values,
+                    multibyte_decoding=multibyte_decoding,
+                    cos=cos,
+                    sin=sin, 
                 )
-                zz_sum = self._sum_transformer_norm(zz_sum)
             else:
                 zz_sum = xx
             if generate:
@@ -380,9 +455,15 @@ class MultiTokenHead(nn.Module):
         if len(self._categorical_log_probs_heads) > 0:
             if self._tok_transformer_head is not None:
                 zz_tok = self._tok_transformer_head(
-                    xx, attention_mask=attention_mask, position_ids=position_ids, past_key_value=past_key_values, cos=cos, sin=sin, 
+                    xx,
+                    use_cache=use_cache,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_value=past_key_values,
+                    multibyte_decoding=multibyte_decoding,
+                    cos=cos,
+                    sin=sin, 
                 )
-                zz_tok = self._tok_transformer_norm(zz_tok)
             else:
                 zz_tok = xx
             if generate:
@@ -396,7 +477,4 @@ class MultiTokenHead(nn.Module):
                     torch.log_softmax(categorical_logits.permute(2, 0, 1, 3, 4), dim=-1)
                 )
 
-        return {
-            'sum': sum_weights,
-            'categorical': categorical_log_probs
-        }
+        return dict(sum=sum_weights, categorical=categorical_log_probs), past_key_values

@@ -289,7 +289,7 @@ class MultiTokenHead(nn.Module):
     def set_unembedding_weights(self, weights: Tensor):
         self.vocab_proj.weight.data = weights
 
-    def forward(self, xx: Tensor, generate: bool = False) -> dict:
+    def forward(self, xx: Tensor, generate: bool = False, **kwargs) -> dict:
         # xx: (B, S, D)
         if not generate:
             xx = xx[:, :xx.shape[1] - self.n_token + 1]
@@ -307,7 +307,5 @@ class MultiTokenHead(nn.Module):
             clp = torch.log_softmax(categorical_logits, dim=-1)
             categorical_log_probs.append(clp)
 
-        return {
-            'sum': sum_weights,
-            'categorical': categorical_log_probs
-        }
+        past_key_values = None
+        return dict(sum=sum_weights, categorical=categorical_log_probs), past_key_values

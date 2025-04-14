@@ -2,9 +2,9 @@ from typing import Optional, Tuple
 import math
 import torch
 import torch.nn.functional as F
-from torch import nn
+from torch import nn, Tensor
 from transformers.activations import ACT2FN
-from transformers.modeling_utils import PreTrainedModel
+from transformers.cache_utils import Cache
 
 from .configuration_evabyte import EvaByteConfig
 try:
@@ -320,3 +320,107 @@ class EvaByteRotaryEmbedding(torch.nn.Module):
             cos_slice.to(dtype=x.dtype),
             sin_slice.to(dtype=x.dtype),
         )
+
+
+def pad_to_multiple(tensor, multiple, dim=-2, value=0, create_mask=False, left_padding=False):
+    assert dim < 0 # only accept ``dim'' index in a reverse manner
+    seqlen = int(tensor.shape[dim])
+    m = seqlen / multiple
+    if m.is_integer():
+        if create_mask:
+            return tensor, torch.ones(size=(tensor.shape[0], tensor.shape[dim]), dtype=torch.bool, device=tensor.device)
+        else:
+            return tensor
+    remainder = math.ceil(m) * multiple - seqlen
+    pad_offset = (0,) * (-1 - dim) * 2
+    if left_padding:
+        padded_res = F.pad(tensor, (*pad_offset, remainder, 0), value=value)
+    else:
+        padded_res = F.pad(tensor, (*pad_offset, 0, remainder), value=value)
+    if create_mask:
+        # assume dim 0 is the batch size
+        padding_mask = torch.ones(size=(padded_res.shape[0], padded_res.shape[dim]), dtype=torch.bool, device=padded_res.device)
+        if left_padding:
+            padding_mask[:, :remainder] = False
+        else:
+            padding_mask[:, -remainder:] = False
+        return padded_res, padding_mask
+    else:
+        return padded_res
+
+
+def prepare_eva_generation_attn_mask_triton(
+    xx: Tensor,
+    attention_mask: Tensor = None,
+    use_cache: bool = False,
+    past_key_values: Cache = None,
+    *,
+    config: EvaByteConfig
+) -> tuple:
+    batch_size, seq_len = xx.shape[0], xx.shape[1]
+    if use_cache and past_key_values.get_seq_length() > 0:
+        # decoding phase
+        if past_key_values.rf_mask[0] is not None:
+            cur_rf_mask = torch.zeros(
+                (batch_size, 1, seq_len, 1),
+                dtype=past_key_values.rf_mask[0].dtype,
+                device=past_key_values.rf_mask[0].device
+            )
+        else:
+            cur_rf_mask = None
+            
+        if past_key_values.s_mask[0] is not None:
+            cur_s_mask = torch.zeros(
+                (batch_size, 1, seq_len, 1),
+                dtype=past_key_values.s_mask[0].dtype,
+                device=past_key_values.s_mask[0].device
+            )
+        else:
+            cur_s_mask = None
+            
+        seen_tokens = past_key_values.get_seq_length()
+        if seen_tokens <= config.window_size:
+            rfa_chunks_dummy_mask = None
+        else:
+            if cur_s_mask is not None: 
+                chunks_per_window = int(config.window_size // config.chunk_size)
+                # the ongoing decoding step would be (seen_seq_len + 1)-th token
+                num_windows_seen_so_far = seen_tokens // config.window_size
+                rfa_chunks_dummy_mask = torch.zeros(
+                    (batch_size, 1, seq_len, num_windows_seen_so_far * chunks_per_window),
+                    dtype=past_key_values.s_mask[0].dtype,
+                    device=past_key_values.s_mask[0].device
+                )
+            else:
+                rfa_chunks_dummy_mask = None
+        # rf_mask and cur_mask are 0s because we do not want to mask them
+        return (cur_s_mask, cur_rf_mask, rfa_chunks_dummy_mask)
+
+    if attention_mask is not None and torch.any(attention_mask == 0.0):
+        # convert 0 -> padding to 1 -> padding
+        padded_attention_mask = pad_to_multiple(
+            attention_mask, 
+            config.window_size, 
+            dim=-1,
+            value=0, 
+            create_mask=False,
+            left_padding=False
+        )
+        # convert 0 -> padding to 1 -> padding
+        padded_rf_mask = ~padded_attention_mask.unsqueeze(1).unsqueeze(-1).to(torch.bool) # [b, 1, n, 1]
+        # [b, 1, w, j, 1]
+        padded_w_attn_mask = padded_rf_mask.reshape(batch_size, 1, -1, config.window_size, 1).to(torch.bool)
+        # [b, 1, w, j, 1] [b, 1, w, 1, j] -> [b, 1, w, j, j]
+        w_padding_mask = torch.logical_or(padded_w_attn_mask, padded_w_attn_mask.transpose(-1, -2))
+        w_causal_mask = torch.ones(
+            (1, 1, 1, config.window_size, config.window_size),
+            device=xx.device
+        ).triu(1).to(torch.bool)
+        s_mask = torch.logical_or(w_padding_mask, w_causal_mask)
+        s_mask = s_mask.reshape(batch_size, 1, -1, config.window_size)
+        s_mask = s_mask[..., :seq_len, :]
+        # negate the attention mask to get the padding mask
+        rf_mask = ~attention_mask.unsqueeze(1).unsqueeze(-1).to(torch.bool) # [b, 1, n, 1]
+        return (s_mask, rf_mask)
+    else:
+        return (None, None)

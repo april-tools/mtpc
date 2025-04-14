@@ -3,6 +3,8 @@ from torch import nn, Tensor
 import torch
 import torch.nn.functional as F
 
+from transformers.configuration_utils import PretrainedConfig
+
 from .mlp import Block
 
 
@@ -110,6 +112,13 @@ class GPT(nn.Module):
         encoder_only: bool = False
     ):
         super().__init__()
+        self.config = PretrainedConfig(
+            model_type='nanoGPT',
+            vocab_size=vocab_size,
+            n_embd=n_embd,
+            n_layer=n_layer,
+            n_head=n_head
+        )
         self.vocab_size = vocab_size
         self.n_embd = n_embd
         self.n_layer = n_layer

@@ -226,20 +226,32 @@ class LM(nn.Module):
         use_argmax: bool = False,
         mode: str = "stp",
         use_cache: bool = True,
+        attention_mask: Tensor = None,
         past_key_values: Cache = None,
+        position_ids: Tensor = None,
     ) -> dict:
         self.eval()
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
         if use_cache:
             # We only pass in the unseen inputs, because we are using cache
-            seen_tokens = 0
-            if past_key_values is not None:
-                seen_tokens = past_key_values.get_seq_length()
+            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+            if position_ids is None:
+                if attention_mask is not None:
+                    # This is the default position_ids initialization from HF's generate()
+                    # in the case we are given an attention mask
+                    position_ids = attention_mask.long().cumsum(-1) - 1
+                    position_ids.masked_fill_(attention_mask == 0, 1)
+                else:
+                    position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=int)
+                    position_ids = position_ids.unsqueeze(dim=0).expand(inputs.shape[0], -1)
+            # Evaluate the encoder
             outputs = self.encoder(
-                input_ids=inputs[:, seen_tokens:],
+                input_ids=inputs[:, past_seen_tokens:],
                 use_cache=use_cache,
+                attention_mask=attention_mask,
                 past_key_values=past_key_values,
+                position_ids=position_ids
             )
             # token embeddings of shape (b, t, n_embd)
             xx = outputs["last_hidden_state"]

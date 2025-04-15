@@ -338,9 +338,10 @@ class MultiTokenLM(torch.nn.Module):
         use_argmax: bool = False,
         mode: str = 'mtp',
         use_cache: bool = False,
+
         past_key_values: Cache = None,
         head_past_key_values: Cache = None,
-    ) -> Tensor:
+    ) -> dict:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
         if use_argmax and mode != 'stp':
@@ -383,6 +384,8 @@ class MultiTokenLM(torch.nn.Module):
                 tokens = tokens.unsqueeze(dim=1)
             else:
                 tokens = torch.multinomial(next_token_probs, num_samples=1)
+        else:
+            assert False
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,

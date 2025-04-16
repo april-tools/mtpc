@@ -1,8 +1,13 @@
+from contextlib import contextmanager
+
 import torch
 import torch.nn.functional as F
+import peft
+from peft import PeftModel
 
 from torch import nn, Tensor
 from transformers import AutoModelForCausalLM
+from transformers.cache_utils import Cache
 
 from mtp.utils.distributed import get_local_device
 from mtp.utils.checkpoint import Checkpoint
@@ -16,6 +21,7 @@ class LM(nn.Module):
         lm: nn.Module = None,
         from_checkpoint: str = None,
         from_huggingface: str = None,
+        adaptor_kwargs: dict = None,
         ref_enc: str = "model",
         ref_head: str = "lm_head",
         encoder_only: bool = True,
@@ -43,27 +49,47 @@ class LM(nn.Module):
             [(False, True, True), (True, False, True), (True, True, False)]
         )
 
-        # We only save weights if a) the model is not frozen
-        # or b) if we initialised a model that does not have a checkpoint
-        self.save_weights = (lm is not None) or self.freeze is False
+        # Set the LLM, and freeze its weights if required
+        if lm is None:
+            lm = self._load_lm()
+        if self.freeze:
+            for p in lm.parameters():
+                p.requires_grad = False
 
-        self.lm = lm or self._load_lm()
+        # Use peft for lora
+        # Note that the lora weights are not freezed, even if freeze=True above
+        self.adaptor_kwargs = adaptor_kwargs
+        if self.adaptor_kwargs is not None:
+            assert not isinstance(lm, PeftModel)
+            peft_config = peft.LoraConfig(
+                task_type="CAUSAL_LM",
+                **self.adaptor_kwargs
+            )
+            self._lm = peft.get_peft_model(lm, peft_config)
+        else:
+            self._lm = lm
 
-        # Keep track of the keys which we set to None if save_weights=False
-        # we need to do this before we drop the head
-        self.none_keys = set("lm.%s" % k for k in self.lm.state_dict().keys())
+        # Set the parameters key to include in the state_dict of the model
+        # NOTE: here we are assuming that the requires_grad of the LM model will NOT be changed elsewhere
+        #       after the completion of this __init__()
+        state_dict = super().state_dict(keep_vars=True)
+        if self.from_checkpoint is not None or self.from_huggingface is not None:
+            # We are loading a checkpoint from either disk or from hugginface
+            # As such, we retain only the keys of weights that require gradients
+            self._filter_state_dict_keys: set = {k for k, v in state_dict.items() if not v.requires_grad}
+            # For instance, if we loaded a model from huggingface, freezed it, and the applied peft on it;
+            # then _state_dict_keys will contain only the keys of e.g., lora weights
+        else:
+            # An LM model has been initialized somewhere and passed to __init__()
+            # As such, we retain all the keys of the weights, as we do not know if the given model is stored permantently somewhere else
+            # (i.e., we are conservative)
+            self._filter_state_dict_keys: set = {}
 
         # Keep lm head weights in case we want to use them during init
-        # We delete this in MultiTokenLM when we do not need it
-        self.lm_head_weights = self.head.weight.detach().clone().data
-
+        self._lm_head_weights = self.head.weight.detach().clone().data
         # If encoder only, drop the head
         if self.encoder_only:
-            setattr(self.lm, self.ref_head, None)
-
-        if self.freeze:
-            for p in self.lm.parameters():
-                p.requires_grad = False
+            setattr(self.lm_model, self.ref_head, None)
 
     def _load_lm(self):
         lm = None
@@ -71,41 +97,80 @@ class LM(nn.Module):
             # Assume that if we can find the conf, we saved the checkpoint
             try:
                 cp = Checkpoint.load(self.from_checkpoint)
-                lm = cp.model.lm.lm
+                lm = cp.model.lm._lm
             # otherwise try loading as default pt
             except Exception:
                 lm = torch.load(
                     self.from_checkpoint,
                     weights_only=False,
                     map_location=get_local_device(),
-                ).lm
+                )._lm
         elif self.from_huggingface is not None:
+            if 'EvaByte' in self.from_huggingface:
+                kwargs = {'trust_remote_code': True}
+            else:
+                kwargs = {'attn_implementation': "flash_attention_2"}
             lm = AutoModelForCausalLM.from_pretrained(
                 self.from_huggingface,
-                attn_implementation="flash_attention_2",
                 torch_dtype=torch.bfloat16,
+                **kwargs
             )
+            if 'EvaByte' in self.from_huggingface:
+                # By default, we do not use caching in EvaByte, and always return dictionaries
+                lm.config.use_cache = False
+                lm.config.return_dict = True
         return lm
 
     def state_dict(self, *args, **kwargs):
-        state = super().state_dict(*args, **kwargs)
-        # If we have loaded from checkpoint and the weights are frozen
-        # do not store the weights, we will load them again from the checkpoint
-        if not self.save_weights:
-            # NOTE: The complication here is that when we created none_keys
-            # we were not prefixing with the current modules prefix
-            prefix = kwargs.pop("prefix")
-            new_state = {("%s%s" % (prefix, k)): None for k in self.none_keys}
-            state.update(new_state)
-        return state
+        sd = super().state_dict(*args, **kwargs)
+        # Retain only the required keys
+        # I.e., set to None those tensors that do not need to be serialized
+        prefix = kwargs.pop("prefix")
+        overriden_state = {f"{prefix}{k}": None for k in self._filter_state_dict_keys}
+        sd.update(overriden_state)
+        return sd
+
+    @property
+    def lm_head_weights(self):
+        return self._lm_head_weights
+
+    def drop_lm_head_weights(self):
+        self._lm_head_weights = None
+
+    @property
+    def lm_model(self):
+        if self.has_adapter:
+            return self._lm.base_model.model
+        return self._lm
 
     @property
     def encoder(self):
-        return getattr(self.lm, self.ref_enc)
+        return getattr(self.lm_model, self.ref_enc)
 
     @property
     def head(self):
-        return getattr(self.lm, self.ref_head)
+        return getattr(self.lm_model, self.ref_head)
+
+    @property
+    def has_adapter(self) -> bool:
+        return isinstance(self._lm, PeftModel)
+
+    @contextmanager
+    def disable_adapter(self):
+        assert self.has_adapter
+        # Forward the disable adapter context manager of the Peft-managed LM
+        with self._lm.disable_adapter():
+            yield
+
+    @contextmanager
+    def disable_adapter_if_any(self):
+        if self.has_adapter:
+            # Forward the disable adapter context manager of the Peft-managed LM,
+            # only if the lm is Peft-managed
+            with self._lm.disable_adapter():
+                yield
+        else:
+            yield
 
     def forward(
         self,
@@ -141,6 +206,19 @@ class LM(nn.Module):
 
         return dict(logits=logits, loss=loss)
 
+    def head_logits(self, xx: Tensor) -> Tensor:
+        # Compute the logits with the head
+        logits = self.head(xx)
+
+        # Checker whether the LM is multi-token model
+        # In that case, return the logits of the first part of the head only
+        if hasattr(self._lm.config, "num_pred_heads") and self._lm.config.num_pred_heads > 1:
+            num_pred_heads, vocab_size = self._lm.config.num_pred_heads, self._lm.config.vocab_size
+            assert logits.shape == (logits.shape[0], logits.shape[1], num_pred_heads * vocab_size)
+            logits = logits.view(logits.shape[0], logits.shape[1], num_pred_heads, vocab_size)
+            logits = logits[:, :, 0]  # (B, S, V)
+        return logits
+
     @torch.no_grad()
     def generate(
         self,
@@ -148,20 +226,32 @@ class LM(nn.Module):
         use_argmax: bool = False,
         mode: str = "stp",
         use_cache: bool = True,
-        past_key_values: Tensor = None,
-    ) -> Tensor:
+        attention_mask: Tensor = None,
+        past_key_values: Cache = None,
+        position_ids: Tensor = None,
+    ) -> dict:
         self.eval()
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
         if use_cache:
             # We only pass in the unseen inputs, because we are using cache
-            seen_tokens = 0
-            if past_key_values is not None:
-                seen_tokens = past_key_values.get_seq_length()
+            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+            if position_ids is None:
+                if attention_mask is not None:
+                    # This is the default position_ids initialization from HF's generate()
+                    # in the case we are given an attention mask
+                    position_ids = attention_mask.long().cumsum(-1) - 1
+                    position_ids.masked_fill_(attention_mask == 0, 1)
+                else:
+                    position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=int)
+                    position_ids = position_ids.unsqueeze(dim=0).expand(inputs.shape[0], -1)
+            # Evaluate the encoder
             outputs = self.encoder(
-                input_ids=inputs[:, seen_tokens:],
+                input_ids=inputs[:, past_seen_tokens:],
                 use_cache=use_cache,
+                attention_mask=attention_mask,
                 past_key_values=past_key_values,
+                position_ids=position_ids
             )
             # token embeddings of shape (b, t, n_embd)
             xx = outputs["last_hidden_state"]
@@ -169,9 +259,7 @@ class LM(nn.Module):
         else:
             xx = self.encoder(inputs)["last_hidden_state"]
 
-        logits = self.head(
-            xx[:, [-1], :]
-        )  # note: using list [-1] to preserve the time dim
+        logits = self.head_logits(xx[:, [-1], :])  # note: using list [-1] to preserve the time dim
         if use_argmax:
             tokens = torch.argmax(logits, dim=2)
         else:

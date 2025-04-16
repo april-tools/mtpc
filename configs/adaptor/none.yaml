@@ -1,0 +1,15 @@
+name: none
+
+hyperparameters:  # Uncomment below if you want to use adaptor
+  # r: 32
+  # lora_alpha: 16
+  # lora_dropout: 0.
+  # target_modules:
+  #   - gate_proj
+  #   - down_proj
+  #   - up_proj
+  #   - q_proj
+  #   - v_proj
+  #   - k_proj
+  #   - o_proj
+  #   # - lm_head

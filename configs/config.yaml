@@ -2,6 +2,9 @@ defaults:
   - _self_
   - training: default
   - model: stp
+  - circuit: null
+  - mt_head: null
+  - adaptor: none
   - lm: nanogpt
   - data: fineweb10B
   - generate: default
@@ -17,7 +20,7 @@ hydra:
     chdir: true
     name: ${name}
   run:
-    dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
+    dir: /disk/scratch/s2457990/experiments/nanoGPT/logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
 
   job_logging:
     formatters:

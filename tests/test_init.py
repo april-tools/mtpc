@@ -19,15 +19,18 @@ def load_mtp(overrides):
 # Check that the initialised parameters all differ
 @pytest.mark.parametrize("expander", ["linear", "mlp"])
 def test_mtp_head_params_differ(expander):
-    cfg, mt = load_mtp(['model=mtp',
-                        'lm.n_layer=2',
-                        'lm.n_head=2',
-                        'lm.n_embd=32',
-                        'model.n_component=2',
-                        'model.n_token=3',
-                        'model.beta=0',
-                       f'model.mt_head_hparams.expander_type={expander}']
-        )
+    cfg, mt = load_mtp([
+        'model=mtp',
+        'model.beta=0',
+        'lm.n_layer=2',
+        'lm.n_head=2',
+        'lm.n_embd=32',
+        'circuit=cp',
+        'circuit.n_component=2',
+        'circuit.n_token=3',
+        'mt_head=linear',
+        f'mt_head.hyperparameters.expander_type={expander}'
+    ])
 
     token_heads = mt.mt_head.token_heads
 
@@ -55,20 +58,22 @@ def test_mtp_head_params_differ(expander):
 def test_uniform_init_for_future_tokens(expander):
     torch.set_default_dtype(torch.bfloat16)  # type: ignore[no-untyped-call]
 
-    cfg, model = load_mtp(['model=basharin',
-                           'lm=finewebedu',
-                           'model.n_component=1',
-                           'model.n_token=4',
-                           'model.beta=1',
-                           'model.model.kl_algorithm=full',
-                           'lm.model.encoder_only=false',
-                          f'model.mt_head_hparams.expander_type={expander}']
-                          )
+    cfg, model = load_mtp([
+        'model=mtp',
+        'model.beta=1',
+        'model.kl_algorithm=full',
+        'data=fineweb10B',
+        'lm=finewebedu',
+        'lm.model.encoder_only=false',
+        'circuit=fully_factorized',
+        'circuit.n_token=4',
+        'mt_head=linear',
+        f'mt_head.hyperparameters.expander_type={expander}'
+    ])
 
     model.to('cuda')
     tokeniser = AutoTokenizer.from_pretrained(cfg.lm.model.from_huggingface)
-    xx = tokeniser.encode('The only problem with having too many',
-                          return_tensors='pt')
+    xx = tokeniser.encode('The only problem with having too many', return_tensors='pt')
     xx = xx.to('cuda')
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         out = model(xx[:, :-1], xx[:, 1:], return_log_probs=True)
@@ -85,17 +90,20 @@ def test_uniform_init_for_future_tokens(expander):
 def test_mtp_train_params_differ(expander, freeze_lm, freeze_unembed):
     torch.set_grad_enabled(True)
     torch.manual_seed(13)
-    cfg, model = load_mtp(['model=mtp',
-                           'lm.n_layer=2',
-                           'lm.n_head=2',
-                           'lm.n_embd=32',
-                           'model.n_component=2',
-                           'model.n_token=3',
-                           'model.beta=0',
-                          f'lm.model.freeze={freeze_lm}',
-                          f'model.mt_head_hparams.freeze_vocab_unembedding={freeze_unembed}',
-                          f'model.mt_head_hparams.expander_type={expander}']
-                          )
+    cfg, model = load_mtp([
+        'model=mtp',
+        'model.beta=0',
+        'lm.n_layer=2',
+        'lm.n_head=2',
+        'lm.n_embd=32',
+        f'lm.model.freeze={freeze_lm}',
+        'circuit=cp',
+        'circuit.n_component=2',
+        'circuit.n_token=3',
+        'mt_head=linear',
+        f'mt_head.hyperparameters.freeze_vocab_unembedding={freeze_unembed}',
+        f'mt_head.hyperparameters.expander_type={expander}'
+    ])
     mcopy = copy.deepcopy(model)
 
     model.to(cfg.device)

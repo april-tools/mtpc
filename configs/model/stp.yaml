@@ -1,6 +1,4 @@
 name: stp
-n_embd: 2048
-n_head: 32
 model:
     _target_: mtp.models.stp.SingleTokenLM
     lm: ${lm.model}

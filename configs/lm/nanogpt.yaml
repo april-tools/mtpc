@@ -2,6 +2,7 @@ name: nanogpt
 n_embd: 768
 n_head: 6
 n_layer: 12
+
 model:
     _target_: mtp.models.lm.LM
     lm:
@@ -13,6 +14,7 @@ model:
     encoder_only: true
     from_checkpoint: null
     from_huggingface: null
+    adaptor_kwargs: ${adaptor.hyperparameters}
     ref_enc: encoder
     ref_head: head
     freeze: false

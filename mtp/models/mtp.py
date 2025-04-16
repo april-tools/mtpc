@@ -1,12 +1,12 @@
 import os
 import torch
-import peft
 
 from torch import Tensor
 from copy import deepcopy
 
+from transformers.cache_utils import Cache
+
 from .lm import LM
-from .mtp_head import MultiTokenHead
 
 from .circuits import CircuitModel
 from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
@@ -38,38 +38,38 @@ class MultiTokenLM(torch.nn.Module):
         lm: LM,
         circuit: CircuitModel,
         mt_head_kwargs: dict,
-        adaptor_kwargs: dict = None,
         init_from_lm_head: bool = True,
-        beta: float = .9,
-        gamma: float = 1.,
+        beta: float = 0.9,
+        gamma: float = 1.0,
         kl_type: str = 'forward',
         kl_algorithm: str = 'binary_approx'
     ):
         super().__init__()
         self.lm = lm
         self.circuit = circuit
-        self.mt_head = MultiTokenHead(
+
+        # Select and instantiate the MTP head
+        mt_head_type = mt_head_kwargs.get('type', 'vanilla')
+        if mt_head_type == 'vanilla':
+            from .mtp_head import MultiTokenHead as VanillaMultiTokenHead
+            mtp_head_cls = VanillaMultiTokenHead
+        elif mt_head_type == 'evabyte':
+            from .evabyte.mtp_head import MultiTokenHead as EvabyteMultiTokenHead
+            mtp_head_cls = EvabyteMultiTokenHead
+        else:
+            raise NotImplementedError(f"Uknown multi-token head called {mt_head_type}")
+        self.mt_head = mtp_head_cls(
             self.circuit.parameters_config,
             self.circuit.vocab_size,
             n_embd=mt_head_kwargs['n_embd'],
             transformer_n_head=mt_head_kwargs.get('transformer_n_head', 1),
-            tok_transformer_n_layer=mt_head_kwargs.get('tok_transformer_n_layer', 0),
-            sum_transformer_n_layer=mt_head_kwargs.get('sum_transformer_n_layer', 0),
+            transformer_n_layer=mt_head_kwargs.get('transformer_n_layer', 0),
+            expander_type=mt_head_kwargs.get('expander_type', 'linear'),
             expander_n_layer=mt_head_kwargs.get('expander_n_layer', 1),
-            expander_type=mt_head_kwargs.get('expander_type', 'mlp'),
+            expander_use_skip=not init_from_lm_head,
             freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False)
         )
-        self.adaptor_kwargs = adaptor_kwargs
         self.init_from_lm_head = init_from_lm_head
-
-        if self.adaptor_kwargs is not None:
-            peft_config = peft.LoraConfig(
-                    task_type="CAUSAL_LM",
-                    **self.adaptor_kwargs
-                    )
-            self.adaptor_lm = peft.get_peft_model(self.lm.encoder, peft_config)
-        else:
-            self.adaptor_lm = None
 
         # Below are the params for weighting the kl and ce losses.
         # Keep these globally to avoid shooting ourselves in the foot
@@ -82,22 +82,24 @@ class MultiTokenLM(torch.nn.Module):
         self.gamma = gamma
         self.kl_type = kl_type
         self.kl_algorithm = kl_algorithm
+        self.register_buffer('_exp_gamma_weights', torch.tensor([self.gamma ** k for k in range(self.circuit.n_token)]))
+        self._exp_gamma_normalizer = torch.sum(self._exp_gamma_weights).item()
 
         # Keep track of what we need to compute
         self.compute_ce, self.compute_kl = self.beta < 1, self.beta > 0
 
         if self.compute_kl:
             # NOTE: We compute teacher_log_probs in a no_grad block.
-            assert self.lm.freeze is True, 'Unfreezing LM with KL loss is not currently supported'
-            assert self.lm.encoder_only is False, 'We need the LM head to compute KL'
+            assert self.lm.freeze, 'Unfreezing LM with KL loss is not currently supported'
+            assert not self.lm.encoder_only, 'We need the LM head to compute KL'
         else:
             # We need encoder_only is false during generation - due to speculative decoding
             if not (os.environ.get('MODE', None) == 'generate'):
-                assert self.lm.encoder_only is True, 'We do not need the LM head since we are not computing KL'
+                assert self.lm.encoder_only, 'We do not need the LM head since we are not computing KL'
 
         if self.init_from_lm_head:
-            self.mt_head.set_unembedding_weights(lm.lm_head_weights)
-        del lm.lm_head_weights
+            self.mt_head.set_unembedding_weights(self.lm.lm_head_weights)
+        self.lm.drop_lm_head_weights()
 
     @property
     def vocab_size(self) -> int:
@@ -147,30 +149,31 @@ class MultiTokenLM(torch.nn.Module):
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
-        xxd = self.compute_draft_features(xx)['last_hidden_state']
+        xxd = self.lm.encoder(xx)['last_hidden_state']
 
         # 2) Compute teacher log probs. We do this before truncating xx.
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
-            with torch.no_grad():
-                if self.adaptor_lm is not None:
-                    xxv = self.compute_verifier_features(xx)['last_hidden_state']
-                else:
+            with torch.no_grad(), self.lm.disable_adapter_if_any():
+                if self.lm.has_adapter:
+                    xxv = self.lm.encoder(xx)['last_hidden_state']
+                else:  # If the LM has not adaptors, then the verifier hidden features are the same of the draft features
                     xxv = xxd
-                # shape: (B, S, V)
-                logits = self.lm.head(xxv)
+                # logits: (B, S, V)
+                logits = self.lm.head_logits(xxv)
+
                 # shape: B, S, V
                 teacher_log_probs = torch.log_softmax(logits, axis=-1)
 
-                B, S, V = teacher_log_probs.shape
+                _, S, V = teacher_log_probs.shape
                 assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
 
                 if self.kl_algorithm == 'binary_approx':
                     # We only need the log probs for the target category
                     # shape: B, S, 1
-                    teacher_log_probs = torch.gather(teacher_log_probs,
-                                                     dim=-1,
-                                                     index=yy.unsqueeze(-1))
+                    teacher_log_probs = torch.gather(
+                        teacher_log_probs, dim=-1, index=yy.unsqueeze(-1)
+                    )
                 # Make teacher_log_probs windowed for kl with circuit logprobs
                 # TODO: Since we are using a for loop in the KL computation
                 # shape: B, S', V, H
@@ -184,32 +187,16 @@ class MultiTokenLM(torch.nn.Module):
         else:
             teacher_log_probs = None
 
-        # 3) Truncate the activations
-        # For multi-token training, for each position, t, we predict the next
-        # H tokens in one forward pass. This means we run out of future tokens
-        # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
-        # xxd:      | t1 |
-        # yy :           | t2 | t3 | t4 |
-        #                      ...
-        #                      ...
-        # xxd:      | t1 | t2 | t3 | t4 |
-        # yy :                          | t5 | t6 | t7 |
-        #
-        # So S' = S - H + 1 = 6 - 3 + 1 = 4
-        # xx: (B, S', D), where S' = S - H + 1
-        history_idx = S - H + 1
-        xxd = xxd[:, : history_idx]
-
-        # 4) Parameterize the circuit with our NN activations
+        # 3) Parameterize the circuit with our NN activations
         self._parameterize_circuit(xxd)
 
-        # 5) Make target idxs, yy, windowed
+        # 4) Make target idxs, yy, windowed
         # from yy: (B, S) to yy: (B, S', H)
         yy = yy.unfold(dimension=1, size=H, step=1)
         # yy: (B, S', H) -> (B * S', H)
         yy = yy.reshape(-1, H)
 
-        # 6) Compute draft log probs with the circuit
+        # 5) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == 'full':
             # shape: H, B * S', V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=True)
@@ -217,71 +204,67 @@ class MultiTokenLM(torch.nn.Module):
             # shape: H, B * S'  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(yy=yy, with_logits=False)
 
-        # 7) Compute CE loss per token and, optionally, KL loss
+        # 6) Compute CE loss per token and, optionally, KL loss
         losses = self.compute_per_token_losses(
             yy,
             draft_log_probs=log_probs,
             teacher_log_probs=teacher_log_probs
         )
 
-        # 8) Weigh the losses and optionally discount
-        sum_combined_loss = 0
-        loss_for_log = dict()
-        for k in range(H):
-
-            kl_loss = losses['kl_loss'][k] if self.compute_kl else 0.
-            ce_loss = losses['ce_loss'][k] if self.compute_ce else 0.
-
-            # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
-            combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
-
-            # Possibly discount by gamma^k (no discount if gamma = 1.)
-            sum_combined_loss += (self.gamma ** k) * combined_loss
-
-            # Compute losses for logging / these are detached outside
-            if self.compute_kl:
-                if self.kl_algorithm == 'full':
-                    loss_for_log['kl_loss_at_%d' % (k+1)] = kl_loss
-                elif self.kl_algorithm == 'binary_approx':
-                    loss_for_log['kl_loss_ba_at_%d' % (k+1)] = kl_loss
-
-            if self.compute_ce:
-                loss_for_log['ce_loss_at_%d' % (k+1)] = ce_loss
-
+        # 7) Weigh the losses and optionally discount
+        kl_loss = losses['kl_loss'] if self.compute_kl else 0.0
+        ce_loss = losses['ce_loss'] if self.compute_ce else 0.0
+        # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
+        combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
+        # Possibly discount by gamma^k (no discount if gamma = 1.)
         # We the loss to stay on same scale for more tokens
         # and for change of gamma - gamma should only scale relatively
-        sum_combined_loss = sum_combined_loss / sum([self.gamma ** k
-                                                     for k in range(H)])
-
-        outputs = {'loss': sum_combined_loss}
+        avg_combined_loss = torch.sum(combined_loss * self._exp_gamma_weights, dim=-1) / self._exp_gamma_normalizer
+        
+        # Set the losses for logging / these are detached outside
+        outputs = {'loss': avg_combined_loss}
         if self.compute_kl or self.compute_ce:
-            outputs.update(loss_for_log)
+            for k in range(H):
+                if self.compute_kl:
+                    if self.kl_algorithm == 'full':
+                        outputs[f'kl_loss_at_{k+1}'] = kl_loss[k]
+                    elif self.kl_algorithm == 'binary_approx':
+                        outputs[f'kl_loss_ba_at_{k+1}'] = kl_loss[k]
+                if self.compute_ce:
+                    outputs[f'ce_loss_at_{k+1}'] = ce_loss[k]
+
         if return_log_probs:
             # TODO: fix below. We should not be recomputing things here
             # but we would need to standardize what log probs we return
             # currently this would differ depending on with_logits or not
             lp = self.circuit(yy)
             outputs['log_probs'] = lp
-            outputs['full_log_probs'] = log_probs
+            outputs['full_log_probs'] = log_probs  # ??? What is a full log probs ???
+
         return outputs
 
-    def _parameterize_circuit(self, xx: Tensor, generate: bool = False):
+    def _parameterize_circuit(
+        self,
+        xx: Tensor,
+        use_cache: bool = False,
+        attention_mask: Tensor = None,
+        past_key_values: Cache = None,
+        position_ids: Tensor = None,
+        generate: bool = False
+    ) -> Cache:
         # Obtain dictionary of circuit parameters
-        circuit_params = self.mt_head(xx, generate=generate)
+        circuit_params, past_key_values = self.mt_head(
+            xx,
+            use_cache=use_cache,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            position_ids=position_ids,
+            generate=generate
+        )
 
         # Set the parameters to the circuit
         self.circuit.parameterize(circuit_params)
-
-    def compute_verifier_features(self, xx: torch.LongTensor, **kwargs):
-        xx = self.lm.encoder(xx, **kwargs)
-        return xx
-
-    def compute_draft_features(self, xx: torch.LongTensor, **kwargs):
-        if self.adaptor_lm is not None:
-            xx = self.adaptor_lm(xx, **kwargs)
-        else:
-            xx = self.lm.encoder(xx, **kwargs)
-        return xx
+        return past_key_values
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
@@ -350,12 +333,15 @@ class MultiTokenLM(torch.nn.Module):
         return losses
 
     @torch.no_grad()
-    def generate(self, inputs: Tensor,
-                 use_argmax: bool = False,
-                 mode: str = 'mtp',
-                 use_cache: bool = False,
-                 past_key_values: Tensor = None,
-                 past_last_hidden_states: Tensor = None) -> Tensor:
+    def generate(
+        self, inputs: Tensor,
+        use_argmax: bool = False,
+        mode: str = 'mtp',
+        use_cache: bool = False,
+
+        past_key_values: Cache = None,
+        head_past_key_values: Cache = None,
+    ) -> dict:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
         if use_argmax and mode != 'stp':
@@ -365,22 +351,28 @@ class MultiTokenLM(torch.nn.Module):
             seen_tokens = 0
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
-            outputs = self.compute_draft_features(
+            outputs = self.lm.encoder(
                 inputs[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values
             )
-            if past_last_hidden_states is None:
-                # xx: (B, S, D)
-                xx = outputs['last_hidden_state']
-            else:
-                xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
-            past_key_values = outputs['past_key_values']
         else:
-            xx = self.compute_draft_features(inputs)['last_hidden_state']
-
+            outputs = self.lm.encoder(inputs)
         # Parameterize the circuit
-        self._parameterize_circuit(xx, generate=True)
+        xx = outputs['last_hidden_state']
+        next_head_past_key_values = self._parameterize_circuit(
+            xx,
+            use_cache=use_cache,
+            attention_mask=None,
+            past_key_values=head_past_key_values,
+            position_ids=None,
+            generate=True
+        )
+
+        # Update caches for the next iteration
+        if use_cache:
+            past_key_values = outputs['past_key_values']
+            head_past_key_values = next_head_past_key_values
 
         if mode == 'mtp':
             # Sample the next tokens
@@ -392,18 +384,23 @@ class MultiTokenLM(torch.nn.Module):
                 tokens = tokens.unsqueeze(dim=1)
             else:
                 tokens = torch.multinomial(next_token_probs, num_samples=1)
+        else:
+            assert False
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,
-            past_last_hidden_states=xx
+            head_past_key_values=head_past_key_values
         )
 
     # TODO: Refactor to bring for-loop into function as per Edoardo's comment
     @torch.no_grad()
-    def self_speculative_generate(self, seq: Tensor,
-                                  use_cache: bool = False,
-                                  past_key_values: Tensor = None,
-                                  past_last_hidden_states: Tensor = None) -> Tensor:
+    def self_speculative_generate(
+        self,
+        seq: Tensor,
+        use_cache: bool = False,
+        past_key_values: Cache = None,
+        head_past_key_values: Cache = None,
+    ) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
             raise NotImplementedError("Multi-batch self-speculative decoding not implemented yet")
             # seq: (B, S), with B = 1 and also possibly S = 1
@@ -411,27 +408,31 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the embeddings
         if use_cache:
             # NOTE: keep track of old values, needed for second lm eval
-            old_past_key_values = deepcopy(past_key_values)
+            verifier_past_key_values = deepcopy(past_key_values)
             seen_tokens = 0
             if past_key_values is not None:
                 seen_tokens = past_key_values.get_seq_length()
-            outputs = self.compute_draft_features(
+            outputs = self.lm.encoder(
                 seq[:, seen_tokens:],
                 use_cache=use_cache,
                 past_key_values=past_key_values
             )
-            # xx: (B, S, D)
-            if past_last_hidden_states is None:
-                xx = outputs['last_hidden_state']
-            else:
-                xx = torch.cat([past_last_hidden_states, outputs['last_hidden_state']], axis=1)
-            past_key_values = outputs['past_key_values']
         else:
-            xx = self.compute_draft_features(seq)["last_hidden_state"]
+            outputs = self.lm.encoder(seq)
+        # Parameterize the circuit
+        xx = outputs['last_hidden_state']
+        next_head_past_key_values = self._parameterize_circuit(
+            xx,
+            use_cache=use_cache,
+            attention_mask=None,
+            past_key_values=head_past_key_values,
+            position_ids=None,
+            generate=True
+        )
 
-        assert xx.shape[1] == seq.shape[1]
-        # Set the circuit parameters, based on the last embeddings
-        self._parameterize_circuit(xx, generate=True)
+        # Update caches for the next iteration
+        if use_cache:
+            head_past_key_values = next_head_past_key_values
 
         # Sample the next H tokens
         # tokens: (B=1, H)
@@ -443,15 +444,21 @@ class MultiTokenLM(torch.nn.Module):
         gen_seq = torch.cat([seq, tokens], dim=1)
 
         # Compute the next-token probabilities in parallel
-        if use_cache:
+        with self.lm.disable_adapter_if_any():
+            if use_cache:
+                outputs = self.lm.encoder(
+                    gen_seq[:, seen_tokens:],
+                    use_cache=use_cache,
+                    past_key_values=verifier_past_key_values
+                )
+                past_key_values = verifier_past_key_values
+            else:
+                outputs = self.lm.encoder(gen_seq)
             # zz: (B, S + H, D) -> (B, H + 1, D)
-            zz = self.compute_verifier_features(gen_seq[:, seen_tokens:], use_cache=use_cache, past_key_values=old_past_key_values)['last_hidden_state']
-        else:
-            zz = self.compute_verifier_features(gen_seq)['last_hidden_state']
-
-        zz = zz[:, -tokens.shape[1] - 1 :]
-        # logits: (B, H + 1, V)
-        logits = self.lm.head(zz)
+            zz = outputs['last_hidden_state']
+            zz = zz[:, -tokens.shape[1] - 1 :]
+            # logits: (B, H + 1, V)
+            logits = self.lm.head_logits(zz)
 
         # Determine the number of accepted tokens,
         # by iteratively computing conditional probabilities with the circuit
@@ -543,5 +550,5 @@ class MultiTokenLM(torch.nn.Module):
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,
-            past_last_hidden_states=xx
+            head_past_key_values=head_past_key_values
         )

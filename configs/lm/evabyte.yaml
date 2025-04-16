@@ -1,5 +1,5 @@
-name: finewebedu
-n_embd: 2048
+name: evabyte
+n_embd: 4096
 n_head: 32
 
 model:
@@ -7,7 +7,7 @@ model:
     lm: null
     encoder_only: true
     from_checkpoint: null
-    from_huggingface: HuggingFaceFW/ablation-model-fineweb-edu
+    from_huggingface: evabyte/EvaByte
     adaptor_kwargs: ${adaptor.hyperparameters}
     ref_enc: model
     ref_head: lm_head

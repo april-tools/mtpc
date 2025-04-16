@@ -28,13 +28,13 @@ def mtp(request):
     mtp = MultiTokenLM(
         lm,
         circuit,
-        mt_head_kwargs={'n_embd': n_embd, 'n_head': n_head},
+        mt_head_kwargs={'n_embd': n_embd, 'n_head': n_head, 'transformer_n_layer': 1},
     )
     yield mtp
 
 
 def test_mtp_forward(mtp: MultiTokenLM):
-    batch_size, seq_length = 8, 12
+    batch_size, seq_length = 8, 15
     seq = torch.randint(high=2, size=(batch_size, seq_length + 1))
     xx = seq[:, :seq_length]
     yy = seq[:, 1:]
@@ -49,7 +49,7 @@ def test_mtp_generate(mtp: MultiTokenLM):
     # Sample a bunch of short sentences
     # We will use these samples to get empirical estimates of the sentences distribution
     num_steps = 2
-    num_seqs, max_seq_length = 2 ** 17, mtp.n_token * num_steps + 1
+    num_seqs, max_seq_length = 2 ** 19, mtp.n_token * num_steps + 1
     seqs = torch.full(size=(num_seqs, 1), fill_value=BOS, dtype=torch.int64)
     for _ in range(num_steps):
         gresult = mtp.generate(seqs)

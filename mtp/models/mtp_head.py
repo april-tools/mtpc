@@ -230,18 +230,18 @@ class MultiTokenHead(nn.Module):
         *,
         n_embd: int = 768,
         transformer_n_head: int = 6,
-        tok_transformer_n_layer: int = 2,
-        sum_transformer_n_layer: int = 2,
+        transformer_n_layer: int = 2,
         expander_n_layer: int = 2,
         expander_type: str = 'linear',
-        freeze_vocab_unembedding: bool = False
+        freeze_vocab_unembedding: bool = False,
+        **kwargs
     ):
         super().__init__()
         self.vocab_size = vocab_size
+        self.n_token = config.n_token
         self.n_embd = n_embd
         self.transformer_n_head = transformer_n_head
-        self.tok_transformer_n_layer = tok_transformer_n_layer
-        self.sum_transformer_n_layer = sum_transformer_n_layer
+        self.transformer_n_layer = transformer_n_layer
         self.expander_n_layer = expander_n_layer
         self.expander_type = expander_n_layer
         self.freeze_vocab_unembedding = freeze_vocab_unembedding
@@ -258,7 +258,7 @@ class MultiTokenHead(nn.Module):
         for k, shape in enumerate(config.sum_weights_shapes):
             n_folds, n_output_units, n_input_units = shape
             heads = [OutputHead(
-                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=sum_transformer_n_layer),
+                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=transformer_n_layer),
                 ExpanderHead(n_embd, n_output_units, n_layer=expander_n_layer, expander_type=expander_type, init='uniform')
             ) for _ in range(n_folds)]
             proj = nn.Linear(self.n_embd, n_input_units, bias=False)
@@ -269,7 +269,7 @@ class MultiTokenHead(nn.Module):
             # while the remaining heads are initialised to produce a uniform distribution
             get_init = lambda j: 'identity' if config.categorical_layers[k].scope_idx[j].item() == 0 else 'uniform'
             heads = [OutputHead(
-                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=tok_transformer_n_layer),
+                TransformerEncoderHead(n_embd, n_head=transformer_n_head, n_layer=transformer_n_layer),
                 ExpanderHead(n_embd, n_components, n_layer=expander_n_layer, expander_type=expander_type, init=get_init(i))
             ) for i in range(n_folds)]
             # Share the same unembedding matrix for each token
@@ -280,16 +280,19 @@ class MultiTokenHead(nn.Module):
     @property
     def token_heads(self) -> list:
         return list(self._categorical_log_probs_heads)
-    
+
     @property
     def sum_weight_heads(self) -> list:
         return list(self._sum_weights_heads)
 
-    def set_unembedding_weights(self, weights):
+    @torch.no_grad()
+    def set_unembedding_weights(self, weights: Tensor):
         self.vocab_proj.weight.data = weights
 
-    def forward(self, xx: Tensor, generate: bool = False) -> dict:
+    def forward(self, xx: Tensor, generate: bool = False, **kwargs) -> dict:
         # xx: (B, S, D)
+        if not generate:
+            xx = xx[:, :xx.shape[1] - self.n_token + 1]
         # Compute the parameters of the circuit
         sum_weights = []            # A list of tensors (B, S, F, K, J)
         categorical_log_probs = []  # A list of tensors (B, S, F, K, V)
@@ -304,7 +307,5 @@ class MultiTokenHead(nn.Module):
             clp = torch.log_softmax(categorical_logits, dim=-1)
             categorical_log_probs.append(clp)
 
-        return {
-            'sum': sum_weights,
-            'categorical': categorical_log_probs
-        }
+        past_key_values = None
+        return dict(sum=sum_weights, categorical=categorical_log_probs), past_key_values

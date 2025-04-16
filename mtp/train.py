@@ -1,6 +1,8 @@
 import os
 import wandb
 import hydra
+# print(os.environ['CUDA_VISIBLE_DEVICES'])
+# print(os.environ['GPUS'])
 import torch
 import torch.distributed as dist
 from torch import autocast
@@ -125,7 +127,7 @@ def name_exp(cfg):
         return cfg.training.expname
     name = cfg.model.name
     if name == 'mtp':
-        name = '%s-n=%d-r=%d' % (name, cfg.model.n_token, cfg.model.n_component)
+        name = '%s-n=%d-r=%d' % (name, cfg.circuit.n_token, cfg.circuit.n_component)
     return name
 
 
@@ -224,7 +226,7 @@ def main(cfg: DictConfig):
         logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
         logger(f"During training we will see {ntok_train} tokens")
         logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
-        if 'shakespeare' not in cfg.data.name:
+        if all(d not in cfg.data.name for d in ['shakespeare', 'mnistbyte']):
             assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
 
         # Calculate steps
@@ -239,11 +241,11 @@ def main(cfg: DictConfig):
         if master_process:
             # Save model at step 0
             if cfg.training.save_model and global_step == 0:
+                logger(f'step:{global_step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                 ckp.save(global_step=global_step,
                          model=model,
                          optimizer=optimizer if cfg.training.save_optimizer else None,
                          scheduler=scheduler if cfg.training.save_optimizer else None)
-                logger(f'step:{global_step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
 
         # ===================== BEGIN TRAINING LOOP ==========================
         for step in range(1 + global_step, cfg.training.num_iterations + 1):
@@ -284,11 +286,11 @@ def main(cfg: DictConfig):
                 if last_step or (step % cfg.training.save_model_every == 0):
                     # TODO: save best / do not overwrite best
                     if cfg.training.save_model:
+                        logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                         ckp.save(global_step=step,
                                  model=model,
                                  optimizer=optimizer if cfg.training.save_optimizer else None,
                                  scheduler=scheduler if cfg.training.save_optimizer else None)
-                    logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.10f} time/step:{dt:.2f}s")
                 wandb.log({

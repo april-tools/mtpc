@@ -441,8 +441,6 @@ class MultiTokenHead(nn.Module):
                 zz_sum = xx
             if generate:
                 zz_sum = zz_sum[:, [-1]]
-            else:
-                zz_sum = zz_sum[:, :zz_sum.shape[1] - self.n_token + 1]
             for sum_weight_fn in self._sum_weights_heads:
                 # sum_logits: (F, B, S, Ko, Ki)
                 sum_logits = sum_weight_fn(zz_sum)
@@ -468,8 +466,6 @@ class MultiTokenHead(nn.Module):
                 zz_tok = xx
             if generate:
                 zz_tok = zz_tok[:, [-1]]
-            else:
-                zz_tok = zz_tok[:, :zz_tok.shape[1] - self.n_token + 1]
             for categorical_log_probs_fn in self._categorical_log_probs_heads:
                 # categorical_logits: (F, B, S, R, V)
                 categorical_logits = categorical_log_probs_fn(zz_tok)

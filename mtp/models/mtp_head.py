@@ -290,9 +290,7 @@ class MultiTokenHead(nn.Module):
         self.vocab_proj.weight.data = weights
 
     def forward(self, xx: Tensor, generate: bool = False, **kwargs) -> dict:
-        # xx: (B, S, D)
-        if not generate:
-            xx = xx[:, :xx.shape[1] - self.n_token + 1]
+        # xx: (B, S', D)
         # Compute the parameters of the circuit
         sum_weights = []            # A list of tensors (B, S, F, K, J)
         categorical_log_probs = []  # A list of tensors (B, S, F, K, V)

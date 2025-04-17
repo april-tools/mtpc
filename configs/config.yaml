@@ -20,7 +20,7 @@ hydra:
     chdir: true
     name: ${name}
   run:
-    dir: /disk/scratch/s2457990/experiments/nanoGPT/logs/${now:%Y-%m-%d}/${now:%H-%M-%S} 
+    dir: ./logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
   job_logging:
     formatters:

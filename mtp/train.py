@@ -218,19 +218,21 @@ def main(cfg: DictConfig):
         # ===================== BEGIN DATASET SETUP ==========================
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
         train_loader = DistributedDataLoader.resolve(cfg.data.train_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='train')
-        val_loader = DistributedDataLoader.resolve(cfg.data.val_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
+        if cfg.data.valid_bin is not None:
+            val_loader = DistributedDataLoader.resolve(cfg.data.valid_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
+            val_steps = cfg.training.val_tokens // (B * T * world_size)
 
         ntok_train = cfg.training.batch_size * T * cfg.training.num_iterations
 
-        logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
-        logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
-        logger(f"During training we will see {ntok_train} tokens")
-        logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
-        if all(d not in cfg.data.name for d in ['shakespeare', 'mnistbyte']):
-            assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
+        if hasattr(train_loader, 'ntok_total'):
+            logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
+            logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
+            logger(f"During training we will see {ntok_train} tokens")
+            logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
+            if all(d not in cfg.data.name for d in ['shakespeare', 'mnistbyte']):
+                assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
 
         # Calculate steps
-        val_steps = cfg.training.val_tokens // (B * T * world_size)
         train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
         train_loader.reset()
@@ -270,16 +272,17 @@ def main(cfg: DictConfig):
                 torch.cuda.synchronize()
             dt = time.time() - t0
 
-            # Validation
-            if first_step or last_step or (step % cfg.training.val_loss_every == 0):
-                val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)
-                logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
-                if master_process:
-                    wandb.log({
-                        'global_step': step,
-                        'valid/loss': val_loss,
-                        **{('valid/%s' % k): v for k, v in val_metrics.items()},
-                    })
+            if cfg.data.valid_bin is not None:
+                # Validation
+                if first_step or last_step or (step % cfg.training.val_loss_every == 0):
+                    val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)
+                    logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
+                    if master_process:
+                        wandb.log({
+                            'global_step': step,
+                            'valid/loss': val_loss,
+                            **{('valid/%s' % k): v for k, v in val_metrics.items()},
+                        })
 
             # Logging and model saving
             if master_process:

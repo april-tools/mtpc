@@ -218,8 +218,8 @@ def main(cfg: DictConfig):
         # ===================== BEGIN DATASET SETUP ==========================
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
         train_loader = DistributedDataLoader.resolve(cfg.data.train_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='train')
-        if cfg.data.valid_bin is not None:
-            val_loader = DistributedDataLoader.resolve(cfg.data.valid_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
+        if cfg.data.val_bin is not None:
+            val_loader = DistributedDataLoader.resolve(cfg.data.val_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
             val_steps = cfg.training.val_tokens // (B * T * world_size)
 
         ntok_train = cfg.training.batch_size * T * cfg.training.num_iterations
@@ -272,7 +272,7 @@ def main(cfg: DictConfig):
                 torch.cuda.synchronize()
             dt = time.time() - t0
 
-            if cfg.data.valid_bin is not None:
+            if cfg.data.val_bin is not None:
                 # Validation
                 if first_step or last_step or (step % cfg.training.val_loss_every == 0):
                     val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)

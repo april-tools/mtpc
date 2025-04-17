@@ -22,14 +22,17 @@ class DistributedDataLoader:
         device: str = "cuda",
         split="train",
     ):
+        obj = None
         for pattern, constructor in cl._resolvers.items():
-            if re.match(pattern, dataset):
+            if re.match(pattern, dataset, re.DOTALL):
                 obj = constructor(
                     dataset, hf_model, B, T, process_rank, num_processes, device, split
                 )
                 obj = obj.reset()
-                return obj
-        raise ValueError("Could not resolve: %s" % dataset)
+        if obj is None:
+            raise ValueError("Could not resolve: %s" % dataset)
+        else:
+            return obj
 
     @classmethod
     def register(cl, key, constructor):

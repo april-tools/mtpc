@@ -42,16 +42,16 @@ def process_sharegpt(sources, tokenizer: transformers.PreTrainedTokenizer) -> di
     # Apply prompt templates
     conversations = []
     prompts = []
-    # # import pdb; pdb.set_trace()
-    for i, conversation in enumerate(sources["conversations"]):
-        conversation = fix_source(conversation)
-        # Fix the chat
-        # Chat template was removed, so add here
-        prompt = tokenizer.apply_chat_template(
-            conversation, tokenize=False, chat_template=chat_template
-        )
-        prompts.append(prompt)
-        conversations.append(conversation)
+
+    conversation = sources["conversations"]
+    conversation = fix_source(conversation)
+    # Fix the chat
+    # Chat template was removed, so add here
+    prompt = tokenizer.apply_chat_template(
+        conversation, tokenize=False, chat_template=chat_template
+    )
+    prompts.append(prompt)
+    conversations.append(conversation)
 
     # Tokenize conversations
     encoding = tokenizer(
@@ -119,7 +119,6 @@ class ShareGPTDataLoader(HFDistributedDataLoader):
             return load_dataset(
                 "Aeala/ShareGPT_Vicuna_unfiltered",
                 data_files=["ShareGPT_V4.3_unfiltered_cleaned_split.json"],
-                streaming=True,
                 split=self.split,
             )
         else:

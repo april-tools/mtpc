@@ -64,7 +64,7 @@ class HFDistributedDataLoader(object):
         raise NotImplementedError()
 
     def filter(self, x):
-        raise NotImplementedError()
+        yield x
 
     def next_batch(self):
         if self.dataset_iterator is None:

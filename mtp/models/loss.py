@@ -12,9 +12,9 @@ def compute_valid_mask(yy: torch.Tensor):
 
 
 def compute_num_valid_tokens(mask: torch.Tensor):
-    num_valid_tokens = mask.sum().item()
+    num_valid_tokens = mask.sum()
     # Make sure we do not divide by zero
-    num_valid_tokens = max(num_valid_tokens, 1)
+    num_valid_tokens = torch.clamp(num_valid_tokens, min=1)
     return num_valid_tokens
 
 
@@ -181,17 +181,15 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
     H, BS = draft_log_probs.shape[:2]
     assert yy.shape == (BS, H)
 
-    ce_losses = torch.zeros(H, device=draft_log_probs.device)
-    for h in range(H):
-        if len(draft_log_probs.shape) == 2:
-            # Cross-entropy with one-hot targets == negative log-likelihood
-            # The circuit has only computed the log probs for the targets
-            mask = compute_valid_mask(yy[:, h])
-            num_valid_tokens = compute_num_valid_tokens(mask)
-            ce_losses[h] = - draft_log_probs[h].sum() / num_valid_tokens
-        elif len(draft_log_probs.shape) == 3:
-            # NOTE: log_probs are logits, but not vice-versa
-            ce_losses[h] = F.cross_entropy(draft_log_probs[h], yy[:, h].ravel(), ignore_index=IGNORE_TOKEN_ID)
-        else:
-            raise ValueError('Expected draft_log_probs to be shape (H, BS, [V]), got %r' % draft_log_probs.shape)
+    if len(draft_log_probs.shape) == 2:
+        # Cross-entropy with one-hot targets == negative log-likelihood
+        # The circuit has only computed the log probs for the targets
+        mask = compute_valid_mask(yy)
+        num_valid_tokens = torch.vmap(compute_num_valid_tokens, in_dims=1)(mask)
+        ce_losses = - draft_log_probs.sum(dim=1) / num_valid_tokens
+    elif len(draft_log_probs.shape) == 3:
+        # NOTE: log_probs are logits, but not vice-versa
+        ce_losses = torch.vmap(F.cross_entropy, in_dims=(0, 1))(draft_log_probs, yy, ignore_index=IGNORE_TOKEN_ID)
+    else:
+        raise ValueError('Expected draft_log_probs to be shape (H, BS, [V]), got %r' % draft_log_probs.shape)
     return ce_losses

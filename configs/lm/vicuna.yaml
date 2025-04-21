@@ -1,0 +1,12 @@
+name: finewebedu
+n_embd: 4096
+n_head: 32
+model:
+    _target_: mtp.models.lm.LM
+    lm: null
+    encoder_only: true
+    from_checkpoint: null
+    from_huggingface: lmsys/vicuna-7b-v1.5
+    ref_enc: model
+    ref_head: lm_head
+    freeze: true

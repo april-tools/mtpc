@@ -1,0 +1,4 @@
+name: tulu3
+train_bin: 'allenai/tulu-3-sft-mixture'
+val_bin: null
+vocab_size: null

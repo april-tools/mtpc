@@ -1,0 +1,4 @@
+name: sharegpt
+train_bin: 'Aeala/ShareGPT_Vicuna_unfiltered'
+val_bin: null
+vocab_size: null

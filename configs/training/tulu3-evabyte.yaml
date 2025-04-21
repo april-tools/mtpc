@@ -2,10 +2,10 @@
 random_seed: 13
 
 # Optimization hyperparams
-batch_size: 64
+batch_size: 256
 device_batch_size: 1
 sequence_length: 8192
-num_iterations: 3000
+num_iterations: 1000
 learning_rate: 0.00003
 # Default scheduler uses cosine annealing to LR/10
 # If no scheduler, we keep LR constant

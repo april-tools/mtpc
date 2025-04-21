@@ -50,15 +50,15 @@ class MultiTokenLM(torch.nn.Module):
         self.circuit = circuit
 
         # Select and instantiate the MTP head
-        mt_head_type = mt_head_kwargs.get('type', 'vanilla')
-        if mt_head_type == 'vanilla':
+        self.mt_head_type = mt_head_kwargs.get('type', 'vanilla')
+        if self.mt_head_type == 'vanilla':
             from .mtp_head import MultiTokenHead as VanillaMultiTokenHead
             mtp_head_cls = VanillaMultiTokenHead
-        elif mt_head_type == 'evabyte':
+        elif self.mt_head_type == 'evabyte':
             from .evabyte.mtp_head import MultiTokenHead as EvabyteMultiTokenHead
             mtp_head_cls = EvabyteMultiTokenHead
         else:
-            raise NotImplementedError(f"Unknown multi-token head called {mt_head_type}")
+            raise NotImplementedError(f"Unknown multi-token head called {self.mt_head_type}")
         self.mt_head = mtp_head_cls(
             self.circuit.parameters_config,
             self.circuit.vocab_size,
@@ -157,17 +157,41 @@ class MultiTokenLM(torch.nn.Module):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=torch.int32)
 
-        # 1) Encode the inputs with the underlying LM (backbone).
-        #    shape -> (B, S, D)
-        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask)['last_hidden_state']
+        # 1) Truncate the inputs
+        # For multi-token training, for each position, t, we predict the next
+        # H tokens in one forward pass. This means we run out of future tokens
+        # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
+        # xxd:      | t1 |
+        # labels:        | t2 | t3 | t4 |
+        #                      ...
+        #                      ...
+        # xxd:      | t1 | t2 | t3 | t4 |
+        # labels:                       | t5 | t6 | t7 |
+        #
+        # So S' = S - H + 1 = 6 - 3 + 1 = 4
+        # xx: (B, S', D), where S' = S - H + 1
+        history_idx = S - H + 1
+        trunc_input_ids = input_ids[:, :history_idx].clone()
+        trunc_attention_mask = attention_mask[:, :history_idx].clone()
 
-        # 2) Compute teacher log probs. We do this before truncating xx.
+        # Evabyte needs special treatment since they construct two types of
+        # attention mask (window and block), and cannot use vanilla huggingface
+        if self.mt_head_type == 'evabyte':
+            # TODO: fix below when we know what tuple of attention masks to pass in
+            trunc_attention_mask = None
+
+        # 2) Encode the inputs with the underlying LM (backbone).
+        #    shape -> (B, S', D)
+        xxd = self.lm.encoder(input_ids=trunc_input_ids, attention_mask=trunc_attention_mask)['last_hidden_state']
+
+        # 3) Compute teacher log probs. We do this before truncating xx.
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
             with torch.no_grad(), self.lm.disable_adapter_if_any():
+                # TODO: Truncate labels in this case instead of passing full attention_mask
                 if self.lm.has_adapter:
-                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask)['last_hidden_state']
-                else:  # If the LM has not adaptors, then the verifier hidden features are the same of the draft features
+                    xxv = self.lm.encoder(input_ids=trunc_input_ids, attention_mask=trunc_attention_mask)['last_hidden_state']
+                else:  # If the LM has no adaptors, then the verifier hidden features are the same as the draft features
                     xxv = xxd
                 # logits: (B, S, V)
                 logits = self.lm.head_logits(xxv)
@@ -199,24 +223,8 @@ class MultiTokenLM(torch.nn.Module):
         else:
             teacher_log_probs = None
 
-        # 3) Truncate the activations
-        # For multi-token training, for each position, t, we predict the next
-        # H tokens in one forward pass. This means we run out of future tokens
-        # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
-        # xxd:      | t1 |
-        # labels:        | t2 | t3 | t4 |
-        #                      ...
-        #                      ...
-        # xxd:      | t1 | t2 | t3 | t4 |
-        # labels:                       | t5 | t6 | t7 |
-        #
-        # So S' = S - H + 1 = 6 - 3 + 1 = 4
-        # xx: (B, S', D), where S' = S - H + 1
-        history_idx = S - H + 1
-        xxd = xxd[:, :history_idx]
-
         # 4) Parameterize the circuit with our NN activations
-        self._parameterize_circuit(xxd, attention_mask=attention_mask)
+        self._parameterize_circuit(xxd, attention_mask=trunc_attention_mask)
 
         # 5) Make target labels, yy, and attention masks, windowed
         # from labels: (B, S) to yy: (B, S', H)
@@ -226,11 +234,12 @@ class MultiTokenLM(torch.nn.Module):
 
         # Also process the attention mask which is the same shape as yy
         yym = attention_mask.bool().unfold(dimension=1, size=H, step=1)
+
         # We condition on tokens with attention_mask = True
         # so we want to marginalise out those with attention_mask=False
         do_not_condition_mask = ~yym.reshape(-1, H)
         # We do not predict tokens with IGNORE_TOKEN_ID
-        do_not_predict_mask = ~ compute_valid_mask(yy)
+        do_not_predict_mask = ~compute_valid_mask(yy)
 
         # We want to marginalise out tokens that should either not be predicted
         # or tokens that should not be conditioned on
@@ -248,12 +257,12 @@ class MultiTokenLM(torch.nn.Module):
                 yy=yy, marg_mask=marg_mask, with_logits=False
             )
 
-        # 6) Compute CE loss per token and, optionally, KL loss
+        # 7) Compute CE loss per token and, optionally, KL loss
         losses = self.compute_per_token_losses(
             yy, draft_log_probs=log_probs, teacher_log_probs=teacher_log_probs
         )
 
-        # 7) Weigh the losses and optionally discount
+        # 8) Weigh the losses and optionally discount
         kl_loss = losses['kl_loss'] if self.compute_kl else 0.0
         ce_loss = losses['ce_loss'] if self.compute_ce else 0.0
         # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )

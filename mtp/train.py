@@ -1,8 +1,6 @@
 import os
 import wandb
 import hydra
-# print(os.environ['CUDA_VISIBLE_DEVICES'])
-# print(os.environ['GPUS'])
 import torch
 import torch.distributed as dist
 from torch import autocast
@@ -217,6 +215,10 @@ def main(cfg: DictConfig):
 
         # ===================== BEGIN DATASET SETUP ==========================
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
+        # Since we are doing multi-token prediction, the seq length in the transformer
+        # is actually T + n - 1, so increase seq length to make transformer seq len T
+        # this is also needed for EvaByte where T must be a multiple of window_size
+        T += model.n_token - 1
         train_loader = DistributedDataLoader.resolve(cfg.data.train_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='train')
         if cfg.data.val_bin is not None:
             val_loader = DistributedDataLoader.resolve(cfg.data.val_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')

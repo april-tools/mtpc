@@ -133,6 +133,7 @@ class GPT(nn.Module):
         self.encoder: GPTEncoder = GPTEncoder(vocab_size, n_embd, n_layer, n_head)
         self.head: GPTHead | None = None if encoder_only else GPTHead(n_embd, vocab_size)
         self.apply(_init_weights)
+        self.n_token = 1
 
     def forward(self,
                 input_ids: LongTensor,

@@ -1,8 +1,6 @@
 import os
 import wandb
 import hydra
-# print(os.environ['CUDA_VISIBLE_DEVICES'])
-# print(os.environ['GPUS'])
 import torch
 import torch.distributed as dist
 from torch import autocast
@@ -10,7 +8,7 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from collections import defaultdict
 import time
 
-from mtp.data.dataloader import DistributedDataLoader
+from mtp.data import DistributedDataLoader
 from mtp.utils.distributed import setup_distributed, wrap_model_distributed
 from mtp.utils.checkpoint import Checkpoint
 from mtp.utils.logger import Logger
@@ -59,9 +57,9 @@ def validation_step(model, val_loader, val_steps, ctx):
     val_loader.reset()
     val_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
     for _ in range(val_steps):
-        x_val, y_val = val_loader.next_batch()
+        batch = val_loader.next_batch()
         with ctx:
-            results = model(x_val, y_val)
+            results = model(**batch)
             val_loss += results.pop('loss').detach()
             for k, v in results.items():
                 if '_loss_' in k:
@@ -82,10 +80,10 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
     model.train()
     train_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
     for i in range(1, train_accumulation_steps + 1):
-        x, y = train_loader.next_batch()
+        batch = train_loader.next_batch()
 
         with ctx:
-            results = model(x, y)
+            results = model(**batch)
             loss = results.pop('loss')
             train_loss += loss.detach()
             for k, v in results.items():
@@ -217,20 +215,26 @@ def main(cfg: DictConfig):
 
         # ===================== BEGIN DATASET SETUP ==========================
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
-        train_loader = DistributedDataLoader(cfg.data.train_bin, B, T, rank, world_size, cfg.device)
-        val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
+        # Since we are doing multi-token prediction, the seq length in the transformer
+        # is actually T + n - 1, so increase seq length to make transformer seq len T
+        # this is also needed for EvaByte where T must be a multiple of window_size
+        T += model.n_token - 1
+        train_loader = DistributedDataLoader.resolve(cfg.data.train_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='train')
+        if cfg.data.val_bin is not None:
+            val_loader = DistributedDataLoader.resolve(cfg.data.val_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
+            val_steps = cfg.training.val_tokens // (B * T * world_size)
 
         ntok_train = cfg.training.batch_size * T * cfg.training.num_iterations
 
-        logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
-        logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
-        logger(f"During training we will see {ntok_train} tokens")
-        logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
-        if all(d not in cfg.data.name for d in ['shakespeare', 'mnistbyte']):
-            assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
+        if hasattr(train_loader, 'ntok_total'):
+            logger(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
+            logger(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
+            logger(f"During training we will see {ntok_train} tokens")
+            logger(f"Each validation step will see {cfg.training.val_tokens} tokens")
+            if all(d not in cfg.data.name for d in ['shakespeare', 'mnistbyte']):
+                assert ntok_train < train_loader.ntok_total, 'Current setup would run multiple epochs on this dataset'
 
         # Calculate steps
-        val_steps = cfg.training.val_tokens // (B * T * world_size)
         train_accumulation_steps = cfg.training.batch_size // (B * world_size)
 
         train_loader.reset()
@@ -270,16 +274,17 @@ def main(cfg: DictConfig):
                 torch.cuda.synchronize()
             dt = time.time() - t0
 
-            # Validation
-            if first_step or last_step or (step % cfg.training.val_loss_every == 0):
-                val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)
-                logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
-                if master_process:
-                    wandb.log({
-                        'global_step': step,
-                        'valid/loss': val_loss,
-                        **{('valid/%s' % k): v for k, v in val_metrics.items()},
-                    })
+            if cfg.data.val_bin is not None:
+                # Validation
+                if first_step or last_step or (step % cfg.training.val_loss_every == 0):
+                    val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)
+                    logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
+                    if master_process:
+                        wandb.log({
+                            'global_step': step,
+                            'valid/loss': val_loss,
+                            **{('valid/%s' % k): v for k, v in val_metrics.items()},
+                        })
 
             # Logging and model saving
             if master_process:

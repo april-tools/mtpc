@@ -6,7 +6,7 @@ import torch.distributed as dist
 from torch import autocast
 from collections import defaultdict
 
-from mtp.data.dataloader import DistributedDataLoader
+from mtp.data import DistributedDataLoader
 from mtp.utils.distributed import setup_distributed, wrap_model_distributed
 from mtp.utils.checkpoint import Checkpoint
 
@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
         # ===================== BEGIN DATASET SETUP ==========================
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
-        val_loader = DistributedDataLoader(cfg.data.val_bin, B, T, rank, world_size, cfg.device)
+        val_loader = DistributedDataLoader.resolve(cfg.data.val_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
         val_steps = cfg.training.val_tokens // (B * T * world_size)
 
         stats = dict()

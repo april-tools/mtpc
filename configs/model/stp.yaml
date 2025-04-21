@@ -1,4 +1,5 @@
 name: stp
+n_token: 1
 model:
     _target_: mtp.models.stp.SingleTokenLM
     lm: ${lm.model}

@@ -1,8 +1,8 @@
 # Source this file from the root directory of the project
 export MTP_ROOT=`pwd`
 # Adapt below based on your gpu config
-export GPUS=4
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export GPUS=1
+export CUDA_VISIBLE_DEVICES=0
 # export GPUS=3
 # export CUDA_VISIBLE_DEVICES=0,1,2
 export WANDB_MODE=disabled

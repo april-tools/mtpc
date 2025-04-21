@@ -1,4 +1,5 @@
 import torch
+import warnings
 import transformers
 
 from datasets import load_dataset
@@ -7,6 +8,12 @@ from trl import DataCollatorForCompletionOnlyLM
 
 from mtp.models.loss import IGNORE_TOKEN_ID
 from mtp.data.hf_dataloader import HFDistributedDataLoader
+
+
+# We use below to silence warnings from the DataCollator that is
+# not finding the assistant label due to truncated lengths
+# we filter these examples out later anyway
+warnings.filterwarnings("ignore", category=UserWarning, module="trl")
 
 
 class TuluDataLoader(HFDistributedDataLoader):

@@ -187,8 +187,8 @@ class MultiTokenLM(torch.nn.Module):
         # 3) Compute teacher log probs. We do this before truncating xx.
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
+            raise NotImplementedError('For KL we need to further truncate the inputs and labels')
             with torch.no_grad(), self.lm.disable_adapter_if_any():
-                # TODO: Truncate labels in this case instead of passing full attention_mask
                 if self.lm.has_adapter:
                     xxv = self.lm.encoder(input_ids=trunc_input_ids, attention_mask=trunc_attention_mask)['last_hidden_state']
                 else:  # If the LM has no adaptors, then the verifier hidden features are the same as the draft features

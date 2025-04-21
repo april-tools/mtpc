@@ -42,6 +42,7 @@ class HFDistributedDataLoader(object):
 
     def reset(self):
         self.dataset = self.load_dataset()
+        self.dataset = self.dataset.shuffle(42)
         self.dataset = self.dataset.to_iterable_dataset()
         self.dataset = self.dataset.map(lambda x: self.process(x))
         self.dataset = self.dataset.filter(function=lambda x: self.filter(x))

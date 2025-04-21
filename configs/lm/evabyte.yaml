@@ -7,7 +7,7 @@ model:
     lm: null
     encoder_only: true
     from_checkpoint: null
-    from_huggingface: evabyte/EvaByte
+    from_huggingface: EvaByte/EvaByte-SFT
     adaptor_kwargs: ${adaptor.hyperparameters}
     ref_enc: model
     ref_head: lm_head

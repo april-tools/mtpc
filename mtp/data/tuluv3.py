@@ -37,10 +37,10 @@ class TuluDataLoader(HFDistributedDataLoader):
             )
 
     def filter(self, example):
-        n = len(example["labels"])
+        n = example["labels"].shape[1]
         active = (example["labels"] == IGNORE_TOKEN_ID).sum().item()
         seq_len = example["attention_mask"].sum().item()
-        return (n - active > 0) and (seq_len < self.model_max_length)
+        return (n - active > 0) and (seq_len < self.model_max_length - 1)
 
     def process(self, x):
         tokens = self.tokenizer.apply_chat_template(

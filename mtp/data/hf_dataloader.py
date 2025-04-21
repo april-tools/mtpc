@@ -71,13 +71,15 @@ class HFDistributedDataLoader(object):
             self.dataset_iterator = iter(self.dataset)
         fields = next(self.dataset_iterator)
         batch = dict()
-        if self.device == "cuda":
-            for k in fields:
-                # Filter outputs to only include needed
-                if k in ("input_ids", "labels", "attention_mask"):
-                    if isinstance(fields[k], list):
-                        fields[k] = torch.cat(fields[k])
+        for k in fields:
+            # Filter outputs to only include needed
+            if k in ("input_ids", "labels", "attention_mask"):
+                if isinstance(fields[k], list):
+                    fields[k] = torch.cat(fields[k])
+                if self.device == "cuda":
                     batch[k] = fields[k].cuda()
+                else:
+                    batch[k] = fields[k]
         return batch
 
     def seek(self, num_steps):

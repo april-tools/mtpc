@@ -2,7 +2,7 @@
 
 # Run the autoregressive model
 
-../uv/uv run torchrun --standalone --nproc_per_node=1 -m mtp.train data=fineweb10b model=default
+torchrun --standalone --nproc_per_node=1 -m mtp.train data=fineweb10b model=stp
 
 # Run the multi-token prediction model
 # Note that the multi-token-prediction model with r > 1 is a Mixture of Softmaxes
@@ -13,6 +13,6 @@ for r in 1;
 do
 	for n in 1 2 3 4 5;
 	do
-		../uv/uv run torchrun --standalone --nproc_per_node=1 -m mtp.train data=fineweb10b model=mtp model.n_token=$n model.n_component=$r
+		torchrun --standalone --nproc_per_node=3 -m mtp.train data=finewebedu10B training=finewebedu lm=finewebedu model=mtp circuit=cp mt_head=linear circuit.n_token=$n circuit.n_component=$r training.expname=test model.model.beta=0
 	done
 done

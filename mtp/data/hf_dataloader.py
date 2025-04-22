@@ -84,5 +84,5 @@ class HFDistributedDataLoader(object):
 
     def seek(self, num_steps):
         self.reset()
-        self.dataset = self.dataset.skip(num_steps)
+        self.dataset = self.dataset.skip(num_steps * self.num_processes)
         self.dataset_iterator = iter(self.dataset)

@@ -177,14 +177,15 @@ class MultiTokenLM(torch.nn.Module):
         # Evabyte needs special treatment since they construct two types of
         # attention mask (window and block), and cannot use vanilla huggingface
         if self.mt_head_type == 'evabyte':
-            # TODO: fix below when we know what tuple of attention masks to pass in
+            # We are not packing, so pass attention=None
+            # https://github.com/OpenEvaByte/evabyte/issues/6
             trunc_attention_mask = None
 
         # 2) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S', D)
         xxd = self.lm.encoder(input_ids=trunc_input_ids, attention_mask=trunc_attention_mask)['last_hidden_state']
 
-        # 3) Compute teacher log probs. We do this before truncating xx.
+        # 3) Compute teacher log probs.
         #  teacher_log_probs: shape (B * S', H, V)
         if self.compute_kl:
             raise NotImplementedError('For KL we need to further truncate the inputs and labels')

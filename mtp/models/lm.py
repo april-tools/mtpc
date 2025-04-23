@@ -65,7 +65,7 @@ class LM(nn.Module):
                 task_type="CAUSAL_LM",
                 **self.adaptor_kwargs
             )
-            self._lm = peft.get_peft_model(lm, peft_config, autocast_adapter_dtype=False)
+            self._lm = peft.get_peft_model(lm, peft_config)
         else:
             self._lm = lm
 

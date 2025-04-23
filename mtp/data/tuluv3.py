@@ -34,7 +34,7 @@ class TuluDataLoader(HFDistributedDataLoader):
         if hf_model in ["EvaByte/EvaByte", "EvaByte/EvaByte-SFT"]:
             self.data_collator = DataCollatorForCompletionOnlyLM(
                 tokenizer=self.tokenizer,
-                response_template="<|start_header_id|>assistant<|end_header_id|>",
+                response_template="<|start_header_id|>assistant<|end_header_id|>\n\n",
                 ignore_index=IGNORE_TOKEN_ID,
                 mlm=False,
             )

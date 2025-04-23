@@ -6,7 +6,7 @@ import peft
 from peft import PeftModel
 
 from torch import nn, Tensor
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 from transformers.cache_utils import Cache
 
 from mtp.utils.distributed import get_local_device
@@ -113,6 +113,7 @@ class LM(nn.Module):
             lm = AutoModelForCausalLM.from_pretrained(
                 self.from_huggingface,
                 torch_dtype=torch.bfloat16,
+                quantization_config=BitsAndBytesConfig(load_in_4bit=True),
                 **kwargs
             )
             if 'EvaByte' in self.from_huggingface:

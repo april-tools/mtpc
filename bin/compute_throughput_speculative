@@ -16,7 +16,7 @@ default="$MTP_ROOT/outputs/models/finewebedu10B"
 # If not overriden by cli, use default
 directory="${1:-$default}"
 
-for file in $(find "$directory" -type f -name "*.pt");
+for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
 	echo -e "Processing $file..."
 	python -m mtp.generate \

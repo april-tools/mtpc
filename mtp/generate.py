@@ -302,8 +302,8 @@ if __name__ == "__main__":
     stats['checkpoint'] = '%s-%s@0' % (ckp.model.name, ckp.lm.name) if args.checkpoint is None else repr(ckp)
     # Below attributes only exist for MTP
     if 'stp' not in stats['model']:
-        stats['beta'] = cfg.model.beta
-        stats['gamma'] = cfg.model.gamma
+        stats['beta'] = cfg.model.model.beta
+        stats['gamma'] = cfg.model.model.gamma
         stats['kl_type'] = cfg.model.kl_type
         stats['kl_algorithm'] = cfg.model.kl_algorithm
         stats['expander_type'] = cfg.mt_head.hyperparameters.expander_type

@@ -69,7 +69,9 @@ if __name__ == "__main__":
     os.environ['MTP_TRUNC_P'] = str(args.ptrunc)
     # os.environ['MTP_TRUNC_P'] = '.9'
 
-    lm = Checkpoint.load(checkpoint).model
+    ckp = Checkpoint.load(checkpoint)
+    print('Results for %s' % ckp.expname)
+    lm = ckp.model
     lm.eval()
 
     vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True)

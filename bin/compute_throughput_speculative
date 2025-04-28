@@ -18,14 +18,16 @@ directory="${1:-$default}"
 
 for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
-	echo -e "Processing $file..."
-	python -m mtp.generate \
-		--device cuda \
-		--mode mtp \
-		--speculative \
-	   	--random-seed $seed \
-		--subsample-prompts $subsample_prompts \
-		--num-tokens $num_tokens \
-		--task chat \
-		--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
+	if [[ $file =~ (0\.pt|200\.pt|400\.pt|600\.pt|800\.pt|1000\.pt)$ ]]; then
+		echo -e "Processing $file..."
+		python -m mtp.generate \
+			--device cuda \
+			--mode mtp \
+			--speculative \
+			--random-seed $seed \
+			--subsample-prompts $subsample_prompts \
+			--num-tokens $num_tokens \
+			--task chat \
+			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
+	fi
 done

@@ -50,3 +50,39 @@ def test_hf_dataloader_tulu_label_masking():
     pred_labels = batch['labels'][batch['labels'] != -100]
 
     assert torch.allclose(pred_labels, seq_labels[-len(pred_labels):])
+
+
+def test_hf_dataloader_batching():
+
+    dl = DistributedDataLoader.resolve(
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 0, 1
+    )
+    out = dl.next_batch()
+    out = dl.next_batch()
+
+    dl = DistributedDataLoader.resolve(
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 1, 2048, 0, 1
+    )
+    out2 = dl.next_batch()
+    out2 = dl.next_batch()
+    out2 = dl.next_batch()
+    for k in out:
+        assert torch.allclose(out2[k][0], out[k][0])
+    out2 = dl.next_batch()
+    for k in out:
+        assert torch.allclose(out2[k][0], out[k][1])
+
+
+def test_hf_dataloader_ddp():
+
+    dl = DistributedDataLoader.resolve(
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 0, 2
+    )
+    out = dl.next_batch()
+
+    dl = DistributedDataLoader.resolve(
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 1, 2
+    )
+    out2 = dl.next_batch()
+    for k in out:
+        assert not torch.allclose(out2[k][0], out[k][0])

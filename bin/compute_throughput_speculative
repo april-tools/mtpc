@@ -18,7 +18,7 @@ directory="${1:-$default}"
 
 for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
-	if [[ $file =~ (0\.pt|200\.pt|400\.pt|600\.pt|800\.pt|1000\.pt)$ ]]; then
+	if [[ $file =~ (model0\.pt|200\.pt|400\.pt|600\.pt|800\.pt|000\.pt)$ ]]; then
 		echo -e "Processing $file..."
 		python -m mtp.generate \
 			--device cuda \

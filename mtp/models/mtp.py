@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.nn.functional as F
 
 from torch import Tensor, LongTensor
 from copy import deepcopy
@@ -10,7 +11,7 @@ from .lm import LM
 
 from .circuits import CircuitModel
 from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
-from .loss import compute_valid_mask
+from .loss import compute_valid_mask, IGNORE_TOKEN_ID
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -153,41 +154,26 @@ class MultiTokenLM(torch.nn.Module):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=torch.int32)
 
-        # 1) Truncate the inputs
-        # For multi-token training, for each position, t, we predict the next
-        # H tokens in one forward pass. This means we run out of future tokens
-        # at position S' = S - H + 1. E.g., for H=3, the prediction windows:
-        # xxd:      | t1 |
-        # labels:        | t2 | t3 | t4 |
-        #                      ...
-        #                      ...
-        # xxd:      | t1 | t2 | t3 | t4 |
-        # labels:                       | t5 | t6 | t7 |
-        #
-        # So S' = S - H + 1 = 6 - 3 + 1 = 4
-        # xx: (B, S', D), where S' = S - H + 1
-        history_idx = S - H + 1
-        trunc_input_ids = input_ids[:, :history_idx].clone()
-        trunc_attention_mask = attention_mask[:, :history_idx].clone()
-
         # Evabyte needs special treatment since they construct two types of
         # attention mask (window and block), and cannot use vanilla huggingface
         if self.mt_head_type == 'evabyte':
             # We are not packing, so pass attention=None
             # https://github.com/OpenEvaByte/evabyte/issues/6
-            trunc_attention_mask = None
+            enc_attention_mask = None
+        else:
+            enc_attention_mask = attention_mask
 
-        # 2) Encode the inputs with the underlying LM (backbone).
-        #    shape -> (B, S', D)
-        xxd = self.lm.encoder(input_ids=trunc_input_ids, attention_mask=trunc_attention_mask)['last_hidden_state']
+        # 1) Encode the inputs with the underlying LM (backbone).
+        #    shape -> (B, S, D)
+        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask)['last_hidden_state']
 
-        # 3) Compute teacher log probs.
-        #  teacher_log_probs: shape (B * S', H, V)
+        # 2) Compute teacher log probs.
+        #  teacher_log_probs: shape (B * S, H, V)
         if self.compute_kl:
-            raise NotImplementedError('For KL we need to further truncate the inputs and labels')
+            raise NotImplementedError('For KL we need to revisit code below after padding')
             with torch.no_grad(), self.lm.disable_adapter_if_any():
                 if self.lm.has_adapter:
-                    xxv = self.lm.encoder(input_ids=trunc_input_ids, attention_mask=trunc_attention_mask)['last_hidden_state']
+                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask)['last_hidden_state']
                 else:  # If the LM has no adaptors, then the verifier hidden features are the same as the draft features
                     xxv = xxd
                 # logits: (B, S, V)
@@ -218,17 +204,23 @@ class MultiTokenLM(torch.nn.Module):
         else:
             teacher_log_probs = None
 
-        # 4) Parameterize the circuit with our NN activations
-        self._parameterize_circuit(xxd, attention_mask=trunc_attention_mask)
+        # 3) Parameterize the circuit with our NN activations
+        self._parameterize_circuit(xxd, attention_mask=attention_mask)
+
+        # 4) Pad labels on the right by H - 1
+        yy = F.pad(labels, (0, H - 1), mode='constant', value=IGNORE_TOKEN_ID)
 
         # 5) Make target labels, yy, and attention masks, windowed
         # from labels: (B, S) to yy: (B, S', H)
-        yy = labels.unfold(dimension=1, size=H, step=1)
+        yy = yy.unfold(dimension=1, size=H, step=1)
         # yy: (B, S', H) -> (B * S', H)
         yy = yy.reshape(-1, H)
 
-        # Also process the attention mask which is the same shape as yy
-        yym = attention_mask.bool().unfold(dimension=1, size=H, step=1)
+        # Also process the attention mask
+        yym = attention_mask.bool()
+        # Pad in the same way we padded outputs
+        yym = F.pad(yym, (0, H - 1), mode='constant', value=False)
+        yym = yym.unfold(dimension=1, size=H, step=1)
 
         # We condition on tokens with attention_mask = True
         # so we want to marginalise out those with attention_mask=False

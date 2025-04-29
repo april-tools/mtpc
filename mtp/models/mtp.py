@@ -145,7 +145,7 @@ class MultiTokenLM(torch.nn.Module):
                 return_log_probs is True.
         """
         H = self.n_token
-        # B = input_ids.shape[0]
+        B = input_ids.shape[0]
         S = input_ids.shape[1]
         # R = self.circuit.n_component
         # V = self.vocab_size
@@ -213,8 +213,6 @@ class MultiTokenLM(torch.nn.Module):
                 )
                 # shape: H, B, S', V
                 teacher_log_probs = teacher_log_probs.permute(3, 0, 1, 2)
-                # shape: H, B * S', V
-                teacher_log_probs = teacher_log_probs.flatten(1, 2)
                 # If V=1 because of binary approx, remove the dim
                 teacher_log_probs = teacher_log_probs.squeeze(-1)
         else:
@@ -248,15 +246,19 @@ class MultiTokenLM(torch.nn.Module):
             log_probs = self.circuit.autoregressive_conditionals(
                 yy=yy, marg_mask=marg_mask, with_logits=True
             )
+            log_probs = log_probs.view(H, B, -1, V)
         else:
             # shape: H, B * S'  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(
                 yy=yy, marg_mask=marg_mask, with_logits=False
             )
+            log_probs = log_probs.view(H, B, -1)
 
         # 7) Compute CE loss per token and, optionally, KL loss
+        # First we reshape tensors so they have the same leading dims
+        yy_hbs = yy.permute(1, 0).view(H, B, -1)
         losses = self.compute_per_token_losses(
-            yy, draft_log_probs=log_probs, teacher_log_probs=teacher_log_probs
+            yy_hbs, draft_log_probs=log_probs, teacher_log_probs=teacher_log_probs
         )
 
         # 8) Weigh the losses and optionally discount
@@ -265,8 +267,9 @@ class MultiTokenLM(torch.nn.Module):
         # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
         combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
         # Possibly discount by gamma^k (no discount if gamma = 1.)
-        # We the loss to stay on same scale for more tokens
+        # We want the loss to stay on same scale for more tokens
         # and for change of gamma - gamma should only scale relatively
+        # so divide by the exp_gamma_normalizer
         avg_combined_loss = torch.sum(combined_loss * self._exp_gamma_weights, dim=-1) / self._exp_gamma_normalizer
         
         # Set the losses for logging / these are detached outside
@@ -358,9 +361,9 @@ class MultiTokenLM(torch.nn.Module):
         """Compute per token losses.
 
         Args:
-            yy: shape (H, BS), the target token indices
-            draft_log_probs: shape (H, BS, V) or (H, BS), the log probs from the draft model
-            teacher_log_probs: shape (H, BS, V) or (H, BS), the categorical distributions
+            yy: shape (H, B, S), the target token indices
+            draft_log_probs: shape (H, B, S, V) or (H, B, S), the log probs from the draft model
+            teacher_log_probs: shape (H, B, S, V) or (H, B, S), the categorical distributions
                 from the teacher model, windowed for easy kl computation.
         """
         if self.compute_kl:

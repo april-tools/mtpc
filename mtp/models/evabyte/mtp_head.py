@@ -473,4 +473,4 @@ class MultiTokenHead(nn.Module):
                     torch.log_softmax(categorical_logits.permute(2, 0, 1, 3, 4), dim=-1)
                 )
 
-        return dict(sum=sum_weights, categorical=categorical_log_probs), past_key_values
+        return dict(sum=sum_weights, categorical=categorical_log_probs, past_key_values=past_key_values)

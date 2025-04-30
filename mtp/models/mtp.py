@@ -40,7 +40,7 @@ class MultiTokenLM(torch.nn.Module):
         circuit: CircuitModel,
         mt_head_kwargs: dict,
         init_from_lm_head: bool = True,
-        beta: float = 0.9,
+        beta: float = 0.0,
         gamma: float = 1.0,
         kl_type: str = 'forward',
         kl_algorithm: str = 'binary_approx'
@@ -95,10 +95,6 @@ class MultiTokenLM(torch.nn.Module):
             # NOTE: We compute teacher_log_probs in a no_grad block.
             assert self.lm.freeze, 'Unfreezing LM with KL loss is not currently supported'
             assert not self.lm.encoder_only, 'We need the LM head to compute KL'
-        else:
-            # We need encoder_only is false during generation - due to speculative decoding
-            if not (os.environ.get('MODE', None) == 'generate'):
-                assert self.lm.encoder_only, 'We do not need the LM head since we are not computing KL'
 
         if self.init_from_lm_head:
             self.mt_head.set_unembedding_weights(self.lm.lm_head_weights)
@@ -305,7 +301,7 @@ class MultiTokenLM(torch.nn.Module):
         generate: bool = False
     ) -> Cache:
         # Obtain dictionary of circuit parameters
-        circuit_params, past_key_values = self.mt_head(
+        outputs = self.mt_head(
             xx,
             use_cache=use_cache,
             attention_mask=attention_mask,
@@ -315,8 +311,8 @@ class MultiTokenLM(torch.nn.Module):
         )
 
         # Set the parameters to the circuit
-        self.circuit.parameterize(circuit_params)
-        return past_key_values
+        self.circuit.parameterize({'categorical': outputs['categorical'], 'sum': outputs['sum']})
+        return outputs['past_key_values']
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
@@ -394,9 +390,10 @@ class MultiTokenLM(torch.nn.Module):
         use_argmax: bool = False,
         mode: str = 'mtp',
         use_cache: bool = False,
-
+        attention_mask: Tensor = None,
         past_key_values: Cache = None,
         head_past_key_values: Cache = None,
+        position_ids: Tensor = None,
     ) -> dict:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
@@ -404,13 +401,23 @@ class MultiTokenLM(torch.nn.Module):
             raise ValueError('Argmax is only supported for single token prediction')
 
         if use_cache:
-            seen_tokens = 0
-            if past_key_values is not None:
-                seen_tokens = past_key_values.get_seq_length()
+            # We only pass in the unseen inputs, because we are using cache
+            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+            if position_ids is None:
+                if attention_mask is not None:
+                    # This is the default position_ids initialization from HF's generate()
+                    # in the case we are given an attention mask
+                    position_ids = attention_mask.long().cumsum(-1) - 1
+                    position_ids.masked_fill_(attention_mask == 0, 1)
+                else:
+                    position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=int)
+                    position_ids = position_ids.unsqueeze(dim=0).expand(inputs.shape[0], -1)
             outputs = self.lm.encoder(
-                input_ids=inputs[:, seen_tokens:],
+                input_ids=inputs[:, past_seen_tokens:],
                 use_cache=use_cache,
+                attention_mask=attention_mask,
                 past_key_values=past_key_values,
+                position_ids=position_ids
             )
         else:
             outputs = self.lm.encoder(input_ids=inputs)
@@ -419,9 +426,9 @@ class MultiTokenLM(torch.nn.Module):
         next_head_past_key_values = self._parameterize_circuit(
             xx,
             use_cache=use_cache,
-            attention_mask=None,
+            attention_mask=attention_mask,
             past_key_values=head_past_key_values,
-            position_ids=None,
+            position_ids=position_ids,
             generate=True
         )
 

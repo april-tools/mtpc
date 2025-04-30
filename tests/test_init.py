@@ -60,8 +60,6 @@ def test_uniform_init_for_future_tokens(expander):
 
     cfg, model = load_mtp([
         'model=mtp',
-        'model.beta=1',
-        'model.kl_algorithm=full',
         'data=fineweb10B',
         'lm=finewebedu',
         'lm.model.encoder_only=false',
@@ -92,7 +90,6 @@ def test_mtp_train_params_differ(expander, freeze_lm, freeze_unembed):
     torch.manual_seed(13)
     cfg, model = load_mtp([
         'model=mtp',
-        'model.beta=0',
         'lm.n_layer=2',
         'lm.n_head=2',
         'lm.n_embd=32',

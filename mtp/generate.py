@@ -285,10 +285,11 @@ if __name__ == "__main__":
     stats['batch_size'] = BATCH_SIZE
     stats['elapsed_time'] = elapsed_time
     stats['tokens_per_second'] = tps
-    stats['mode'] = args.mode
     stats['checkpoint'] = '%s-%s@0' % (ckp.model.name, ckp.lm.name) if args.checkpoint is None else repr(ckp)
+    stats['mode'] = args.mode
     # Below attributes only exist for MTP
     if 'stp' not in stats['model']:
+        stats['circuit'] = cfg.circuit.name
         stats['beta'] = cfg.model.beta
         stats['gamma'] = cfg.model.gamma
         stats['kl_type'] = cfg.model.kl_type

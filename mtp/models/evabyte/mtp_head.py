@@ -82,7 +82,8 @@ class LinearHead(nn.Module):
 
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, F, R, O)
-        return torch.einsum('frod,bsd->bsfro', self.proj, xx)
+        return torch.einsum('bsd,frod->bsfro', xx, self.proj)
+        #return (xx @ self.proj.view(-1, self.hidden_size).T).view(xx.shape[0], xx.shape[1], self.n_fold, self.n_expand, self.output_size)
 
 
 class MLPHead(nn.Module):
@@ -118,7 +119,7 @@ class MLPHead(nn.Module):
         xx = xx.unsqueeze(dim=-2)
         xx = self.mlp(xx)
         # xx: (B, S, F, R, D) -> (B, S, F, R, O)
-        return torch.einsum('frod,bsfrd->bsfro', self.proj, xx)
+        return torch.einsum('bsfrd,frod->bsfro', xx, self.proj)
 
 
 class ExpanderHead(nn.Module):
@@ -162,14 +163,10 @@ class ExpanderHead(nn.Module):
 class TransformerHead(nn.Module):
     def __init__(self, config: EvaByteConfig, n_layer: int = 1, layer_start_idx: int = 0):
         super().__init__()
-        # Evabyte transformers necessarily work with bfloat16
-        prev_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(torch.bfloat16)
         self._layers = nn.ModuleList([
             EvaByteDecoderLayer(config, layer_idx=layer_start_idx + i)
             for i in range(n_layer)
         ])
-        torch.set_default_dtype(prev_dtype)
         self._norm = EvaByteRMSNorm(config)
 
     def forward(self, xx: Tensor, **kwargs):
@@ -203,6 +200,10 @@ class MultiTokenHead(nn.Module):
         self.expander_type = expander_n_layer
         self.expander_n_layer = expander_n_layer
 
+        # Evabyte transformers necessarily work with bfloat16
+        prev_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
+
         # Instantiate transformers to parameterize the token's Categorical and the sum weights of the circuit
         if transformer_n_layer > 0:
             self._rotary_emb = EvaByteRotaryEmbedding(
@@ -222,12 +223,10 @@ class MultiTokenHead(nn.Module):
                     transformer_n_layer,
                     layer_start_idx=transformer_n_layer
                 )
-            self._norm = None
         else:
             self._rotary_emb = None
             self._tok_transformer_head = None
             self._sum_transformer_head = None
-            self._norm = EvaByteRMSNorm(self._evabyte_config)
 
         # Instantiate as many expander heads as needed by the circuit parameters configuration
         sum_weights_heads = []
@@ -261,6 +260,9 @@ class MultiTokenHead(nn.Module):
 
         # Initialize the parameters
         self.reset_parameters()
+
+        # Reset torch dtype to the previous one
+        torch.set_default_dtype(prev_dtype)
 
         if freeze_vocab_unembedding:
             for tok_head in self._categorical_log_probs_heads:
@@ -331,6 +333,7 @@ class MultiTokenHead(nn.Module):
                 var_idx = self.config.categorical_layers[k].scope_idx[j].item()
                 if not (0 <= var_idx < weights.shape[0]):
                     continue
+                assert tok_head.head.proj[j].data.dtype == weights.dtype
                 tok_head.head.proj[j].data.copy_(weights[var_idx])
 
     def _prepare_transformer_heads(
@@ -421,7 +424,6 @@ class MultiTokenHead(nn.Module):
             )
         else:
             cos = sin = None
-            xx = self._norm(xx)
 
         # Paramterize the sum layer weights of the circuit
         sum_weights = []            # A list of tensors (B, S, F, Ko, Ki)
@@ -444,6 +446,7 @@ class MultiTokenHead(nn.Module):
             for sum_weight_fn in self._sum_weights_heads:
                 # sum_logits: (F, B, S, Ko, Ki)
                 sum_logits = sum_weight_fn(zz_sum)
+                sum_logits = sum_logits.float()
                 sum_weights.append(
                     torch.softmax(sum_logits.permute(2, 0, 1, 3, 4), dim=-1)
                 )
@@ -469,6 +472,7 @@ class MultiTokenHead(nn.Module):
             for categorical_log_probs_fn in self._categorical_log_probs_heads:
                 # categorical_logits: (F, B, S, R, V)
                 categorical_logits = categorical_log_probs_fn(zz_tok)
+                categorical_logits = categorical_logits.float()
                 categorical_log_probs.append(
                     torch.log_softmax(categorical_logits.permute(2, 0, 1, 3, 4), dim=-1)
                 )

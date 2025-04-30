@@ -16,7 +16,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('results', type=str, help='Path to throughput.txt file (list of json).')
-    parser.add_argument('--ncomponent', type=int, default=1, help="The number of components of the circuit model")
+    parser.add_argument('--ntokens', type=int, nargs='+', help="The number of tokens for the circuit model")
+    parser.add_argument('--ncomponents', type=int, nargs='+', help="The number of components for the circuit model")
     parser.add_argument('--device', choices=('cuda', 'cpu'), default='cuda', type=str, help='Device to plot throughput for.')
     parser.add_argument('--id', type=str, default="", help="The id of the experiment that will be appended to the filename")
 
@@ -36,8 +37,7 @@ if __name__ == '__main__':
                 entry['ntoken'] = row['ntoken']
                 entry['throughput'] = row['tokens_per_second']
                 entry['speculative'] = False
-                entry['tok_transformer_n_layer'] = None
-                entry['sum_transformer_n_layer'] = None
+                entry['transformer_n_layer'] = None
                 entry['hx_accepted_tokens'] = None
                 entry['hy_accepted_tokens'] = None
                 entry['hy_accepted_tokens_prob'] = None
@@ -45,7 +45,9 @@ if __name__ == '__main__':
                 entry['avg_tokens_llm_call'] = 1.0
             elif "MultiTokenLM" in row['model']:
                 entry['model'] = row['circuit']
-                if row['ncomponent'] != args.ncomponent:
+                if row['ntoken'] not in args.ntokens:
+                    continue
+                if row['ncomponent'] not in args.ncomponents:
                     continue
                 if row['speculative']:
                     entry['model'] = f"{entry['model']} (S)"
@@ -70,8 +72,7 @@ if __name__ == '__main__':
                     entry['avg_accepted_tokens'] = float(row['ntoken'])
                     entry['avg_tokens_llm_call'] = float(row['ntoken'])
                 entry['speculative'] = row['speculative']
-                entry['tok_transformer_n_layer'] = row['tok_transformer_n_layer']
-                entry['sum_transformer_n_layer'] = row['sum_transformer_n_layer']
+                entry['transformer_n_layer'] = row['transformer_n_layer']
             else:
                 raise ValueError(f"Unknown model name {row['model']}")
             entries.append(entry)
@@ -85,11 +86,10 @@ if __name__ == '__main__':
             res += f" n={r['ntoken']}"
         if show_ncomponent:
             res += f" r={r['ncomponent']}"
-        transf_tok_n_layer = r['tok_transformer_n_layer']
-        transf_sum_n_layer = r['sum_transformer_n_layer']
-        if transf_tok_n_layer == 0 and transf_sum_n_layer == 0:
+        transformer_n_layer = r['transformer_n_layer']
+        if transformer_n_layer == 0:
             return res
-        return f"{res} tf=t{int(transf_tok_n_layer)}-s{int(transf_sum_n_layer)}"
+        return f"{res} transf-{int(transformer_n_layer)}"
 
     df = pd.DataFrame(entries)
     df['run_id'] = df.apply(lambda r: run_identifier(r, show_ncomponent=True), axis=1)
@@ -102,49 +102,50 @@ if __name__ == '__main__':
         df,
         x="ntoken",
         y="throughput",
-        hue="run_id"
+        hue="run_id",
     )
+    ax.set_xlabel("# of tokens")
+    ax.set_ylabel("throughput (tok/s)")
     ax.grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1), alignment='left')
 
     filename = f"throughput-{args.id}.pdf" if args.id else "throughput.pdf"
-    plt.savefig(os.path.join("outputs", "plots", filename))
+    plt.savefig(os.path.join("outputs", "plots", filename), bbox_inches='tight')
     plt.clf()
     plt.cla()
 
     #
 
     # Plot number of accepted tokens per multi token model
+    # unique_ntokens = np.unique([e['ntoken'] for e in entries]).tolist()
+    # if unique_ntokens[0] == 1:
+    #     del unique_ntokens[0]
+    # for ntoken in unique_ntokens:
+    #     df = pd.DataFrame(entries)
+    #     df = df[df['ntoken'] == ntoken]
+    #     df = df[df['speculative'] == True]
+    #     df['hy_accepted_tokens_prob'] = df.apply(lambda r: r['hy_accepted_tokens'] / np.sum(r['hy_accepted_tokens']), axis=1)
+    #     df['run_id'] = df.apply(
+    #         lambda r: f"{run_identifier(r, show_ncomponent=True)} (A-rate={r['avg_accepted_tokens']}, T-rate={r['avg_tokens_llm_call']})",
+    #         axis=1
+    #     )
+    #     if len(df) == 0:
+    #         break
+    #     df = df.explode(['hx_accepted_tokens', 'hy_accepted_tokens', 'hy_accepted_tokens_prob'])
 
-    unique_ntokens = np.unique([e['ntoken'] for e in entries]).tolist()
-    if unique_ntokens[0] == 1:
-        del unique_ntokens[0]
-    for ntoken in unique_ntokens:
-        df = pd.DataFrame(entries)
-        df = df[df['ntoken'] == ntoken]
-        df = df[df['speculative'] == True]
-        df['hy_accepted_tokens_prob'] = df.apply(lambda r: r['hy_accepted_tokens'] / np.sum(r['hy_accepted_tokens']), axis=1)
-        df['run_id'] = df.apply(
-            lambda r: f"{run_identifier(r, show_ncomponent=True)} (A-rate={r['avg_accepted_tokens']}, T-rate={r['avg_tokens_llm_call']})",
-            axis=1
-        )
-        if len(df) == 0:
-            break
-        df = df.explode(['hx_accepted_tokens', 'hy_accepted_tokens', 'hy_accepted_tokens_prob'])
+    #     ax = sb.barplot(
+    #         df,
+    #         x="hx_accepted_tokens",
+    #         y="hy_accepted_tokens_prob",
+    #         hue="run_id"
+    #     )
+    #     ax.set_ylabel("probability")
+    #     ax.set_xlabel("accepted tokens")
 
-        ax = sb.barplot(
-            df,
-            x="hx_accepted_tokens",
-            y="hy_accepted_tokens_prob",
-            hue="run_id"
-        )
-        ax.set_ylabel("probability")
-        ax.set_xlabel("accepted tokens")
+    #     ax.grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
+    #     ax.legend(loc='upper left', bbox_to_anchor=(1, 1), alignment='left')
 
-        ax.grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
-        ax.legend(loc='upper left', bbox_to_anchor=(1, 1), alignment='left')
-
-        filename = f"acceptance-rate-{args.id}-n-{ntoken}.pdf" if args.id else f"acceptance-rate-n-{ntoken}.pdf"
-        plt.savefig(os.path.join("outputs", "plots", filename))
-        plt.clf()
-        plt.cla()
+    #     filename = f"acceptance-rate-{args.id}-n-{ntoken}.pdf" if args.id else f"acceptance-rate-n-{ntoken}.pdf"
+    #     plt.savefig(os.path.join("outputs", "plots", filename))
+    #     plt.clf()
+    #     plt.cla()

@@ -305,5 +305,4 @@ class MultiTokenHead(nn.Module):
             clp = torch.log_softmax(categorical_logits, dim=-1)
             categorical_log_probs.append(clp)
 
-        past_key_values = None
-        return dict(sum=sum_weights, categorical=categorical_log_probs), past_key_values
+        return dict(sum=sum_weights, categorical=categorical_log_probs, past_key_values=None)

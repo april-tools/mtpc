@@ -190,13 +190,13 @@ class LM(nn.Module):
 
         if yy is not None:
             # if we are given some desired targets also calculate the loss
-            logits = self.head(xx)
+            logits = self.head_logits(xx)
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)), yy.view(-1), ignore_index=-1
             )
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.head(
+            logits = self.head_logits(
                 xx[:, [-1], :]
             )  # note: using list [-1] to preserve the time dim
             loss = None
@@ -218,7 +218,9 @@ class LM(nn.Module):
             assert logits.shape == (logits.shape[0], logits.shape[1], num_pred_heads * vocab_size)
             logits = logits.view(logits.shape[0], logits.shape[1], num_pred_heads, vocab_size)
             logits = logits[:, :, 0]  # (B, S, V)
-        return logits
+    
+        # Cast to float32
+        return logits.float()
 
     @torch.no_grad()
     def generate(

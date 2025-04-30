@@ -12,3 +12,4 @@ export OMP_NUM_THREADS=1
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HOME=$MTP_ROOT/data
+export MTP_TRUNC_P=0

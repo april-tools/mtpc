@@ -32,8 +32,9 @@ def load_vocabs(path):
                 decode=lambda x: ''.join([vocabs['itos'][i] for i in x]))
 
 
-def encode(text, device):
+def encode(text, device, task):
     if hf_model is None:
+        assert task == 'completion', 'chat not supported for non-hf models'
         # Below works for char level model only
         # TODO: Make below BOS - unsure what it is for the encoded docs
         if text is None:
@@ -46,12 +47,20 @@ def encode(text, device):
             x = x.unsqueeze(0)
     else:
         assert tokeniser is not None
-        # TODO: Get reply about what is going on with BOS
-        # NOTE: for this model we need a prompt
-        # BOS is not added by default by the tokenizer
-        #if hf_model.endswith('ablation-model-fineweb-edu'):
         assert text != '', f'Empty prompt is not supported for {hf_model}, use a prompt.'
-        x = tokeniser.encode(text, return_tensors='pt').to(device)
+        if task == 'completion':
+            x = tokeniser.encode(text, return_tensors='pt')
+        elif task == 'chat':
+            messages = [{'role': 'user', 'content': text}]
+            x = tokeniser.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    add_generation_prompt=True,
+                    return_dict=True,
+                    return_tensors="pt")['input_ids']
+        else:
+            raise ValueError(f"Unknown task '{task}'")
+        x = x.to(device)
     return x
 
 
@@ -163,6 +172,10 @@ if __name__ == "__main__":
     parser.add_argument('--mode', required=True, choices=['stp', 'mtp'],
                         help='Single Token Prediction (stp) is available both for MTP and autoregressive models. '
                         'MTP is available only for MTP models')
+    parser.add_argument('--task', default='completion', choices=['completion', 'chat'],
+                        help='The generation task - completion just extends the prompt, '
+                        'chat expects the prompt to be a question and uses the chat template '
+                        'to get an answer from the model')
     parser.add_argument('--compile', default=False, action='store_true',
                         help="Whether to compile the model")
     parser.add_argument('overrides', nargs="*")
@@ -232,7 +245,7 @@ if __name__ == "__main__":
     xs = []
     for prompt in prompts:
         try:
-            x = encode(prompt, args.device)
+            x = encode(prompt, args.device, args.task)
         except KeyError:
             continue
         xs.append(x)

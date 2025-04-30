@@ -30,7 +30,7 @@ torchrun --standalone \
 	lm=evabyte \
 	model=mtp \
 	circuit=cp \
-	adaptor=lora \
+	adaptor=lora-last-8 \
 	mt_head=linear-evabyte \
 	circuit.n_token=8 \
 	circuit.n_component=2 \
@@ -38,7 +38,7 @@ torchrun --standalone \
 	data.vocab_size=320 \
 	model.model.beta=0 \
 	model.model.gamma=0.9 \
-	training.expname=evabyte-lora-cp-n-8-r-2
+	training.expname=evabyte-lora-last-8-cp-n-8-r-2
 
 # n=8, r=4, lora, cp
 torchrun --standalone \
@@ -49,15 +49,15 @@ torchrun --standalone \
 	lm=evabyte \
 	model=mtp \
 	circuit=cp \
-	adaptor=lora \
+	adaptor=lora-last-8 \
 	mt_head=linear-evabyte \
 	circuit.n_token=8 \
-	circuit.n_component=2 \
+	circuit.n_component=4 \
 	training.device_batch_size=8 \
 	data.vocab_size=320 \
 	model.model.beta=0 \
 	model.model.gamma=0.9 \
-	training.expname=evabyte-lora-cp-n-8-r-4
+	training.expname=evabyte-lora-last-8-cp-n-8-r-4
 
 # n=8, r=8, lora, cp
 torchrun --standalone \
@@ -68,15 +68,15 @@ torchrun --standalone \
 	lm=evabyte \
 	model=mtp \
 	circuit=cp \
-	adaptor=lora \
+	adaptor=lora-last-8 \
 	mt_head=linear-evabyte \
 	circuit.n_token=8 \
-	circuit.n_component=2 \
+	circuit.n_component=8 \
 	training.device_batch_size=8 \
 	data.vocab_size=320 \
 	model.model.beta=0 \
 	model.model.gamma=0.9 \
-	training.expname=evabyte-lora-cp-n-8-r-4
+	training.expname=evabyte-lora-last-8-cp-n-8-r-8
 
 
 # n=8, r=2, lora, hmm
@@ -88,7 +88,7 @@ torchrun --standalone \
 	lm=evabyte \
 	model=mtp \
 	circuit=hmm \
-	adaptor=lora \
+	adaptor=lora-last-8 \
 	mt_head=linear-evabyte \
 	circuit.n_token=8 \
 	circuit.n_component=2 \
@@ -96,7 +96,7 @@ torchrun --standalone \
 	data.vocab_size=320 \
 	model.model.beta=0 \
 	model.model.gamma=0.9 \
-	training.expname=evabyte-lora-cp-n-8-r-2
+	training.expname=evabyte-lora-last-8-cp-n-8-r-2
 
 # n=8, r=4, lora, hmm
 torchrun --standalone \
@@ -107,7 +107,7 @@ torchrun --standalone \
 	lm=evabyte \
 	model=mtp \
 	circuit=hmm \
-	adaptor=lora \
+	adaptor=lora-last-8 \
 	mt_head=linear-evabyte \
 	circuit.n_token=8 \
 	circuit.n_component=4 \
@@ -115,7 +115,7 @@ torchrun --standalone \
 	data.vocab_size=320 \
 	model.model.beta=0 \
 	model.model.gamma=0.9 \
-	training.expname=evabyte-lora-cp-n-8-r-4
+	training.expname=evabyte-lora-last-8-cp-n-8-r-4
 
 # n=8, r=8, lora, hmm
 torchrun --standalone \
@@ -126,7 +126,7 @@ torchrun --standalone \
 	lm=evabyte \
 	model=mtp \
 	circuit=hmm \
-	adaptor=lora \
+	adaptor=lora-last-8 \
 	mt_head=linear-evabyte \
 	circuit.n_token=8 \
 	circuit.n_component=8 \
@@ -134,4 +134,4 @@ torchrun --standalone \
 	data.vocab_size=320 \
 	model.model.beta=0 \
 	model.model.gamma=0.9 \
-	training.expname=evabyte-lora-cp-n-8-r-8
+	training.expname=evabyte-lora-last-8-cp-n-8-r-8

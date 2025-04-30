@@ -8,23 +8,26 @@ mkdir -p $MTP_ROOT/outputs/results
 
 device=cuda
 seed=12
-num_tokens=128
+num_tokens=1024
 # Subsample 100 prompts from spec_bench. Set to 0 to use the whole spec_bench
 # Note that same random seed will imply same prompts selected from spec_bench
-subsample_prompts=100
+subsample_prompts=20
 default="$MTP_ROOT/outputs/models/finewebedu10B"
 # If not overriden by cli, use default
 directory="${1:-$default}"
 
-for file in $(find "$directory" -type f -name "*.pt");
+for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
-	echo -e "Processing $file..."
-	python -m mtp.generate \
-		--device cuda \
-		--mode mtp \
-		--speculative \
-	   	--random-seed $seed \
-		--subsample-prompts $subsample_prompts \
-		--num-tokens $num_tokens \
-		--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
+	if [[ $file =~ (@0\.pt|200\.pt|400\.pt|600\.pt|800\.pt|000\.pt)$ ]]; then
+		echo -e "Processing $file..."
+		python -m mtp.generate \
+			--device cuda \
+			--mode mtp \
+			--speculative \
+			--random-seed $seed \
+			--subsample-prompts $subsample_prompts \
+			--num-tokens $num_tokens \
+			--task chat \
+			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
+	fi
 done

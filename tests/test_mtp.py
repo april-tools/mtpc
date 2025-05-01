@@ -73,7 +73,7 @@ def test_mtp_generate(mtp: MultiTokenLM):
     yy = worlds_seqs[:, 1:].contiguous()
     results = mtp(xx, yy, return_log_probs=True)
     log_probs = results['log_probs'].view(worlds.shape[0], -1)
-    assert log_probs.shape[1] == max_seq_length - mtp.n_token
+    assert log_probs.shape[1] == max_seq_length - 1
     worlds_log_probs = torch.sum(log_probs[:, [i * mtp.n_token for i in range(num_steps)]], dim=1)
     worlds_probs = torch.exp(worlds_log_probs)
     assert torch.isclose(torch.sum(ratios), torch.tensor(1.0))

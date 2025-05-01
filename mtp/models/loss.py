@@ -11,8 +11,8 @@ def compute_valid_mask(yy: torch.Tensor):
     return yy != IGNORE_TOKEN_ID
 
 
-def compute_num_valid_tokens(mask: torch.Tensor):
-    num_valid_tokens = mask.sum()
+def compute_num_valid_tokens(mask: torch.Tensor, dim=None):
+    num_valid_tokens = mask.sum(dim=dim)
     # Make sure we do not divide by zero
     num_valid_tokens = torch.clamp(num_valid_tokens, min=1)
     return num_valid_tokens
@@ -53,6 +53,7 @@ def compute_full_kl(draft_log_probs: torch.Tensor,
         The forward KL divergence is computed as D_{KL}(P || Q) and the reverse
         as D_{KL}(Q || P).
     """
+    raise NotImplementedError('For KL, need to deal with new dimensions')
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
     H, BS, V = draft_log_probs.shape
@@ -125,6 +126,7 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
         AssertionError: If shapes of `draft_log_probs` and `teacher_log_probs` do not match.
         ValueError: If `kl_type` is not 'forward' or 'reverse'.
     """
+    raise NotImplementedError('For Approx KL, need to deal with new dimensions')
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
     assert draft_log_probs.shape == teacher_log_probs.shape
@@ -168,28 +170,39 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
 
     Args:
         draft_log_probs (torch.Tensor): The logits for the predicted tokens,
-        with shape (H, BS, V) or (H, BS), where:
+        with shape (H, B, S, V) or (H, B, S), where:
             H: is the # of tokens in the MTP window
             BS: is the seq len * batch size (collapsed)
             V: is the vocabulary size
-        yy (torch.Tensor): The targets with shape (BS, H), containing
+        yy (torch.Tensor): The targets with shape (H, B, S), containing
         the indices of the correct token or IGNORE_TOKEN_ID for tokens that
         should not be predicted.
-        If draft_log_probs is (H, BS, V), yy is expected to index the prob of
+        If draft_log_probs is (H, B, S, V), yy is expected to index the prob of
         true category. Else, probs should be true log probs.
-    """
-    H, BS = draft_log_probs.shape[:2]
-    assert yy.shape == (BS, H)
 
-    if len(draft_log_probs.shape) == 2:
+    Returns:
+        Tensor: cross_entropy_loss of each head, shape (H,)
+    """
+    H, B, S = yy.shape
+    assert draft_log_probs.shape[:3] == (H, B, S)
+
+    if len(draft_log_probs.shape) == 3:
+        mask = compute_valid_mask(yy)
+        # Compute number of valid tokens in the sequence
+        num_valid_tokens = compute_num_valid_tokens(mask, dim=2)
+        # Compute loss along sequence
+        batch_loss_per_head = - draft_log_probs.sum(dim=2)
         # Cross-entropy with one-hot targets == negative log-likelihood
         # The circuit has only computed the log probs for the targets
-        mask = compute_valid_mask(yy)
-        num_valid_tokens = torch.vmap(compute_num_valid_tokens, in_dims=1)(mask)
-        ce_losses = - draft_log_probs.sum(dim=1) / num_valid_tokens
-    elif len(draft_log_probs.shape) == 3:
+        ce_losses = (batch_loss_per_head / num_valid_tokens).sum(axis=1)
+    elif len(draft_log_probs.shape) == 4:
         # NOTE: log_probs are logits, but not vice-versa
-        ce_losses = torch.vmap(F.cross_entropy, in_dims=(0, 1))(draft_log_probs, yy, ignore_index=IGNORE_TOKEN_ID)
+        # we compute cross entropy across the S dimension
+        # ce_losses is (H, B)  (because we apply cross ent on the two outer dims via vmap)
+        ce_losses = torch.vmap(torch.vmap(F.cross_entropy))(draft_log_probs, yy, ignore_index=IGNORE_TOKEN_ID, reduction='mean')
+        # Sum across the batch dimension
+        ce_losses = ce_losses.sum(axis=1)
     else:
-        raise ValueError('Expected draft_log_probs to be shape (H, BS, [V]), got %r' % draft_log_probs.shape)
+        raise ValueError('Expected draft_log_probs to be shape (H, B, S, [V]), got %r' % draft_log_probs.shape)
+    assert ce_losses.shape == (H,)
     return ce_losses

@@ -67,18 +67,17 @@ if __name__ == "__main__":
 
     os.environ['DEVICE'] = device
     os.environ['MTP_TRUNC_P'] = str(args.ptrunc)
-    # os.environ['MTP_TRUNC_P'] = '.9'
 
     ckp = Checkpoint.load(checkpoint)
     print('Results for %s' % ckp.expname)
     lm = ckp.model
     lm.eval()
 
-    vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True)
+    vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True, quantization_config=BitsAndBytesConfig(load_in_4bit=True))
     vanilla_lm.cuda()
     vanilla_lm.eval()
     
-    tokenizer = AutoTokenizer.from_pretrained(lm.lm.from_huggingface, use_fast=True, trust_remote_code=True, quantization_config=BitsAndBytesConfig(load_in_4bit=True))
+    tokenizer = AutoTokenizer.from_pretrained(lm.lm.from_huggingface, use_fast=True, trust_remote_code=True)
     tokens = tokenizer(prompt, return_tensors='pt')
     if device == 'cuda':
         tokens['input_ids'] = tokens['input_ids'].cuda()
@@ -94,4 +93,4 @@ if __name__ == "__main__":
 
     print('        Circuit     EvaByte NTP   EvaByte MTP    Sample')
     for i in range(NS):
-        print(f'LL: {scores[order[i]]:12.2f}', f'{ar_scores[order[i]]:12.2f}', f'{eva_scores[order[i]]:12.2f}   ', tokenizer.decode(out[order[i]]).replace('\n', '_'))
+        print(f'LL: {scores[order[i]]:12.2f}', f'{ar_scores[order[i]]:12.2f}', f'{eva_scores[order[i]]:12.2f}   ', '"%s"' % tokenizer.decode(out[order[i]]).replace('\n', '_'))

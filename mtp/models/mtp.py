@@ -207,13 +207,13 @@ class MultiTokenLM(torch.nn.Module):
         # 3) Parameterize the circuit with our NN activations
         self._parameterize_circuit(xxd, attention_mask=attention_mask)
 
-        # 4) Pad labels on the right by H - 1
+        # 4) Pad labels on the right by H - 1  (B, S+)
         yy = F.pad(labels, (0, H - 1), mode='constant', value=IGNORE_TOKEN_ID)
 
         # 5) Make target labels, yy, and attention masks, windowed
-        # from labels: (B, S) to yy: (B, S', H)
+        # from yy: (B, S+) to yy: (B, S, H)
         yy = yy.unfold(dimension=1, size=H, step=1)
-        # yy: (B, S', H) -> (B * S', H)
+        # yy: (B, S, H) -> (B * S, H)
         yy = yy.reshape(-1, H)
 
         # Also process the attention mask
@@ -234,13 +234,13 @@ class MultiTokenLM(torch.nn.Module):
 
         # 6) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == "full":
-            # shape: H, B * S', V   We need the full conditional distributions
+            # shape: H, B * S, V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(
                 yy=yy, marg_mask=marg_mask, with_logits=True
             )
             log_probs = log_probs.view(H, B, -1, V)
         else:
-            # shape: H, B * S'  We need conditional distributions for yy only
+            # shape: H, B * S  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(
                 yy=yy, marg_mask=marg_mask, with_logits=False
             )
@@ -281,8 +281,8 @@ class MultiTokenLM(torch.nn.Module):
             # but we would need to standardize what log probs we return
             # currently this would differ depending on with_logits or not
             lp = self.circuit(yy)
-            outputs['log_probs'] = lp
-            outputs['full_log_probs'] = log_probs  # ??? What is a full log probs ???
+            outputs['log_probs'] = lp.detach().cpu()
+            outputs['full_log_probs'] = log_probs.detach().cpu()  # ??? What is a full log probs ???
 
         return outputs
 

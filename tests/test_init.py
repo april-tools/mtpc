@@ -75,9 +75,19 @@ def test_uniform_init_for_future_tokens(expander):
     xx = xx.to('cuda')
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         out = model(xx[:, :-1], xx[:, 1:], return_log_probs=True)
+        seq_len = xx.shape[1] - 1
+        n_token = model.circuit.n_token
         probs_after_first = out['full_log_probs'][1:]
+        uniform = torch.ones_like(probs_after_first) * -numpy.log(cfg.data.vocab_size)
+        mask = torch.ones(seq_len + n_token - 1, dtype=torch.bool)
+        mask[seq_len:] = False
+        mask = mask.unfold(dimension=0, size=n_token, step=1)
+        # Make mask have dim (H, B, S)
+        mask = mask.permute(1, 0)[1:].unsqueeze(1)
+        print(mask.shape, probs_after_first.shape)
+        expected_outputs = torch.where(mask, uniform, torch.zeros_like(uniform))
         assert torch.allclose(probs_after_first,
-                              torch.ones_like(probs_after_first) * -numpy.log(cfg.data.vocab_size),
+                              expected_outputs,
                               rtol=1e-1)
     torch.set_default_dtype(torch.float64)  # type: ignore[no-untyped-call]
 

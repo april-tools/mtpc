@@ -2,7 +2,12 @@ import os
 import torch
 from transformers import AutoTokenizer
 from datasets import load_dataset
+from datasets import disable_caching
 from datasets.distributed import split_dataset_by_node
+
+
+if not int(os.env.get('HF_CACHE_ACTIVE', 1)) != 1:
+    disable_caching()
 
 
 class HFDistributedDataLoader(object):

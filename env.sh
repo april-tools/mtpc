@@ -14,4 +14,5 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HOME=$MTP_ROOT/data
 # NOTE: Below only works for non-iterable dataset
 export HF_DATASETS_NUM_PROC=40
+export HF_CACHE_ACTIVE=1
 export MTP_TRUNC_P=0

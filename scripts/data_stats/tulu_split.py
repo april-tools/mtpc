@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Create a DatasetDict if needed
     dataset_dict = DatasetDict({
         "train": train_dataset,
-        "validation": valid_dataset
+        "valid": valid_dataset
     })
 
     dataset_dict.push_to_hub("agrv/tulu-v3-sft-evabyte-seq-len-8196", token=os.environ['HF_TOKEN'])

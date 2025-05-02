@@ -6,7 +6,7 @@ from datasets import disable_caching
 from datasets.distributed import split_dataset_by_node
 
 
-if not int(os.env.get('HF_CACHE_ACTIVE', 1)) != 1:
+if int(os.environ.get('HF_CACHE_ACTIVE', 1)) != 1:
     disable_caching()
 
 

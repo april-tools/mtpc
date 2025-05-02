@@ -1,3 +1,4 @@
+import os
 import torch
 from transformers import AutoTokenizer
 from datasets import load_dataset
@@ -14,12 +15,14 @@ class HFDistributedDataLoader(object):
         self,
         hf_dataset: str,
         hf_model: str,
-        B: int,
+        B: int | None,
         T: int,
         process_rank: int,
         num_processes: int,
         device: str = "cuda",
         split="train",
+        as_iterable: bool = True,
+        shuffle: bool = True,
     ):
         super().__init__()
         self.hf_dataset = hf_dataset
@@ -30,6 +33,8 @@ class HFDistributedDataLoader(object):
         self.num_processes = num_processes
         self.device = device
         self.split = split
+        self.as_iterable = as_iterable
+        self.shuffle = shuffle
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.hf_model,
@@ -41,14 +46,23 @@ class HFDistributedDataLoader(object):
 
     def reset(self):
         self.dataset = self.load_dataset()
-        self.dataset = self.dataset.shuffle(42)
-        self.dataset = self.dataset.to_iterable_dataset()
-        self.dataset = self.dataset.map(lambda x: self.process(x))
-        self.dataset = self.dataset.filter(function=lambda x: self.filter(x))
+        if self.shuffle:
+            self.dataset = self.dataset.shuffle(42)
+        if self.as_iterable:
+            self.dataset = self.dataset.to_iterable_dataset()
+            self.dataset = self.dataset.map(lambda x: self.process(x))
+            self.dataset = self.dataset.filter(function=lambda x: self.filter(x))
+        else:
+            self.dataset = self.dataset.with_format('pt')
+            # num_proc can only be used when not using iterable dataset
+            num_proc = int(os.environ.get('HF_DATASETS_NUM_PROC', 1))
+            self.dataset = self.dataset.map(lambda x: self.process(x), num_proc=num_proc)
+            self.dataset = self.dataset.filter(function=lambda x: self.filter(x), num_proc=num_proc)
         self.dataset = split_dataset_by_node(
             self.dataset, rank=self.process_rank, world_size=self.num_processes
         )
-        self.dataset = self.dataset.batch(self.B)
+        if self.B is not None:
+            self.dataset = self.dataset.batch(self.B)
         self.dataset_iterator = None
         return self
 

@@ -1,7 +1,6 @@
 import re
 
 from mtp.data.local_dataloader import LocalDistributedDataLoader
-from mtp.data.hf_dataloader import HFDistributedDataLoader
 from mtp.data.sharegpt import ShareGPTDataLoader
 from mtp.data.tuluv3 import TuluDataLoader
 
@@ -20,14 +19,44 @@ class DistributedDataLoader:
         process_rank: int,
         num_processes: int,
         device: str = "cuda",
-        split="train",
+        split: str = "train",
+        as_iterable: bool = True,
+        shuffle: bool = False,
     ):
         obj = None
         for pattern, constructor in cl._resolvers.items():
             if re.match(pattern, dataset, re.DOTALL):
-                obj = constructor(
-                    dataset, hf_model, B, T, process_rank, num_processes, device, split
-                )
+                if isinstance(constructor, LocalDistributedDataLoader):
+                    assert (
+                        as_iterable is True
+                    ), "Only iterable supported for LocalDataLoader"
+                    assert (
+                        shuffle is False
+                    ), "Shuffling not supported for LocalDataLoader"
+                    obj = constructor(
+                        dataset,
+                        hf_model,
+                        B,
+                        T,
+                        process_rank,
+                        num_processes,
+                        device,
+                        split,
+                    )
+                else:
+                    # iterable is only supported for HF class
+                    obj = constructor(
+                        dataset,
+                        hf_model,
+                        B,
+                        T,
+                        process_rank,
+                        num_processes,
+                        device,
+                        split,
+                        as_iterable,
+                        shuffle,
+                    )
                 obj = obj.reset()
         if obj is None:
             raise ValueError("Could not resolve: %s" % dataset)

@@ -105,10 +105,21 @@ class ShareGPTDataLoader(HFDistributedDataLoader):
         process_rank: int,
         num_processes: int,
         device: str = "cuda",
-        split="train",
+        split: str = "train",
+        as_iterable: bool = True,
+        shuffle: bool = True,
     ):
         super().__init__(
-            hf_dataset, hf_model, B, T, process_rank, num_processes, device, split
+            hf_dataset,
+            hf_model,
+            B,
+            T,
+            process_rank,
+            num_processes,
+            device,
+            split,
+            as_iterable,
+            shuffle,
         )
 
     def process(self, x):

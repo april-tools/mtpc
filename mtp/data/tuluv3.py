@@ -1,9 +1,7 @@
-import torch
 import warnings
-import transformers
 
 from datasets import load_dataset
-from transformers import AutoTokenizer
+
 from trl import DataCollatorForCompletionOnlyLM
 
 from mtp.models.loss import IGNORE_TOKEN_ID
@@ -26,10 +24,21 @@ class TuluDataLoader(HFDistributedDataLoader):
         process_rank: int,
         num_processes: int,
         device: str = "cuda",
-        split="train",
+        split: str = "train",
+        as_iterable: bool = True,
+        shuffle: bool = True,
     ):
         super().__init__(
-            hf_dataset, hf_model, B, T, process_rank, num_processes, device, split
+            hf_dataset,
+            hf_model,
+            B,
+            T,
+            process_rank,
+            num_processes,
+            device,
+            split,
+            as_iterable,
+            shuffle,
         )
         if hf_model in ["EvaByte/EvaByte", "EvaByte/EvaByte-SFT"]:
             self.data_collator = DataCollatorForCompletionOnlyLM(
@@ -57,21 +66,24 @@ class TuluDataLoader(HFDistributedDataLoader):
             padding="max_length",
             truncation=True,
         )
-        out = self.data_collator([tokens])
+        # return_tensors='np' is needed as the non-iterable hf datasets use
+        # rely on PyArrow, which is not compatible with PT tensors.
+        # By default the datasets.map() will silently cast to lists -_-
+        out = self.data_collator([tokens], return_tensors='pt')
 
         # NOTE: in our implementation we expect label @ i to be target for input_id @ i
         input_ids = out["input_ids"][:, :-1]
         attention_mask = out["attention_mask"][:, :-1]
         labels = out["labels"][:, 1:]
 
-        output = dict(input_ids=input_ids, labels=labels, attention_mask=attention_mask)
+        output = dict(
+            input_ids=input_ids, labels=labels, attention_mask=attention_mask, **x
+        )
 
         return output
 
     def load_dataset(self):
         if self.split == "train":
-            return load_dataset(
-                "allenai/tulu-3-sft-mixture", split=self.split
-            )
+            return load_dataset("allenai/tulu-3-sft-mixture", split=self.split)
         else:
             raise ValueError("Tulu v3 dataset has no %s split" % self.split)

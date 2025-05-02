@@ -55,6 +55,7 @@ class HFDistributedDataLoader(object):
             self.dataset = self.dataset.shuffle(42)
         if self.as_iterable:
             self.dataset = self.dataset.to_iterable_dataset()
+            self.dataset = self.dataset.with_format('pt')
             self.dataset = self.dataset.map(lambda x: self.process(x))
             self.dataset = self.dataset.filter(function=lambda x: self.filter(x))
         else:

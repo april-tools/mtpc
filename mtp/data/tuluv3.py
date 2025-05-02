@@ -53,7 +53,7 @@ class TuluDataLoader(HFDistributedDataLoader):
             )
 
     def filter(self, example):
-        n = example["labels"].shape[1]
+        n = len(example["labels"])
         active = (example["labels"] == IGNORE_TOKEN_ID).sum().item()
         seq_len = example["attention_mask"].sum().item()
         return (n - active > 0) and (seq_len < self.model_max_length - 1)
@@ -72,9 +72,9 @@ class TuluDataLoader(HFDistributedDataLoader):
         out = self.data_collator([tokens], return_tensors='pt')
 
         # NOTE: in our implementation we expect label @ i to be target for input_id @ i
-        input_ids = out["input_ids"][:, :-1]
-        attention_mask = out["attention_mask"][:, :-1]
-        labels = out["labels"][:, 1:]
+        input_ids = out["input_ids"][0, :-1]
+        attention_mask = out["attention_mask"][0, :-1]
+        labels = out["labels"][0, 1:]
 
         output = dict(
             input_ids=input_ids, labels=labels, attention_mask=attention_mask, **x

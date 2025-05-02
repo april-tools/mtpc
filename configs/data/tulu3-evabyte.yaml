@@ -1,0 +1,4 @@
+name: tulu3-evabyte
+train_bin: 'agrv/tulu-v3-sft-evabyte-seq-len-8196'
+val_bin: 'agrv/tulu-v3-sft-evabyte-seq-len-8196'
+vocab_size: 320

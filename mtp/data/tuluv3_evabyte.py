@@ -8,12 +8,6 @@ from mtp.models.loss import IGNORE_TOKEN_ID
 from mtp.data.hf_dataloader import HFDistributedDataLoader
 
 
-# We use below to silence warnings from the DataCollator that is
-# not finding the assistant label due to truncated lengths
-# we filter these examples out later anyway
-warnings.filterwarnings("ignore", category=UserWarning, module="trl")
-
-
 class EvaByteTuluDataLoader(HFDistributedDataLoader):
     def __init__(
         self,
@@ -30,6 +24,8 @@ class EvaByteTuluDataLoader(HFDistributedDataLoader):
     ):
         assert shuffle is False, 'We already shuffled this dataset before splitting'
         assert T == 4 * 2048, 'This dataset is pre-tokenised to seqlen 8192'
+        assert hf_model in ["EvaByte/EvaByte", "EvaByte/EvaByte-SFT"], 'Dataset is pre-tokenised for EvaByte'
+
         super().__init__(
             hf_dataset,
             hf_model,
@@ -42,17 +38,6 @@ class EvaByteTuluDataLoader(HFDistributedDataLoader):
             as_iterable,
             shuffle,
         )
-        if hf_model in ["EvaByte/EvaByte", "EvaByte/EvaByte-SFT"]:
-            self.data_collator = DataCollatorForCompletionOnlyLM(
-                tokenizer=self.tokenizer,
-                response_template="<|start_header_id|>assistant<|end_header_id|>\n\n",
-                ignore_index=IGNORE_TOKEN_ID,
-                mlm=False,
-            )
-        else:
-            raise NotImplementedError(
-                "Cannot yet handle response_template for %s" % hf_model
-            )
 
     def filter(self, x):
         return x
@@ -64,6 +49,6 @@ class EvaByteTuluDataLoader(HFDistributedDataLoader):
         if self.split == "train":
             return load_dataset("agrv/tulu-v3-sft-evabyte-seq-len-8196", split=self.split)
         elif self.split == "valid":
-            return load_dataset("agrv/tulu-v3-sft-evabyte-seq-len-8196", split='validation')
+            return load_dataset("agrv/tulu-v3-sft-evabyte-seq-len-8196", split=self.split)
         else:
             raise ValueError("Tulu v3 dataset has no %s split" % self.split)

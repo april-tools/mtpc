@@ -1,6 +1,6 @@
 import warnings
 
-from datasets import load_dataset
+from datasets import Value, Sequence, Features
 
 from trl import DataCollatorForCompletionOnlyLM
 
@@ -39,16 +39,11 @@ class EvaByteTuluDataLoader(HFDistributedDataLoader):
             shuffle,
         )
 
-    def filter(self, x):
-        return x
-
-    def process(self, x):
-        return x
-
-    def load_dataset(self):
-        if self.split == "train":
-            return load_dataset("agrv/tulu-v3-sft-evabyte-seq-len-8196", split=self.split)
-        elif self.split == "valid":
-            return load_dataset("agrv/tulu-v3-sft-evabyte-seq-len-8196", split=self.split)
-        else:
-            raise ValueError("Tulu v3 dataset has no %s split" % self.split)
+        self.features = Features({
+            "id": Value("string"),
+            "source": Value("string"),
+            "messages": [{"role": Value("string"), "content": Value("string")}],
+            "input_ids": Sequence(Value("int16"), length=self.T),
+            "labels": Sequence(Value("int16"), length=self.T),
+            "attention_mask": Sequence(Value("bool"), length=self.T),
+        })

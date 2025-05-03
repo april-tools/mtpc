@@ -1,6 +1,6 @@
 import warnings
 
-from datasets import load_dataset
+from datasets import Value, Sequence, Features
 
 from trl import DataCollatorForCompletionOnlyLM
 
@@ -51,6 +51,11 @@ class TuluDataLoader(HFDistributedDataLoader):
             raise NotImplementedError(
                 "Cannot yet handle response_template for %s" % hf_model
             )
+        self.features = Features({
+            "id": Value("string"),
+            "source": Value("string"),
+            "messages": [{"role": Value("string"), "content": Value("string")}],
+        })
 
     def filter(self, example):
         n = len(example["labels"])
@@ -81,9 +86,3 @@ class TuluDataLoader(HFDistributedDataLoader):
         )
 
         return output
-
-    def load_dataset(self):
-        if self.split == "train":
-            return load_dataset("allenai/tulu-3-sft-mixture", split=self.split)
-        else:
-            raise ValueError("Tulu v3 dataset has no %s split" % self.split)

@@ -40,6 +40,8 @@ class HFDistributedDataLoader(object):
         self.split = split
         self.as_iterable = as_iterable
         self.shuffle = shuffle
+        self.features = None
+        self.num_proc = int(os.environ.get('HF_DATASETS_NUM_PROC', 1))
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.hf_model,
@@ -49,31 +51,60 @@ class HFDistributedDataLoader(object):
             trust_remote_code=True,
         )
 
+    @property
+    def has_process(self):
+        try:
+            self.process(None)
+        except NotImplementedError:
+            return False
+        except Exception:
+            return True
+        return True
+
+    @property
+    def has_filter(self):
+        try:
+            self.filter(None)
+        except NotImplementedError:
+            return False
+        except Exception:
+            return True
+        return True
+
     def reset(self):
         self.dataset = self.load_dataset()
         if self.shuffle:
+            # TODO: Below should change if we use multiple epochs
             self.dataset = self.dataset.shuffle(42)
         if self.as_iterable:
             self.dataset = self.dataset.to_iterable_dataset()
-            self.dataset = self.dataset.with_format('pt')
-            self.dataset = self.dataset.map(lambda x: self.process(x))
-            self.dataset = self.dataset.filter(function=lambda x: self.filter(x))
+            self.dataset = self.dataset.with_format('torch')
+            if self.has_process:
+                self.dataset = self.dataset.map(self.process)
+            if self.has_filter:
+                self.dataset = self.dataset.filter(self.filter)
+            self.dataset = split_dataset_by_node(
+                self.dataset, rank=self.process_rank, world_size=self.num_processes
+            )
+            if self.B is not None:
+                self.dataset = self.dataset.batch(self.B, drop_last_batch=True)
         else:
-            self.dataset = self.dataset.with_format('pt')
+            self.dataset = self.dataset.with_format('torch')
             # num_proc can only be used when not using iterable dataset
-            num_proc = int(os.environ.get('HF_DATASETS_NUM_PROC', 1))
-            self.dataset = self.dataset.map(lambda x: self.process(x), num_proc=num_proc)
-            self.dataset = self.dataset.filter(function=lambda x: self.filter(x), num_proc=num_proc)
-        self.dataset = split_dataset_by_node(
-            self.dataset, rank=self.process_rank, world_size=self.num_processes
-        )
-        if self.B is not None:
-            self.dataset = self.dataset.batch(self.B)
+            if self.has_process:
+                self.dataset = self.dataset.map(self.process, num_proc=self.num_proc)
+            if self.has_filter:
+                self.dataset = self.dataset.filter(function=self.filter, num_proc=self.num_proc)
+            self.dataset = split_dataset_by_node(
+                self.dataset, rank=self.process_rank, world_size=self.num_processes
+            )
+            if self.B is not None:
+                self.dataset = self.dataset.batch(self.B, num_proc=self.num_proc, drop_last_batch=True)
         self.dataset_iterator = None
         return self
 
     def load_dataset(self):
-        return load_dataset(self.hf_dataset, split=self.split)
+        return load_dataset(self.hf_dataset, split=self.split, num_proc=self.num_proc, features=self.features)
 
     @property
     def model_max_length(self):
@@ -84,7 +115,7 @@ class HFDistributedDataLoader(object):
         raise NotImplementedError()
 
     def filter(self, x):
-        return True
+        raise NotImplementedError()
 
     def next_batch(self):
         if self.dataset_iterator is None:

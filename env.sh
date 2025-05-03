@@ -13,6 +13,6 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HOME=$MTP_ROOT/data
 # NOTE: Below only works for non-iterable dataset
-export HF_DATASETS_NUM_PROC=50
-export HF_CACHE_ACTIVE=0
+export HF_DATASETS_NUM_PROC=20
+export HF_CACHE_ACTIVE=1
 export MTP_TRUNC_P=0

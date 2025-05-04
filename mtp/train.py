@@ -208,6 +208,7 @@ def main(cfg: DictConfig):
                 wandb.define_metric("*", step_metric="global_step")
 
         # ===================== BEGIN DATASET SETUP ==========================
+        logger(f"Training on {cfg.data.train_bin}...")
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
         assert (cfg.training.batch_size % (B * world_size)) == 0, 'Batch size must be exactly divisible by B * world_size'
         train_loader = DistributedDataLoader.resolve(cfg.data.train_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='train')

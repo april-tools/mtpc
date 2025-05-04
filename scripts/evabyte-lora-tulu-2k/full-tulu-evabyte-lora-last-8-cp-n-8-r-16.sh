@@ -1,13 +1,11 @@
 #!/bin/bash
 
-# Experiments on 3.5k steps on tulu 3 using EvaByte-SFT
-
 # n=8, r=16, lora, cp
 ../uv/uv run torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=tulu3-evabyte \
-    training=tulu3-evabyte-full \
+    training=tulu3-evabyte-long \
     lm=evabyte \
     model=mtp \
     circuit=cp \

@@ -1,16 +1,14 @@
 #!/bin/bash
 
-# Experiments on 3.5k steps on tulu 3 using EvaByte-SFT
-
 # n=8, r=1, lora, fully-factorised
 ../uv/uv run torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
     data=tulu3-evabyte \
-    training=tulu3-evabyte-full \
+    training=tulu3-evabyte-long \
     lm=evabyte \
     model=mtp \
-    circuit=fully-factorised \
+    circuit=fully_factorized \
     adaptor=lora-last-8 \
     mt_head=linear-evabyte \
     circuit.n_token=8 \

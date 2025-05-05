@@ -1,4 +1,3 @@
-import os
 import torch
 import functools
 
@@ -15,7 +14,6 @@ from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.utils.scope import Scope
 
 from mtp.models.loss import IGNORE_TOKEN_ID
-from mtp.utils.sampling import truncate_probs_top_p
 
 
 def sanitize_input(yy: Tensor) -> Tensor:
@@ -161,10 +159,6 @@ class TorchBatchedCategoricalLayer(TorchExpFamilyLayer):
         log_probs = self.log_probs
         probs = torch.exp(log_probs)
 
-        trunc_p = float(os.environ.get('MTP_TRUNC_P', 0.))
-        if trunc_p != 0.:
-            probs = truncate_probs_top_p(probs, p=trunc_p)
-
         dist = distributions.Categorical(probs=probs)
         # samples: (num_samples, F, B, K)
         samples = dist.sample((num_samples,))
@@ -268,9 +262,6 @@ class TorchBatchedSumLayer(TorchInnerLayer):
                 "Sampling in sum layers only works with positive weights summing to 1"
             )
         probs = weight
-        trunc_p = float(os.environ.get('MTP_TRUNC_P', 0.))
-        if trunc_p != 0.:
-            probs = truncate_probs_top_p(probs, p=trunc_p)
 
         # x: (F, H, Ki, num_samples * B, D) -> (F, H * Ki, num_samples * B, D)
         num_samples = x.shape[3] // weight.shape[1]

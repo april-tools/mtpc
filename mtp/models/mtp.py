@@ -293,8 +293,12 @@ class MultiTokenLM(torch.nn.Module):
         attention_mask: Tensor = None,
         past_key_values: Cache = None,
         position_ids: Tensor = None,
-        generate: bool = False
+        generate: bool = False,
+        top_p: float = 1.,
     ) -> Cache:
+        if top_p != 1.:
+            assert generate is True
+
         # Obtain dictionary of circuit parameters
         outputs = self.mt_head(
             xx,
@@ -306,7 +310,7 @@ class MultiTokenLM(torch.nn.Module):
         )
 
         # Set the parameters to the circuit
-        self.circuit.parameterize({'categorical': outputs['categorical'], 'sum': outputs['sum']})
+        self.circuit.parameterize({'categorical': outputs['categorical'], 'sum': outputs['sum']}, top_p=top_p)
         return outputs['past_key_values']
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
@@ -389,6 +393,7 @@ class MultiTokenLM(torch.nn.Module):
         past_key_values: Cache = None,
         head_past_key_values: Cache = None,
         position_ids: Tensor = None,
+        top_p: float = 1.,
     ) -> dict:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
@@ -424,7 +429,8 @@ class MultiTokenLM(torch.nn.Module):
             attention_mask=attention_mask,
             past_key_values=head_past_key_values,
             position_ids=position_ids,
-            generate=True
+            generate=True,
+            top_p=top_p,
         )
 
         # Update caches for the next iteration
@@ -458,6 +464,7 @@ class MultiTokenLM(torch.nn.Module):
         use_cache: bool = False,
         past_key_values: Cache = None,
         head_past_key_values: Cache = None,
+        top_p: float = 1.,
     ) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
             raise NotImplementedError(
@@ -487,7 +494,8 @@ class MultiTokenLM(torch.nn.Module):
             attention_mask=None,
             past_key_values=head_past_key_values,
             position_ids=None,
-            generate=True
+            generate=True,
+            top_p=top_p
         )
 
         # Update caches for the next iteration

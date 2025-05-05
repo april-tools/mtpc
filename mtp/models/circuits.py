@@ -170,7 +170,8 @@ class CircuitModel(torch.nn.Module):
     def parameters_config(self) -> dict:
         return self._parameters_config
 
-    def parameterize(self, parameters: dict):
+    def parameterize(self, parameters: dict, top_p: float = 1.):
+        assert 0. <= top_p <= 1.
         # Free previous tensors before we produce new ones
         # this is important, since parameters of Categorical layers can be very large
         for layer in self._parameters_config.sum_layers:
@@ -178,22 +179,19 @@ class CircuitModel(torch.nn.Module):
         for layer in self._parameters_config.categorical_layers:
             layer.log_probs = None
 
-        # Fetch truncation probability - set to zero by default
-        trunc_p = float(os.environ.get('MTP_TRUNC_P', 0.))
-
         # Set the parameters of the circuit
         for layer, log_probs in zip(
             self._parameters_config.categorical_layers, parameters["categorical"]
         ):
             # log_probs: (F, B, S', R, V) -> (F, B * S', R, V)
             layer.log_probs = log_probs.flatten(1, 2)
-            if trunc_p > 0.:
-                layer.log_probs = truncate_logprobs_top_p(layer.log_probs, p=trunc_p)
+            if top_p < 1.:
+                layer.log_probs = truncate_logprobs_top_p(layer.log_probs, p=top_p)
         for layer, weight in zip(self._parameters_config.sum_layers, parameters["sum"]):
             # weight: (F, B, S', K1, K2) -> (F, B * S', K1, K2)
             layer.weight = weight.flatten(1, 2)
-            if trunc_p > 0.:
-                layer.weight = truncate_probs_top_p(layer.weight, p=trunc_p)
+            if top_p < 1.:
+                layer.weight = truncate_probs_top_p(layer.weight, p=top_p)
 
     @property
     def _batch_size(self) -> int:

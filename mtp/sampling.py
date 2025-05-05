@@ -54,19 +54,19 @@ if __name__ == "__main__":
     parser.add_argument('--device', type=str, default='cuda', help='Device to load model on')
     parser.add_argument('--seed', type=int, default=13, help='Random seed')
     parser.add_argument('--num-samples', type=int, default=20, help='Num samples to take from circuit')
-    parser.add_argument('--ptrunc', type=float, default=0., help='Truncation probability (0. for no trunc)')
     parser.add_argument('--prompt', type=str, required=True, help='Text to compare samples on')
+    parser.add_argument('--top-p', type=float, default=1., help='Cumulative distribution to truncate '
+    ' probability (1. for no trunc)')
     args = parser.parse_args()
 
     device = args.device
     checkpoint = args.checkpoint
     prompt = args.prompt
-    assert 0 <= args.ptrunc < 1
+    assert 0 <= args.top_p < 1
 
     set_deterministic(args.seed)
 
     os.environ['DEVICE'] = device
-    os.environ['MTP_TRUNC_P'] = str(args.ptrunc)
 
     ckp = Checkpoint.load(checkpoint)
     print('Results for %s' % ckp.expname)
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     if device == 'cuda':
         tokens['input_ids'] = tokens['input_ids'].cuda()
     with torch.no_grad(), autocast(device_type=device, dtype=torch.bfloat16):
-        out = lm.generate(inputs=tokens['input_ids'])
+        out = lm.generate(inputs=tokens['input_ids'], top_p=top_p)
 
     NS = args.num_samples
     out, _ = lm.circuit.sample(NS)

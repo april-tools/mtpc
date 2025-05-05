@@ -17,7 +17,7 @@ def truncate_probs_top_p(probs, p):
     return truncated_probs
 
 
-# Same as above but applied to logprobs
+# Same as above but truncate logprobs
 def truncate_logprobs_top_p(logprobs, p):
     # performs the operation on the last dimension
     probs = torch.exp(logprobs)

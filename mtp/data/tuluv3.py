@@ -28,6 +28,7 @@ class TuluDataLoader(HFDistributedDataLoader):
         as_iterable: bool = True,
         shuffle: bool = True,
     ):
+        assert shuffle is True, 'You probably want to shuffle this dataset'
         super().__init__(
             hf_dataset,
             hf_model,

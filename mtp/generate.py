@@ -79,7 +79,7 @@ def decode(xx):
         text = vocabs["decode"](xx.ravel().tolist())
     else:
         assert tokeniser is not None
-        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=False)[0]
+        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
     return text
 
 
@@ -98,6 +98,7 @@ def generate(
     if args.device == "cpu":
         start_time = time.perf_counter()
     elif args.device == "cuda":
+        torch.cuda.synchronize(args.device)
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
         start.record(torch.cuda.current_stream(args.device))

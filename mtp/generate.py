@@ -59,7 +59,7 @@ def encode(text, device, task):
         if task == "completion":
             x = tokeniser.encode(text, return_tensors="pt")
         elif task == "chat":
-            messages = [{"role": "user", "content": text}]
+            messages = [{"role": "user", "content": text.strip()}]
             x = tokeniser.apply_chat_template(
                 messages,
                 tokenize=True,
@@ -79,7 +79,7 @@ def decode(xx):
         text = vocabs["decode"](xx.ravel().tolist())
     else:
         assert tokeniser is not None
-        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=True)[0]
+        text = tokeniser.batch_decode(sequences=xx, skip_special_tokens=False)[0]
     return text
 
 
@@ -284,7 +284,6 @@ if __name__ == "__main__":
         if "EvaByte" in hf_model:
             kwargs["trust_remote_code"] = True
         tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
-        tokeniser.add_bos_token = True
         vocabs = None
 
     # Load prompts from prompt_source if specific prompt not given
@@ -399,10 +398,10 @@ if __name__ == "__main__":
     # Below attributes only exist for MTP
     if "stp" not in stats["model"]:
         stats["circuit"] = cfg.circuit.name
-        stats["beta"] = cfg.model.beta
-        stats["gamma"] = cfg.model.gamma
-        stats["kl_type"] = cfg.model.kl_type
-        stats["kl_algorithm"] = cfg.model.kl_algorithm
+        stats["beta"] = cfg.model.model.beta
+        stats["gamma"] = cfg.model.model.gamma
+        stats["kl_type"] = cfg.model.model.kl_type
+        stats["kl_algorithm"] = cfg.model.model.kl_algorithm
         stats["expander_type"] = cfg.mt_head.hyperparameters.expander_type
         stats["expander_n_layer"] = cfg.mt_head.hyperparameters.expander_n_layer
         stats["transformer_n_head"] = cfg.mt_head.hyperparameters.transformer_n_head

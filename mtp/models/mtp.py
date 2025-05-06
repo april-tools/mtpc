@@ -6,6 +6,7 @@ from torch import Tensor, LongTensor
 from copy import deepcopy
 
 from transformers.cache_utils import Cache
+from mtp.utils.sampling import truncate_logprobs_top_p, truncate_probs_top_p
 
 from .lm import LM
 
@@ -393,7 +394,7 @@ class MultiTokenLM(torch.nn.Module):
         past_key_values: Cache = None,
         head_past_key_values: Cache = None,
         position_ids: Tensor = None,
-        top_p: float = 1.,
+        draft_top_p: float = 1.,
     ) -> dict:
         if mode == 'mtp' and use_argmax:
             raise ValueError('Only multi-token generation by sampling is supported')
@@ -430,7 +431,7 @@ class MultiTokenLM(torch.nn.Module):
             past_key_values=head_past_key_values,
             position_ids=position_ids,
             generate=True,
-            top_p=top_p,
+            top_p=draft_top_p,
         )
 
         # Update caches for the next iteration
@@ -464,7 +465,8 @@ class MultiTokenLM(torch.nn.Module):
         use_cache: bool = False,
         past_key_values: Cache = None,
         head_past_key_values: Cache = None,
-        top_p: float = 1.,
+        draft_top_p: float = 1.,
+        target_top_p: float = 1.,
     ) -> Tensor:
         if len(seq.shape) != 2 or seq.shape[0] != 1:
             raise NotImplementedError(
@@ -495,7 +497,7 @@ class MultiTokenLM(torch.nn.Module):
             past_key_values=head_past_key_values,
             position_ids=None,
             generate=True,
-            top_p=top_p
+            top_p=draft_top_p
         )
 
         # Update caches for the next iteration
@@ -556,6 +558,8 @@ class MultiTokenLM(torch.nn.Module):
             # In the log space, this becomes log noise > difference of some log probabilities,
             # which avoids many floating point divisions and is more numerically stable
             lm_next_token_log_probs = torch.log_softmax(logits[:, j], dim=1)
+            if target_top_p < 1.:
+                lm_next_token_log_probs = truncate_logprobs_top_p(lm_next_token_log_probs, p=target_top_p)
             # lm_jth_token_log_prob: (B, 1)
             lm_jth_token_log_prob = torch.gather(
                 lm_next_token_log_probs, dim=1, index=tokens[:, [j]]
@@ -582,6 +586,8 @@ class MultiTokenLM(torch.nn.Module):
             # We are so lucky! We accept all the H tokens
             # Let's index the probabilities to sample the H+1-th one
             lm_last_probs = torch.softmax(logits[:, -1], dim=1)
+            if target_top_p < 1.:
+                lm_last_probs = truncate_probs_top_p(lm_last_probs, p=target_top_p)
             # Sample the last token
             last_token = torch.multinomial(lm_last_probs, num_samples=1)
         else:  # num_accepted_tokens < tokens.shape[1]
@@ -589,6 +595,8 @@ class MultiTokenLM(torch.nn.Module):
             # Let's adjust the probabilities to sample the H'+1-th one
             # lm_last_probs: (B, V)
             lm_last_probs = torch.softmax(logits[:, num_accepted_tokens], dim=1)
+            if target_top_p < 1.:
+                lm_last_probs = truncate_probs_top_p(lm_last_probs, p=target_top_p)
             # Let j be the number of accepted tokens, then
             # max(0, p(x_{t+j+1}\mid x_{\leq t+j}) - q(x_{t+j+1}\mid x_{\leq t+j}))
             # under the consideration that

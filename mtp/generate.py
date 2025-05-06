@@ -88,11 +88,12 @@ def generate(
     x: torch.Tensor,
     disable_progress_bar: bool = True,
     print_generation=False,
-    top_p=1.0,
+    draft_top_p=1.0,
+    target_top_p=1.0,
 ):
     # Init model in case loading takes additional time - do not use this output
     with ctx:
-        _ = model.generate(x, mode=args.mode, use_cache=args.use_cache, top_p=top_p)["tokens"]
+        _ = model.generate(x, mode=args.mode, use_cache=args.use_cache, draft_top_p=draft_top_p)["tokens"]
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
@@ -118,7 +119,8 @@ def generate(
                     use_cache=args.use_cache,
                     past_key_values=past_key_values,
                     head_past_key_values=head_past_key_values,
-                    top_p=top_p,
+                    draft_top_p=draft_top_p,
+                    target_top_p=target_top_p,
                 )
                 tokens = outputs["tokens"]
                 past_key_values = outputs["past_key_values"]
@@ -130,7 +132,7 @@ def generate(
                     use_cache=args.use_cache,
                     past_key_values=past_key_values,
                     head_past_key_values=head_past_key_values,
-                    top_p=top_p,
+                    draft_top_p=draft_top_p,
                 )
                 tokens = outputs["tokens"]
                 past_key_values = outputs["past_key_values"]
@@ -141,7 +143,7 @@ def generate(
                     x,
                     use_cache=args.use_cache,
                     past_key_values=past_key_values,
-                    top_p=top_p,
+                    draft_top_p=draft_top_p,
                 )
                 tokens = outputs["tokens"]
                 past_key_values = outputs["past_key_values"]
@@ -240,11 +242,19 @@ if __name__ == "__main__":
         "to get an answer from the model",
     )
     parser.add_argument(
-        "--top-p",
+        "--draft-top-p",
         default=1.,
         type=float,
         help="The cumulative probability threshold above which to truncate "
         "the circuit categoricals and sum weights. "
+        "1. has no effect while 0. is equivalent to approximate argmax.",
+    )
+    parser.add_argument(
+        "--target-top-p",
+        default=1.,
+        type=float,
+        help="The cumulative probability threshold above which to truncate "
+        "the target model's categorical distribution for next token prediction. "
         "1. has no effect while 0. is equivalent to approximate argmax.",
     )
     parser.add_argument(
@@ -261,7 +271,8 @@ if __name__ == "__main__":
     os.environ["DEVICE"] = args.device
     os.environ["MODE"] = "generate"
 
-    assert 0. <= args.top_p <= 1.
+    assert 0. <= args.draft_top_p <= 1.
+    assert 0. <= args.target_top_p <= 1.
 
     # Initialize training context
     ctx = autocast(device_type=args.device, dtype=torch.bfloat16)
@@ -382,7 +393,8 @@ if __name__ == "__main__":
             x,
             disable_progress_bar=len(xs) > 1,
             print_generation=args.print,
-            top_p=args.top_p,
+            draft_top_p=args.draft_top_p,
+            target_top_p=args.target_top_p,
         )
         total_elapsed_time += elapsed_time
         total_num_tokens.extend(num_tokens)

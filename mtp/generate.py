@@ -413,6 +413,9 @@ if __name__ == "__main__":
     stats["model"] = cfg.model.model._target_
     stats["ntoken"] = n_token
     stats["ncomponent"] = n_component
+    stats["task"] = args.task
+    stats["subsample_prompts"] = args.subsample_prompts
+    stats["prompt_source"] = args.prompt_source
     stats["speculative"] = args.speculative
     stats["use_kv_cache"] = args.use_cache
     stats["draft_top_p"] = args.draft_top_p

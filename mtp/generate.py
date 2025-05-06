@@ -415,6 +415,8 @@ if __name__ == "__main__":
     stats["ncomponent"] = n_component
     stats["speculative"] = args.speculative
     stats["use_kv_cache"] = args.use_cache
+    stats["draft_top_p"] = args.draft_top_p
+    stats["target_top_p"] = args.target_top_p
     if args.speculative:
         # The number of accepted tokens with speculative decoding at each generation step is the number of generated tokens minus one
         total_num_accepted_tokens = list(map(lambda n: n - 1, total_num_tokens))

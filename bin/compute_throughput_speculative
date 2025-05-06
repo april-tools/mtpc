@@ -26,6 +26,7 @@ do
 			--speculative \
 			--random-seed $seed \
 			--subsample-prompts $subsample_prompts \
+			--prompt-source tulu-train \
 			--num-tokens $num_tokens \
 			--target-top-p 1. \
 			--draft-top-p 1. \

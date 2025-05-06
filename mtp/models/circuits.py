@@ -1,4 +1,6 @@
+import os
 import torch
+
 from torch import Tensor
 
 from cirkit.backend.torch.circuits import TorchCircuit
@@ -10,6 +12,7 @@ from cirkit.templates import utils, tensor_factorizations, pgms
 from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 from mtp.models.circuit_layers import SamplingQuery, IntegrateQuery
 from mtp.models.circuit_layers import sanitize_input
+from mtp.utils.sampling import truncate_logprobs_top_p, truncate_probs_top_p
 
 # from cirkit.templates import tensor_factorizations, utils
 from .pipeline import setup_pipeline_context
@@ -32,7 +35,7 @@ class ParametersConfig:
     @property
     def n_component(self) -> int:
         return self._n_component
-    
+
     @property
     def vocab_size(self) -> int:
         return self._vocab_size
@@ -167,7 +170,8 @@ class CircuitModel(torch.nn.Module):
     def parameters_config(self) -> dict:
         return self._parameters_config
 
-    def parameterize(self, parameters: dict):
+    def parameterize(self, parameters: dict, top_p: float = 1.):
+        assert 0. <= top_p <= 1.
         # Free previous tensors before we produce new ones
         # this is important, since parameters of Categorical layers can be very large
         for layer in self._parameters_config.sum_layers:
@@ -181,9 +185,13 @@ class CircuitModel(torch.nn.Module):
         ):
             # log_probs: (F, B, S', R, V) -> (F, B * S', R, V)
             layer.log_probs = log_probs.flatten(1, 2)
+            if top_p < 1.:
+                layer.log_probs = truncate_logprobs_top_p(layer.log_probs, p=top_p)
         for layer, weight in zip(self._parameters_config.sum_layers, parameters["sum"]):
             # weight: (F, B, S', K1, K2) -> (F, B * S', K1, K2)
             layer.weight = weight.flatten(1, 2)
+            if top_p < 1.:
+                layer.weight = truncate_probs_top_p(layer.weight, p=top_p)
 
     @property
     def _batch_size(self) -> int:

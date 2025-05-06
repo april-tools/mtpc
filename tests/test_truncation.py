@@ -54,11 +54,9 @@ def test_truncation_at_zero_is_approx_argmax():
         sum_weights_shape = (sum_weights_shape[0], BATCH_SIZE, *sum_weights_shape[1:])
         layer.weight = torch.softmax(torch.randn(*sum_weights_shape), dim=-1)
         sum_argmax = layer.weight.argmax(dim=-1)
-        print(sum_argmax.shape)
 
     approx_argmax_tokens = categorical_argmax[:, :, sum_argmax.squeeze()]
     approx_argmax_tokens = approx_argmax_tokens.squeeze()
-    print(approx_argmax_tokens)
 
     torch.manual_seed(42)
 

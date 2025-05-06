@@ -55,14 +55,14 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=13, help='Random seed')
     parser.add_argument('--num-samples', type=int, default=20, help='Num samples to take from circuit')
     parser.add_argument('--prompt', type=str, required=True, help='Text to compare samples on')
-    parser.add_argument('--top-p', type=float, default=1., help='Cumulative distribution to truncate '
-    ' probability (1. for no trunc)')
+    parser.add_argument('--top-p', type=float, default=1., help='Cumulative distribution to truncate'
+    ' probability (1. for no truncation, 0. corresponds to approx argmax prediction)')
     args = parser.parse_args()
 
     device = args.device
     checkpoint = args.checkpoint
     prompt = args.prompt
-    assert 0 <= args.top_p < 1
+    assert 0 <= args.top_p <= 1
 
     set_deterministic(args.seed)
 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     if device == 'cuda':
         tokens['input_ids'] = tokens['input_ids'].cuda()
     with torch.no_grad(), autocast(device_type=device, dtype=torch.bfloat16):
-        out = lm.generate(inputs=tokens['input_ids'], top_p=top_p)
+        out = lm.generate(inputs=tokens['input_ids'], top_p=args.top_p)
 
     NS = args.num_samples
     out, _ = lm.circuit.sample(NS)

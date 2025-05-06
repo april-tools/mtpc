@@ -27,7 +27,7 @@ do
 			--random-seed $seed \
 			--subsample-prompts $subsample_prompts \
 			--num-tokens $num_tokens \
-			--target-top-p 1. \
+			--target-top-p 0. \
 			--draft-top-p 1. \
 			--task chat \
 			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl

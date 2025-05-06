@@ -80,3 +80,6 @@ def test_truncation_at_zero_is_approx_argmax():
     approx_argmax_sample, _ = circuit.sample(1)
     approx_argmax_sample = approx_argmax_sample.squeeze()
     assert torch.allclose(approx_argmax_tokens, approx_argmax_sample)
+
+    approx_argmax_sample, _ = circuit.sample(100)
+    assert torch.allclose(torch.tile(approx_argmax_tokens, (100, 1)), approx_argmax_sample)

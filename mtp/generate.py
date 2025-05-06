@@ -48,7 +48,6 @@ def encode(text, device, task):
             )
         else:
             assert vocabs is not None
-            # TODO: Need tokenizer here for token models
             x = torch.tensor(vocabs["encode"](text), dtype=torch.int, device=device)
             x = x.unsqueeze(0)
     else:
@@ -136,9 +135,12 @@ def generate(
                 )
                 tokens = outputs["tokens"]
                 past_key_values = outputs["past_key_values"]
+            # Stop if we generate the EOS token
             x = torch.cat([x, tokens], dim=1)
             num_tokens.append(tokens.shape[1])
             pbar.update(tokens.shape[1])
+            if torch.any(tokens == tokeniser.eos_token_id):
+                break
 
     if args.device == "cpu":
         end_time = time.perf_counter()
@@ -274,7 +276,7 @@ if __name__ == "__main__":
         model = torch.compile(model)
     model.eval()
 
-    # Load the tokenizer once, if needed
+    # Load the tokeniser once, if needed
     # Otherwise, load the vocabulary (shakespeare models)
     hf_model = get_huggingface_model(cfg)
     if hf_model is None:
@@ -284,6 +286,12 @@ if __name__ == "__main__":
         kwargs = {}
         if "EvaByte" in hf_model:
             kwargs["trust_remote_code"] = True
+            # For EvaByte, chat eos id is 11, while for completion eos id is 2.
+            # Therefore, load different tokenisers depending on the case
+            if args.task == 'chat':
+                tokeniser = AutoTokenizer.from_pretrained('EvaByte/EvaByte-SFT', **kwargs)
+            else:
+                tokeniser = AutoTokenizer.from_pretrained('EvaByte/EvaByte', **kwargs)
         tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
         vocabs = None
 

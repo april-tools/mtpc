@@ -11,7 +11,7 @@ seed=12
 num_tokens=512
 # Subsample 100 prompts from spec_bench. Set to 0 to use the whole spec_bench
 # Note that same random seed will imply same prompts selected from spec_bench
-subsample_prompts=50
+subsample_prompts=200
 default="$MTP_ROOT/outputs/models/finewebedu10B"
 # If not overriden by cli, use default
 directory="${1:-$default}"
@@ -31,6 +31,6 @@ do
 			--target-top-p 0. \
 			--draft-top-p 1. \
 			--task chat \
-			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput_models.jsonl
+			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/argmax_throughput_models.jsonl
 	fi
 done

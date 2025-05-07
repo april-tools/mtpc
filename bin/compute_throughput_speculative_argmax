@@ -13,8 +13,10 @@ num_tokens=512
 # Note that same random seed will imply same prompts selected from spec_bench
 subsample_prompts=200
 default="$MTP_ROOT/outputs/models/finewebedu10B"
+default_prompt_source="tulu-train"
 # If not overriden by cli, use default
 directory="${1:-$default}"
+prompt_source="${2:-$default_prompt_source}"
 
 for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
@@ -26,11 +28,11 @@ do
 			--speculative \
 			--random-seed $seed \
 			--subsample-prompts $subsample_prompts \
-			--prompt-source tulu-train \
+			--prompt-source $prompt_source \
 			--num-tokens $num_tokens \
 			--target-top-p 0. \
 			--draft-top-p 1. \
 			--task chat \
-			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/argmax_throughput_models.jsonl
+			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/argmax_throughput_models-$prompt_source.jsonl
 	fi
 done

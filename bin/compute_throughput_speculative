@@ -21,7 +21,7 @@ subsample_prompts="${3:-$default_subsample_prompts}"
 
 for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
-	if [[ $file =~ (@0\.pt|200\.pt|400\.pt|600\.pt|800\.pt|000\.pt)$ ]]; then
+	if [[ $file =~ (@0\.pt|000\.pt)$ ]]; then
 		echo -e "Processing $file..."
 		python -m mtp.generate \
 			--device cuda \

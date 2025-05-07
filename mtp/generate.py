@@ -346,12 +346,14 @@ if __name__ == "__main__":
             )
             ds = iter(dl.dataset)
 
-            for i, example in enumerate(ds):
-                if i == args.subsample_prompts:
+            for example in ds:
+                if len(prompts) == args.subsample_prompts:
                     break
                 prompt = example["messages"][0][0]
-                assert prompt["role"] == "user"
-                prompts.append(prompt["content"])
+                # We only add the first turn
+                # We also ignore prompts that start with a system prompt (rare)
+                if prompt["role"] == "user":
+                    prompts.append(prompt["content"])
 
         elif args.prompt_source == "spec-bench":
             spec_bench_filepath = os.path.join(

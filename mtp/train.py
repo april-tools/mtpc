@@ -284,11 +284,11 @@ def main(cfg: DictConfig):
                 if last_step or (step % cfg.training.save_model_every == 0):
                     # TODO: save best / do not overwrite best
                     if cfg.training.save_model:
-                        logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                         ckp.save(global_step=step,
                                  model=model,
                                  optimizer=optimizer if cfg.training.save_optimizer else None,
                                  scheduler=scheduler if cfg.training.save_optimizer else None)
+                        logger(f'step:{step}/{cfg.training.num_iterations} Saved model to %s...' % ckp.modelpath)
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.10f} time/step:{dt:.2f}s")
                 wandb.log({

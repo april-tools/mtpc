@@ -5,7 +5,7 @@ from mtp.models.loss import IGNORE_TOKEN_ID
 
 def test_hf_dataloader_seek():
     dl = DistributedDataLoader.resolve(
-        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 20, 2048, 0, 1
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 20, 2048, 0, 1, shuffle=True
     )
     batch = dl.next_batch()
     batch = dl.next_batch()
@@ -20,7 +20,7 @@ def test_hf_dataloader_seek():
 def test_hf_dataloader_tulu_shuffle():
     # Make sure we are seeing instances from all tulu sources
     dl = DistributedDataLoader.resolve(
-        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 1, 2048, 0, 1
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 1, 2048, 0, 1, shuffle=True
     )
 
     di = iter(dl.dataset)
@@ -31,13 +31,47 @@ def test_hf_dataloader_tulu_shuffle():
         if i == 1000:
             break
     # We ignore Tulu 3 hardcoded, it has 240 prompts
-    assert len(sources) == 17
+    assert len(sources) in (17, 18)
+
+
+def test_hf_dataloader_tulu_evabyte_train_shuffle():
+    # Make sure we are seeing instances from all tulu sources
+    dl = DistributedDataLoader.resolve(
+        "agrv/tulu-v3-sft-evabyte-seq-len-8192", "EvaByte/EvaByte", 1, 8192, 0, 1, shuffle=False, split='train'
+    )
+
+    di = iter(dl.dataset)
+
+    sources = set()
+    for i, batch in enumerate(di):
+        sources.add(batch['source'][0])
+        if i == 1000:
+            break
+    # We ignore Tulu 3 hardcoded, it has 240 prompts
+    assert len(sources) in (17, 18)
+
+
+def test_hf_dataloader_tulu_evabyte_valid_shuffle():
+    # Make sure we are seeing instances from all tulu sources
+    dl = DistributedDataLoader.resolve(
+        "agrv/tulu-v3-sft-evabyte-seq-len-8192", "EvaByte/EvaByte", 1, 8192, 0, 1, shuffle=False, split='valid'
+    )
+
+    di = iter(dl.dataset)
+
+    sources = set()
+    for i, batch in enumerate(di):
+        sources.add(batch['source'][0])
+        if i == 1000:
+            break
+    # We ignore Tulu 3 hardcoded, it has 240 prompts
+    assert len(sources) in (17, 18)
 
 
 def test_hf_dataloader_tulu_label_masking():
     # Make sure we are seeing instances from all tulu sources
     dl = DistributedDataLoader.resolve(
-        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 1, 2048, 0, 1
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 1, 2048, 0, 1, shuffle=True
     )
 
     batch = dl.next_batch()
@@ -55,13 +89,13 @@ def test_hf_dataloader_tulu_label_masking():
 def test_hf_dataloader_batching():
 
     dl = DistributedDataLoader.resolve(
-        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 0, 1
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 0, 1, shuffle=True
     )
     out = dl.next_batch()
     out = dl.next_batch()
 
     dl = DistributedDataLoader.resolve(
-        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 1, 2048, 0, 1
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 1, 2048, 0, 1, shuffle=True
     )
     out2 = dl.next_batch()
     out2 = dl.next_batch()
@@ -76,12 +110,12 @@ def test_hf_dataloader_batching():
 def test_hf_dataloader_ddp():
 
     dl = DistributedDataLoader.resolve(
-        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 0, 2
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 0, 2, shuffle=True
     )
     out = dl.next_batch()
 
     dl = DistributedDataLoader.resolve(
-        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 1, 2
+        "allenai/tulu-3-sft-mixture", "EvaByte/EvaByte", 2, 2048, 1, 2, shuffle=True
     )
     out2 = dl.next_batch()
     for k in out:

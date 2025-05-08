@@ -51,7 +51,7 @@ def create_optimizers(raw_model, cfg):
 
 
 @torch.no_grad()
-def validation_step(model, val_loader, val_steps, ctx):
+def validation_step(model, val_loader, val_steps, val_examples, ctx):
     """Run validation."""
     model.eval()
     val_loader.reset()
@@ -66,16 +66,16 @@ def validation_step(model, val_loader, val_steps, ctx):
                     metrics[k] += v.detach()
             del results
 
-    dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
-    val_loss /= val_steps
+    dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
+    val_loss /= val_examples
 
     for k, v in list(metrics.items()):
-        dist.all_reduce(metrics[k], op=dist.ReduceOp.AVG)
-        metrics[k] /= val_steps
+        dist.all_reduce(metrics[k], op=dist.ReduceOp.SUM)
+        metrics[k] /= val_examples
     return val_loss, metrics
 
 
-def training_step(model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx):
+def training_step(model, train_loader, train_accumulation_steps, batch_size, optimizer, scheduler, ctx):
     """Run single training step."""
     model.train()
     train_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
@@ -84,11 +84,11 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 
         with ctx:
             results = model(**batch)
-            loss = results.pop('loss')
+            loss = results.pop('loss') / batch_size
             train_loss += loss.detach()
             for k, v in results.items():
                 if '_loss_' in k:
-                    metrics[k] += v.detach()
+                    metrics[k] += v.detach() / batch_size
             del results
 
         if i < train_accumulation_steps and ctx.device == 'cuda':
@@ -96,10 +96,6 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
                 loss.backward()
         else:
             loss.backward()
-
-    for p in model.parameters():
-        if p.requires_grad:
-            p.grad /= train_accumulation_steps
 
     # Add gradient clipping
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -110,12 +106,10 @@ def training_step(model, train_loader, train_accumulation_steps, optimizer, sche
 
     model.zero_grad(set_to_none=True)
 
-    dist.all_reduce(train_loss, op=dist.ReduceOp.AVG)
-    train_loss /= train_accumulation_steps
+    dist.all_reduce(train_loss, op=dist.ReduceOp.SUM)
 
     for k, v in list(metrics.items()):
-        dist.all_reduce(metrics[k], op=dist.ReduceOp.AVG)
-        metrics[k] /= train_accumulation_steps
+        dist.all_reduce(metrics[k], op=dist.ReduceOp.SUM)
 
     return train_loss, metrics
 
@@ -214,15 +208,14 @@ def main(cfg: DictConfig):
                 wandb.define_metric("*", step_metric="global_step")
 
         # ===================== BEGIN DATASET SETUP ==========================
+        logger(f"Training on {cfg.data.train_bin}...")
         B, T = cfg.training.device_batch_size, cfg.training.sequence_length
-        # Since we are doing multi-token prediction, the seq length in the transformer
-        # is actually T + n - 1, so increase seq length to make transformer seq len T
-        # this is also needed for EvaByte where T must be a multiple of window_size
-        T += model.n_token - 1
+        assert (cfg.training.batch_size % (B * world_size)) == 0, 'Batch size must be exactly divisible by B * world_size'
         train_loader = DistributedDataLoader.resolve(cfg.data.train_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='train')
         if cfg.data.val_bin is not None:
             val_loader = DistributedDataLoader.resolve(cfg.data.val_bin, cfg.lm.model.from_huggingface, B, T, rank, world_size, cfg.device, split='valid')
             val_steps = cfg.training.val_tokens // (B * T * world_size)
+            val_examples = cfg.training.val_tokens // T
 
         ntok_train = cfg.training.batch_size * T * cfg.training.num_iterations
 
@@ -267,7 +260,7 @@ def main(cfg: DictConfig):
 
             # Training step
             train_loss, train_metrics = training_step(
-                optimized_model, train_loader, train_accumulation_steps, optimizer, scheduler, ctx
+                optimized_model, train_loader, train_accumulation_steps, cfg.training.batch_size, optimizer, scheduler, ctx
             )
 
             if cfg.device == 'cuda':
@@ -277,7 +270,7 @@ def main(cfg: DictConfig):
             if cfg.data.val_bin is not None:
                 # Validation
                 if first_step or last_step or (step % cfg.training.val_loss_every == 0):
-                    val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, ctx)
+                    val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, val_examples, ctx)
                     logger(f'step:{step}/{cfg.training.num_iterations} val_loss:{val_loss:.4f}')
                     if master_process:
                         wandb.log({
@@ -291,11 +284,11 @@ def main(cfg: DictConfig):
                 if last_step or (step % cfg.training.save_model_every == 0):
                     # TODO: save best / do not overwrite best
                     if cfg.training.save_model:
-                        logger(f'step:{step}/{cfg.training.num_iterations} Saving model to %s...' % ckp.modelpath)
                         ckp.save(global_step=step,
                                  model=model,
                                  optimizer=optimizer if cfg.training.save_optimizer else None,
                                  scheduler=scheduler if cfg.training.save_optimizer else None)
+                        logger(f'step:{step}/{cfg.training.num_iterations} Saved model to %s...' % ckp.modelpath)
                 current_lr = optimizer.param_groups[0]['lr']
                 logger(f"step:{step}/{cfg.training.num_iterations} train_loss:{train_loss.item():.4f} lr:{current_lr:.10f} time/step:{dt:.2f}s")
                 wandb.log({

@@ -42,30 +42,33 @@ if __name__ == '__main__':
             steps = tuple(row['step'] for row in stats)
             ax.plot(steps, avg_accepted_tokens, '-o', label=model)
 
-        ax.set_ylabel('Average number of accepted tokens', fontsize=24)
-        ax.set_xlabel('# Training steps', fontsize=24)
-        ax.set_title('Token acceptance rate over training', fontsize=30)
-        ax.legend(fontsize=20, loc='lower right')
+        ax.tick_params(axis='both')
+        ax.set_ylabel('Average number of accepted tokens')
+        ax.set_xlabel('# Training steps')
+        ax.set_title('Token acceptance rate over training')
+        ax.legend(loc='lower right')
         plt.tight_layout()
         plt.show()
     elif args.type == 'histogram':
+        token_range = [0, 8]
+        # token_range = tuple(range(ntoken + 1))
         ntoken = row['ntoken']
-        fig, axes = plt.subplots(figsize=(8, 10), nrows=ntoken + 1)
+        fig, axes = plt.subplots(figsize=(6, 6), nrows=len(token_range))
 
         for i, (model, stats) in enumerate(groupby(rows, lambda x: x['model'])):
             stats = tuple(sorted(stats, key=lambda x: x['step']))
-            for j in range(ntoken + 1):
+            for a, j in enumerate(token_range):
                 counts = tuple(row['hist_accepted_tokens'][1][j] for row in stats)
                 steps = tuple(row['step'] for row in stats)
-                axes[j].plot(steps, counts, '-o', label='%s' % model)
+                axes[a].plot(steps, counts, '-o', label='%s' % model)
 
-        for j in range(ntoken + 1):
-            axes[j].set_title('# times %d token(s) generated' % (j + 1), fontsize=24)
+        for a, j in enumerate(token_range):
+            axes[a].set_title('# times %d token(s) generated' % (j + 1))
 
-        axes[-1].set_xlabel('# Training steps', fontsize=24)
-        axes[-1].legend(fontsize=20, loc='lower right')
-        axes[1].set_ylabel('Number of generated tokens (accepted tokens + 1)', fontsize=24)
-        plt.suptitle('Histogram of generated tokens over training', fontsize=30)
+        axes[-1].set_xlabel('# Training steps')
+        axes[-1].legend(loc='lower right')
+        axes[1].set_ylabel('Number of generated tokens')
+        plt.suptitle('Histogram of generated tokens over training')
         plt.tight_layout()
         plt.show()
     else:

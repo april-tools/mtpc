@@ -132,6 +132,10 @@ class LM(nn.Module):
         return sd
 
     @property
+    def config(self):
+        return self.lm_model.config
+
+    @property
     def lm_head_weights(self):
         return self._lm_head_weights
 

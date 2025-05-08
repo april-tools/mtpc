@@ -74,15 +74,18 @@ def decode(xx):
     return text
 
 
-def generate(x: torch.Tensor, disable_progress_bar: bool = True, print_generation=False):
+def generate(x: torch.Tensor, disable_progress_bar: bool = True, print_generation: bool = False, warmup: bool = False):
     # Init model in case loading takes additional time - do not use this output
-    with ctx:
-        _ = model.generate(x, mode=args.mode, use_cache=args.use_cache)['tokens']
+    if warmup:
+        with ctx:
+            _ = model.generate(x, mode=args.mode, use_cache=False)
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
     num_tokens = []
     past_key_values, head_past_key_values = None, None
+    verifier_past_key_values = None
+    past_num_tokens = None
 
     if args.device == 'cpu':
         start_time = time.perf_counter()
@@ -100,19 +103,23 @@ def generate(x: torch.Tensor, disable_progress_bar: bool = True, print_generatio
                 outputs = model.self_speculative_generate(
                     x,
                     use_cache=args.use_cache,
-                    past_key_values=past_key_values,
-                    head_past_key_values=head_past_key_values
+                    draft_past_key_values=past_key_values,
+                    verifier_past_key_values=verifier_past_key_values,
+                    head_past_key_values=head_past_key_values,
+                    past_num_tokens=past_num_tokens
                 )
                 tokens = outputs['tokens']
-                past_key_values = outputs['past_key_values']
+                past_key_values = outputs['draft_past_key_values']
+                verifier_past_key_values = outputs['verifier_past_key_values']
                 head_past_key_values = outputs['head_past_key_values']
+                past_num_tokens = outputs['past_num_tokens']
             elif args.mode == 'mtp':
                 outputs = model.generate(
                     x,
                     mode='mtp',
                     use_cache=args.use_cache,
                     past_key_values=past_key_values,
-                    head_past_key_values=head_past_key_values
+                    head_past_key_values=head_past_key_values,
                 )
                 tokens = outputs['tokens']
                 past_key_values = outputs['past_key_values']
@@ -264,8 +271,8 @@ if __name__ == "__main__":
     # The elapsed time to go through all the prompts
     total_elapsed_time = 0.0
 
-    for x in tqdm.tqdm(xs, disable=len(prompts) == 1):
-        elapsed_time, num_tokens = generate(x, disable_progress_bar=len(prompts) > 1, print_generation=args.print)
+    for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1):
+        elapsed_time, num_tokens = generate(x, disable_progress_bar=len(prompts) > 1, print_generation=args.print, warmup=i == 0)
         total_elapsed_time += elapsed_time
         total_num_tokens.extend(num_tokens)
 

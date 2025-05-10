@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch import Tensor, LongTensor
 
 from transformers.cache_utils import Cache
+from mtp.models.evabyte.eva_prep_kv_kernel import triton_eva_prep_kv_fwd
 from mtp.utils.sampling import truncate_logprobs_top_p, truncate_probs_top_p
 
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
@@ -393,28 +394,29 @@ class MultiTokenLM(torch.nn.Module):
         # seen_tokens incldues new tokens from the last tree iteration
         assert past_seen_tokens > 0
         # so one iteration would not cross two windows
-        assert last_new_tokens < self.lm.lm_model.config.window_size
-
-        if past_seen_tokens < self.lm.lm_model.config.window_size:
+        assert last_new_tokens < self.lm.config.window_size
+        if past_seen_tokens < self.lm.config.window_size:
             attn_mask = torch.ones(
-                [batch_size, 1, 1, past_seen_tokens + last_new_tokens],
+                (batch_size, 1, last_new_tokens, past_seen_tokens + last_new_tokens),
                 dtype=torch.bool,
                 device=self.lm.lm_model.device
             )
+            attn_mask.tril_(past_seen_tokens)
         else:
             # we initialize attn mask each time when
             # 1. the model crosses the window bounary, or
             # 2. after prefilling
-            chunks_per_window = int(self.lm.lm_model.config.window_size // self.lm.lm_model.config.chunk_size)
+            chunks_per_window = int(self.lm.config.window_size // self.lm.config.chunk_size)
 
-            window_tokens = past_seen_tokens % self.lm.lm_model.config.window_size
-            num_windows_seen_so_far = past_seen_tokens // self.lm.lm_model.config.window_size
+            window_tokens = past_seen_tokens % self.lm.config.window_size
+            num_windows_seen_so_far = past_seen_tokens // self.lm.config.window_size
             attn_mask_len = num_windows_seen_so_far * chunks_per_window + window_tokens
             attn_mask = torch.ones(
-                (batch_size, 1, 1, attn_mask_len + last_new_tokens),
+                (batch_size, 1, last_new_tokens, attn_mask_len + last_new_tokens),
                 dtype=torch.bool,
                 device=self.lm.lm_model.device
             )
+            attn_mask.tril_(attn_mask_len)
 
         return attn_mask
 
@@ -461,6 +463,7 @@ class MultiTokenLM(torch.nn.Module):
                     position_ids=position_ids,
                     multibyte_decoding=False
                 )
+                past_key_values = outputs['past_key_values']
                 past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(past_key_values)
             else:
                 # LL: below I am reusing the code for multi token generation in Evabyte
@@ -471,20 +474,21 @@ class MultiTokenLM(torch.nn.Module):
                 position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
-                    use_cache=use_cache,
+                    use_cache=True,
                     attention_mask=attn_mask,
                     past_key_values=past_key_values,
                     position_ids=position_ids,
                     multibyte_decoding=True
                 )
+                past_key_values = outputs['past_key_values']
                 past_key_values = self.lm.lm_model.multi_byte_pred_update_cache(
-                past_key_values,
+                    past_key_values,
                     torch.arange(self.circuit.n_token, device=inputs.device, dtype=torch.int).unsqueeze(dim=0),
                     0,
                     self.circuit.n_token,
                 )
         else:
-            outputs = self.lm.encoder(input_ids=inputs)
+            outputs = self.lm.encoder(input_ids=inputs, use_cache=False)
             attn_mask = None
         # Parameterize the circuit
         xx = outputs['last_hidden_state']
@@ -530,6 +534,7 @@ class MultiTokenLM(torch.nn.Module):
         draft_past_key_values: Cache = None,
         verifier_past_key_values: Cache = None,
         head_past_key_values: Cache = None,
+        position_ids: Tensor = None,
         past_num_tokens: int = None,
         draft_top_p: float = 1.,
         target_top_p: float = 1.,
@@ -548,7 +553,7 @@ class MultiTokenLM(torch.nn.Module):
                 draft_past_key_values = EvaStaticCacheForTriton(
                     inputs.shape[0],
                     self.lm.config.num_attention_heads,
-                    self.lm.config.window_size + self.circuit.n_token + 1,
+                    self.lm.config.window_size + self.circuit.n_token,
                     self.lm.config.hidden_size // self.lm.config.num_attention_heads,
                     self.lm.config.num_hidden_layers,
                     torch.bfloat16,
@@ -557,13 +562,13 @@ class MultiTokenLM(torch.nn.Module):
                 verifier_past_key_values = EvaStaticCacheForTriton(
                     inputs.shape[0],
                     self.lm.config.num_attention_heads,
-                    self.lm.config.window_size + self.circuit.n_token + 1,
+                    self.lm.config.window_size + self.circuit.n_token,
                     self.lm.config.hidden_size // self.lm.config.num_attention_heads,
                     self.lm.config.num_hidden_layers,
                     torch.bfloat16,
                     inputs.device,
                 )
-                position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqeeze(dim=0)
+                position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     inputs,
                     attention_mask=None,
@@ -572,18 +577,19 @@ class MultiTokenLM(torch.nn.Module):
                     position_ids=position_ids,
                     multibyte_decoding=False
                 )
+                draft_past_key_values = outputs['past_key_values']
                 with self.lm.disable_adapter_if_any():
-                    _ = self.lm.encoder(
-                        inputs,
+                    verifier_outputs = self.lm.encoder(
+                        inputs[:, :-1],
                         attention_mask=None,
                         use_cache=True,
                         past_key_values=verifier_past_key_values,
-                        position_ids=position_ids,
+                        position_ids=position_ids[:, :-1],
                         multibyte_decoding=False
                     )
+                    verifier_past_key_values = verifier_outputs['past_key_values']
                 draft_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(draft_past_key_values)
                 verifier_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(verifier_past_key_values)
-                attn_mask = None
             else:
                 # LL: below I am reusing the code for multi token generation in Evabyte
                 # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
@@ -593,14 +599,14 @@ class MultiTokenLM(torch.nn.Module):
                 position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
-                    use_cache=use_cache,
+                    use_cache=True,
                     attention_mask=attn_mask,
                     past_key_values=draft_past_key_values,
                     position_ids=position_ids,
                     multibyte_decoding=True
                 )
         else:
-            outputs = self.lm.encoder(input_ids=inputs)
+            outputs = self.lm.encoder(input_ids=inputs, use_cache=False)
         # Parameterize the circuit
         xx = outputs['last_hidden_state']
         next_head_past_key_values = self._parameterize_circuit(
@@ -634,16 +640,18 @@ class MultiTokenLM(torch.nn.Module):
                 position_ids = torch.arange(past_seen_tokens, gen_seq.shape[1], device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     input_ids=gen_seq[:, past_seen_tokens:],
-                    use_cache=use_cache,
+                    use_cache=True,
                     attention_mask=verifier_attn_mask,
                     past_key_values=verifier_past_key_values,
                     position_ids=position_ids,
                     multibyte_decoding=True
                 )
+                verifier_past_key_values = outputs['past_key_values']
             else:
-                outputs = self.lm.encoder(input_ids=gen_seq)
+                outputs = self.lm.encoder(input_ids=gen_seq, use_cache=False)
             # zz: (B, S + H, D) -> (B, H + 1, D)
             zz = outputs['last_hidden_state']
+            assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
             zz = zz[:, -tokens.shape[1] - 1 :]
             # logits: (B, H + 1, V)
             logits = self.lm.head_logits(zz)
@@ -663,6 +671,7 @@ class MultiTokenLM(torch.nn.Module):
             integrate_vars=self.circuit._autoregressive_mar_mask,
         )
         log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
+        log_marginal_probs_cpu = log_marginal_probs.cpu()  # Move to the CPU as it will be slightly faster due to non-vectorizable code below
         #
         # Sample H uniform noise values in [0,1), and take their log
         # log_noise: (B=1, H)
@@ -686,13 +695,13 @@ class MultiTokenLM(torch.nn.Module):
             if j == 0:
                 # q(x_{t+1}\mid x_{\leq t})
                 # mtp_jth_token_log_prob: (B, 1)
-                mtp_jth_token_log_prob = log_marginal_probs[:, 0].cpu()
+                mtp_jth_token_log_prob = log_marginal_probs_cpu[:, 0]
             else:
                 # q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) = \
                 #     q(x_{t+1}, ..., x_{t+j}\mid x_{\leq t}) / q(x_{t+1}, ..., x_{t+j-1}\mid x_{\leq t})
                 # mtp_jth_token_log_prob: (B, 1)
                 mtp_jth_token_log_prob = (
-                    log_marginal_probs[:, j].cpu() - log_marginal_probs[:, j - 1].cpu()
+                    log_marginal_probs_cpu[:, j] - log_marginal_probs_cpu[:, j - 1]
                 )
             # Check noise > \
             #     (p(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}) / q(x_{t+j}\mid x_{\leq t}, x_{t+1}, ..., x_{t+j-1}))
@@ -755,24 +764,22 @@ class MultiTokenLM(torch.nn.Module):
 
         # Retrieve the accepted tokens, plus the last one
         tokens = torch.cat([tokens[:, :num_accepted_tokens], last_token], dim=1)
+        num_generated_tokens = tokens.shape[1]  # num_accepted_tokens + 1
 
         # Update the KV cache, based on the number of tokens we have sampled previously
-        if past_num_tokens is not None:
-            draft_past_key_values = self.lm.lm_model.multi_byte_pred_update_cache(
-                draft_past_key_values,
-                torch.arange(past_num_tokens, device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0),
-                0,
-                past_num_tokens,
-            )
-            verifier_past_seen_tokens_increment = num_accepted_tokens + 1
-        else:
-            verifier_past_seen_tokens_increment = num_accepted_tokens
-        if verifier_past_seen_tokens_increment > 0:
+        if use_cache:
+            if past_num_tokens is not None:
+                draft_past_key_values = self.lm.lm_model.multi_byte_pred_update_cache(
+                    draft_past_key_values,
+                    torch.arange(past_num_tokens, device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0),
+                    0,
+                    past_num_tokens,
+                )
             verifier_past_key_values = self.lm.lm_model.multi_byte_pred_update_cache(
                 verifier_past_key_values,
                 torch.arange(self.circuit.n_token + 1, device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0),
                 0,
-                verifier_past_seen_tokens_increment,
+                num_generated_tokens,
             )
 
         return dict(
@@ -780,5 +787,5 @@ class MultiTokenLM(torch.nn.Module):
             draft_past_key_values=draft_past_key_values,
             verifier_past_key_values=verifier_past_key_values,
             head_past_key_values=head_past_key_values,
-            past_num_tokens=num_accepted_tokens + 1
+            past_num_tokens=num_generated_tokens
         )

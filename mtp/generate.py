@@ -174,7 +174,7 @@ def generate(
         raise ValueError("Unexpected device %s" % args.device)
 
     if print_generation:
-        print("Generation:\n\n", decode(x), "\n")
+        print("\nGeneration:\n", decode(x), "\n\n")
 
     return elapsed_time, num_tokens
 

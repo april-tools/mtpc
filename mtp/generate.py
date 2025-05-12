@@ -95,7 +95,7 @@ def generate(
     # Init model in case loading takes additional time - do not use this output
     if warmup:
         with ctx:
-            _ = model.generate(x, mode=args.mode, use_cache=False, draft_top_p=draft_top_p)
+            _ = model.generate(x, mode=args.mode, use_cache=False)
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
@@ -150,8 +150,7 @@ def generate(
                 outputs = model.generate(
                     x,
                     use_cache=args.use_cache,
-                    past_key_values=past_key_values,
-                    draft_top_p=draft_top_p,
+                    past_key_values=past_key_values
                 )
                 tokens = outputs["tokens"]
                 past_key_values = outputs["past_key_values"]

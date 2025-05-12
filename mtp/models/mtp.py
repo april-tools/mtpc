@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import Tensor, LongTensor
 
 from transformers.cache_utils import Cache
-from mtp.models.evabyte.eva_prep_kv_kernel import triton_eva_prep_kv_fwd
+from mtp.models.evabyte.multibyte_decoding_evabyte import multi_byte_pred_prepare_attn_mask
 from mtp.utils.sampling import truncate_logprobs_top_p, truncate_probs_top_p
 
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
@@ -384,42 +384,6 @@ class MultiTokenLM(torch.nn.Module):
 
         return losses
 
-    def _multi_byte_pred_prepare_attn_mask(
-        self,
-        past_seen_tokens: int,
-        last_new_tokens: int,
-        batch_size: int = 1,
-    ):
-        # NOTE: past_key_values has been updated so now
-        # seen_tokens incldues new tokens from the last tree iteration
-        assert past_seen_tokens > 0
-        # so one iteration would not cross two windows
-        assert last_new_tokens < self.lm.config.window_size
-        if past_seen_tokens < self.lm.config.window_size:
-            attn_mask = torch.ones(
-                (batch_size, 1, last_new_tokens, past_seen_tokens + last_new_tokens),
-                dtype=torch.bool,
-                device=self.lm.lm_model.device
-            )
-            attn_mask.tril_(past_seen_tokens)
-        else:
-            # we initialize attn mask each time when
-            # 1. the model crosses the window bounary, or
-            # 2. after prefilling
-            chunks_per_window = int(self.lm.config.window_size // self.lm.config.chunk_size)
-
-            window_tokens = past_seen_tokens % self.lm.config.window_size
-            num_windows_seen_so_far = past_seen_tokens // self.lm.config.window_size
-            attn_mask_len = num_windows_seen_so_far * chunks_per_window + window_tokens
-            attn_mask = torch.ones(
-                (batch_size, 1, last_new_tokens, attn_mask_len + last_new_tokens),
-                dtype=torch.bool,
-                device=self.lm.lm_model.device
-            )
-            attn_mask.tril_(attn_mask_len)
-
-        return attn_mask
-
     @torch.no_grad()
     def generate(
         self,
@@ -470,7 +434,7 @@ class MultiTokenLM(torch.nn.Module):
                 # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
                 #     to the number of tokens we sample each time
                 past_seen_tokens = past_key_values.get_seq_length()
-                attn_mask = self._multi_byte_pred_prepare_attn_mask(past_seen_tokens, self.circuit.n_token)
+                attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, self.circuit.n_token, device=inputs.device)
                 position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
@@ -595,7 +559,7 @@ class MultiTokenLM(torch.nn.Module):
                 # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
                 #     to the number of tokens we sample each time
                 past_seen_tokens = draft_past_key_values.get_seq_length()
-                attn_mask = self._multi_byte_pred_prepare_attn_mask(past_seen_tokens, past_num_tokens)
+                attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, past_num_tokens, device=inputs.device)
                 position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
@@ -636,7 +600,7 @@ class MultiTokenLM(torch.nn.Module):
         with self.lm.disable_adapter_if_any():
             if use_cache:
                 past_seen_tokens = verifier_past_key_values.get_seq_length()
-                verifier_attn_mask = self._multi_byte_pred_prepare_attn_mask(past_seen_tokens, gen_seq.shape[1] - past_seen_tokens)
+                verifier_attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, gen_seq.shape[1] - past_seen_tokens, device=gen_seq.device)
                 position_ids = torch.arange(past_seen_tokens, gen_seq.shape[1], device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     input_ids=gen_seq[:, past_seen_tokens:],

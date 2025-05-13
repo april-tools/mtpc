@@ -446,7 +446,7 @@ if __name__ == "__main__":
         ]
     stats["device"] = args.device
     stats["batch_size"] = BATCH_SIZE
-    stats["elapsed_time"] = elapsed_time
+    stats["elapsed_time"] = total_elapsed_time
     stats["tokens_per_second"] = tps
     stats["checkpoint"] = (
         "%s-%s@0" % (ckp.model.name, ckp.lm.name)

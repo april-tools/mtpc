@@ -26,6 +26,7 @@ class LM(nn.Module):
         ref_head: str = "lm_head",
         encoder_only: bool = True,
         freeze: bool = True,
+        **kwargs
     ):
         super().__init__()
 

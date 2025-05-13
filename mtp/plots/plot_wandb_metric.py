@@ -2,12 +2,10 @@ import numpy as np
 import argparse
 import wandb
 
+import matplotlib
 import matplotlib.pyplot as plt
 
 from mtp.plots.utils import setup_tueplots
-
-
-plt.rcParams['text.usetex'] = True
 
 
 def adapt_title(title):

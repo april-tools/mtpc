@@ -90,6 +90,8 @@ if __name__ == '__main__':
         hue="model_id",
         hue_order=hue_order
     )
+    for container in ax.containers:
+        ax.bar_label(container, fontsize=8, fmt='{:.1f}')
 
     ax.set_xlabel("")
     ax.set_ylabel("Throughput (tok/s)")
@@ -130,7 +132,7 @@ if __name__ == '__main__':
     setup_tueplots(1, 2, rel_width=1.5, hw_ratio=0.8, tight_layout=True)
     _, ax = plt.subplots(1, 2, sharey=True, squeeze=True)
 
-    titles = ["Speculative (sampling)", "Speculative (argmax)"]
+    titles = ["Speculative (sample)", "Speculative (argmax)"]
     filters = [{'draft_top_p': 1.0, 'target_top_p': 1.0}, {'draft_top_p': 0.0, 'target_top_p': 0.0}]
     for i, title in zip(range(len(ax)), titles):
         df_ = df.copy()

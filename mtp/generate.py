@@ -437,6 +437,7 @@ if __name__ == "__main__":
     stats["prompt_source"] = args.prompt_source
     stats["speculative"] = args.speculative
     stats["use_kv_cache"] = args.use_cache
+    stats["dequantize"] = args.dequantize
     stats["draft_top_p"] = args.draft_top_p
     stats["target_top_p"] = args.target_top_p
     if args.speculative:

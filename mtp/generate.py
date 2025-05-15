@@ -265,6 +265,12 @@ if __name__ == "__main__":
         "1. has no effect while 0. is equivalent to approximate argmax.",
     )
     parser.add_argument(
+        "--dequantize",
+        default=False,
+        action="store_true",
+        help="Whether to dequantize the model before measuring the throughput"
+    )
+    parser.add_argument(
         "--compile",
         default=False,
         action="store_true",
@@ -313,6 +319,9 @@ if __name__ == "__main__":
     if args.compile:
         model = torch.compile(model)
     model.eval()
+
+    if args.dequantize:
+        model.lm.dequantize()
 
     # Load the tokeniser once, if needed
     # Otherwise, load the vocabulary (shakespeare models)

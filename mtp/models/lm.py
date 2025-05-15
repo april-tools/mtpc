@@ -132,6 +132,12 @@ class LM(nn.Module):
         sd.update(overriden_state)
         return sd
 
+    def dequantize(self):
+        # Dequantize the LLM layers, if any
+        # This rewrites bitsandbytes Linear4bit into Linear layers
+        self._lm.dequantize()
+        # TODO: how to remove peft lora's Linear4bit layers as well? Is it needed?
+
     @property
     def config(self):
         return self.lm_model.config

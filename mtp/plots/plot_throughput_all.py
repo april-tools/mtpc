@@ -9,7 +9,7 @@ import seaborn as sb
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from mtp.plots.utils import setup_tueplots
+from mtp.plots.utils import PALETTE, setup_tueplots
 
 
 if __name__ == '__main__':
@@ -79,24 +79,28 @@ if __name__ == '__main__':
     df['model_id'] = df.apply(lambda r: row_model_id(r), axis=1)
 
     setup_tueplots(1, 1, rel_width=1.0, hw_ratio=0.65)
+    _, ax = plt.subplots(1, 1, sharey=True, squeeze=True)
 
     # Plot based on generation setting
 
     hue_order = ["STP", "FF", "CP (r=8)", "CP (r=32)"]
-    ax = sb.barplot(
+    sb.barplot(
         df,
         x="gen_setting",
         y="tokens_per_second",
         hue="model_id",
-        hue_order=hue_order
+        hue_order=hue_order,
+        ax=ax
     )
     for container in ax.containers:
         ax.bar_label(container, fontsize=8, fmt='{:.1f}')
 
-    ax.set_xlabel("")
-    ax.set_ylabel("Throughput (tok/s)")
+    ax.set_axisbelow(True)
     ax.grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
     ax.grid(linestyle="--", which="minor", alpha=0.4, linewidth=0.6)
+
+    ax.set_xlabel("")
+    ax.set_ylabel("Throughput (tok/s)")
     ax.legend(loc="upper left", bbox_to_anchor=(1, 1), alignment="left")
 
     filename = f"throughput-{args.id}.pdf" if args.id else "throughput.pdf"
@@ -144,6 +148,8 @@ if __name__ == '__main__':
                 ' '.join(miar.split(' ')[:2]) if 'CP' in miar else miar.split(' ')[0]
             )
         )
+        assert len(hue_order_acceptance_rate) < len(PALETTE)
+
         sb.barplot(
             df_,
             width=0.8,
@@ -151,8 +157,13 @@ if __name__ == '__main__':
             y="acceptance_probs",
             hue="model_id_acceptance_rate",
             hue_order=hue_order_acceptance_rate,
+            palette=PALETTE[1:len(hue_order_acceptance_rate) + 1],
             ax=ax[i]
         )
+
+        ax[i].set_axisbelow(True)
+        ax[i].grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
+        ax[i].grid(linestyle="--", which="minor", alpha=0.4, linewidth=0.6)
         ax[i].title.set_text(title)
 
         if i == 0:
@@ -160,8 +171,6 @@ if __name__ == '__main__':
         else:
             ax[i].set_ylabel("")
         ax[i].set_xlabel("Number of Draft Tokens")
-        ax[i].grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
-        ax[i].grid(linestyle="--", which="minor", alpha=0.4, linewidth=0.6)
         ax[i].legend()
 
     filename = f"throughput-acceptance-{args.id}.pdf" if args.id else "throughput-acceptance.pdf"

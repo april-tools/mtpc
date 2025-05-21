@@ -1,4 +1,3 @@
-import os
 import torch
 
 from torch import Tensor
@@ -10,11 +9,10 @@ from cirkit.utils.scope import Scope
 from cirkit.templates import utils, tensor_factorizations, pgms
 
 from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
-from mtp.models.circuit_layers import SamplingQuery, IntegrateQuery
+from mtp.models.circuit_queries import IntegrateQuery, SamplingQuery, ArgmaxQuery
 from mtp.models.circuit_layers import sanitize_input
 from mtp.utils.sampling import truncate_logprobs_top_p, truncate_probs_top_p
 
-# from cirkit.templates import tensor_factorizations, utils
 from .pipeline import setup_pipeline_context
 
 
@@ -134,9 +132,10 @@ class CircuitModel(torch.nn.Module):
         # We currently support only one folded categorical layer whose folds are sorted based on the token ids
         assert len(self._parameters_config.categorical_layers) == 1
 
-        # Initialize the sampler and the marginalizer objects
+        # Initialize the sampler, marginalizer and argmaxer objects
         self.sampler = SamplingQuery(self._circuit)
         self.marginalizer = IntegrateQuery(self._circuit)
+        self.argmaxer = ArgmaxQuery(self._circuit)
 
         # Cache some constants used in self-speculative decoding
         # Masks for marginalising all tokens after position t
@@ -167,7 +166,7 @@ class CircuitModel(torch.nn.Module):
         return self._circuit
 
     @property
-    def parameters_config(self) -> dict:
+    def parameters_config(self) -> ParametersConfig:
         return self._parameters_config
 
     def parameterize(self, parameters: dict, top_p: float = 1.):
@@ -323,5 +322,8 @@ class CircuitModel(torch.nn.Module):
         # H, BS, V if with_logits else H, BS
         return marginals
 
-    def sample(self, num_samples=1):
+    def sample(self, num_samples=1) -> Tensor:
         return self.sampler(num_samples=num_samples)
+
+    def argmax(self) -> Tensor:
+        return self.argmaxer()

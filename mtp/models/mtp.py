@@ -588,7 +588,7 @@ class MultiTokenLM(torch.nn.Module):
         # Sample the next H tokens
         # tokens: (B=1, H)
         if use_argmax:
-            tokens, _ = self.circuit.argmax()
+            tokens = self.circuit.argmax()
         else:
             tokens = self.circuit.sample(num_samples=1)
 

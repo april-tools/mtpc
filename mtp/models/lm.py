@@ -11,6 +11,7 @@ from transformers.cache_utils import Cache
 
 from mtp.utils.distributed import get_local_device
 from mtp.utils.checkpoint import Checkpoint
+from mtp.models.loss import IGNORE_TOKEN_ID
 
 
 class LM(nn.Module):
@@ -175,25 +176,33 @@ class LM(nn.Module):
 
     def forward(
         self,
-        xx: Tensor,
-        yy: Tensor | None = None,
+        input_ids: Tensor,
+        labels: Tensor | None = None,
+        attention_mask: Tensor | None = None,
         return_logits: bool = True,
     ) -> dict:
         assert (
             self.head is not None
         ), "The forward of GPT can only be called if encoder_only=False"
 
-        # forward the encoder
-        xx = self.encoder(xx)[
-            "last_hidden_state"
-        ]  # token embeddings of shape (b, t, n_embd)
+        if not (attention_mask is None or torch.all(attention_mask == 1)):
+            raise NotImplementedError('LM.forward cannot handle attention mask that is not all ones (i.e. variable-sized sequences)')
 
-        if yy is not None:
+
+        # forward the encoder
+        xx = self.encoder(input_ids=input_ids, attention_mask=attention_mask)[
+            "last_hidden_state"
+        ]
+        B, S, E = xx.shape
+
+        if labels is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.head_logits(xx)
             loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)), yy.view(-1), ignore_index=-1
+                logits.view(-1, logits.size(-1)), labels.view(-1), ignore_index=IGNORE_TOKEN_ID, reduction='none'
             )
+            # Average across sequence dimension and do not normalise along batch
+            loss = loss.view(B, S).mean(dim=1).sum()
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.head_logits(

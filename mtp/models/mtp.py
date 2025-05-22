@@ -375,11 +375,11 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl:
             if self.kl_algorithm == "full":
                 losses["kl_loss"] = compute_full_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type, mask=compute_valid_mask(yy)
+                    draft_log_probs, teacher_log_probs, self.kl_type, valid_mask=compute_valid_mask(yy)
                 )
             elif self.kl_algorithm == "binary_approx":
                 losses["kl_loss"] = compute_binary_approx_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type, mask=compute_valid_mask(yy)
+                    draft_log_probs, teacher_log_probs, self.kl_type, valid_mask=compute_valid_mask(yy)
                 )
             else:
                 raise ValueError("Unknown kl_algorithm = %s" % self.kl_algorithm)

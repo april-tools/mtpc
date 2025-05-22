@@ -180,7 +180,7 @@ class MultiTokenLM(torch.nn.Module):
                 logits = self.lm.head_logits(xxv)
 
                 # shape: B, S, V
-                teacher_log_probs = torch.log_softmax(logits, axis=-1)
+                teacher_log_probs = torch.log_softmax(logits, dim=-1)
 
                 _, S, V = teacher_log_probs.shape
                 assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'

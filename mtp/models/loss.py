@@ -86,11 +86,11 @@ def compute_full_kl(draft_log_probs: torch.Tensor,
     valid_kl_losses = torch.where(bc_valid_mask, kl_losses, 0.)
 
     # H, B
-    valid_kl_losses = valid_kl_losses.sum(axis=(2,3))
+    valid_kl_losses = valid_kl_losses.sum(dim=(2,3))
     # H, B
     num_valid_tokens = compute_num_valid_tokens(valid_mask, dim=2)
 
-    valid_kl_losses = (valid_kl_losses / num_valid_tokens).sum(axis=1)
+    valid_kl_losses = (valid_kl_losses / num_valid_tokens).sum(dim=1)
 
     return valid_kl_losses
 
@@ -153,9 +153,9 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
         kl = torch.exp(draft_log_probs) * (draft_log_probs - teacher_log_probs) + \
             torch.exp(rest_draft_log_probs) * (rest_draft_log_probs - rest_teacher_log_probs)
     if mask is None:
-        kl_losses = kl.mean(axis=-1)
+        kl_losses = kl.mean(dim=-1)
     else:
-        kl_losses = kl.sum(axis=-1) / compute_num_valid_tokens(mask)
+        kl_losses = kl.sum(dim=-1) / compute_num_valid_tokens(mask)
     return kl_losses
 
 
@@ -192,14 +192,14 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
         batch_loss_per_head = - draft_log_probs.sum(dim=2)
         # Cross-entropy with one-hot targets == negative log-likelihood
         # The circuit has only computed the log probs for the targets
-        ce_losses = (batch_loss_per_head / num_valid_tokens).sum(axis=1)
+        ce_losses = (batch_loss_per_head / num_valid_tokens).sum(dim=1)
     elif len(draft_log_probs.shape) == 4:
         # NOTE: log_probs are logits, but not vice-versa
         # we compute cross entropy across the S dimension
         # ce_losses is (H, B)  (because we apply cross ent on the two outer dims via vmap)
         ce_losses = torch.vmap(torch.vmap(F.cross_entropy))(draft_log_probs, yy, ignore_index=IGNORE_TOKEN_ID, reduction='mean')
         # Sum across the batch dimension
-        ce_losses = ce_losses.sum(axis=1)
+        ce_losses = ce_losses.sum(dim=1)
     else:
         raise ValueError('Expected draft_log_probs to be shape (H, B, S, [V]), got %r' % draft_log_probs.shape)
     assert ce_losses.shape == (H,)

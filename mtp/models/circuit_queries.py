@@ -256,7 +256,7 @@ class SamplingQuery(Query):
         samples = samples.permute(2, 0, 1, 3)
         # TODO: fix for the case of multi-output circuits, i.e., O != 1 or K != 1
         samples = samples[:, 0, 0]  # (num_samples, D)
-        return samples, mixture_samples
+        return samples
 
     def _layer_fn(
         self, layer: TorchLayer, *inputs: Tensor, num_samples: int, mixture_samples: list[Tensor]

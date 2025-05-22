@@ -11,9 +11,8 @@ from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 
 from .lm import LM
 
-from .circuits import CircuitModel
-from .loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy
-from .loss import compute_valid_mask, IGNORE_TOKEN_ID
+from mtp.models.circuits import CircuitModel
+from mtp.models.loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy, compute_valid_mask, IGNORE_TOKEN_ID
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -388,8 +387,8 @@ class MultiTokenLM(torch.nn.Module):
     def generate(
         self,
         inputs: Tensor,
-        use_argmax: bool = False,
         mode: str = 'mtp',
+        use_argmax: bool = False,
         use_cache: bool = False,
         attention_mask: Tensor = None,
         past_key_values: Cache = None,
@@ -397,11 +396,6 @@ class MultiTokenLM(torch.nn.Module):
         position_ids: Tensor = None,
         draft_top_p: float = 1.,
     ) -> dict:
-        if mode == 'mtp' and use_argmax:
-            raise ValueError('Only multi-token generation by sampling is supported')
-        if use_argmax and mode != 'stp':
-            raise ValueError('Argmax is only supported for single token prediction')
-
         assert attention_mask is None
         assert position_ids is None
 
@@ -453,7 +447,7 @@ class MultiTokenLM(torch.nn.Module):
                 )
         else:
             outputs = self.lm.encoder(input_ids=inputs, use_cache=False)
-            attn_mask = None
+
         # Parameterize the circuit
         xx = outputs['last_hidden_state']
         next_head_past_key_values = self._parameterize_circuit(
@@ -471,8 +465,11 @@ class MultiTokenLM(torch.nn.Module):
             head_past_key_values = next_head_past_key_values
 
         if mode == "mtp":
-            # Sample the next tokens
-            tokens, _ = self.circuit.sample(num_samples=1)
+            # Sample or argmax the next tokens
+            if use_argmax:
+                tokens = self.circuit.argmax()
+            else:
+                tokens = self.circuit.sample(num_samples=1)
         elif mode == "stp":
             next_token_probs = torch.exp(self.compute_next_token_log_probs())
             if use_argmax:
@@ -494,6 +491,7 @@ class MultiTokenLM(torch.nn.Module):
         self,
         inputs: Tensor,
         use_cache: bool = False,
+        use_argmax: bool = False,
         attention_mask: Tensor = None,
         draft_past_key_values: Cache = None,
         verifier_past_key_values: Cache = None,
@@ -502,7 +500,7 @@ class MultiTokenLM(torch.nn.Module):
         past_num_tokens: int = None,
         draft_top_p: float = 1.,
         target_top_p: float = 1.,
-    ) -> Tensor:
+    ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
                 "Multi-batch self-speculative decoding not implemented yet"
@@ -589,7 +587,10 @@ class MultiTokenLM(torch.nn.Module):
 
         # Sample the next H tokens
         # tokens: (B=1, H)
-        tokens, _ = self.circuit.sample(num_samples=1)
+        if use_argmax:
+            tokens, _ = self.circuit.argmax()
+        else:
+            tokens = self.circuit.sample(num_samples=1)
 
         # Concatenate the tokens with the current sequence,
         # which gives the candidate next sequence

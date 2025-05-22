@@ -121,6 +121,7 @@ def generate(
                 outputs = model.self_speculative_generate(
                     x,
                     use_cache=args.use_cache,
+                    use_argmax=args.argmax,
                     draft_past_key_values=past_key_values,
                     verifier_past_key_values=verifier_past_key_values,
                     head_past_key_values=head_past_key_values,
@@ -137,6 +138,7 @@ def generate(
                 outputs = model.generate(
                     x,
                     mode="mtp",
+                    use_argmax=args.argmax,
                     use_cache=args.use_cache,
                     past_key_values=past_key_values,
                     head_past_key_values=head_past_key_values,
@@ -269,6 +271,12 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Whether to dequantize the model before measuring the throughput"
+    )
+    parser.add_argument(
+        "--argmax",
+        default=False,
+        action="store_true",
+        help="Whether to use argmax to get samples from the circuit or the STP model"
     )
     parser.add_argument(
         "--compile",
@@ -438,6 +446,7 @@ if __name__ == "__main__":
     stats["speculative"] = args.speculative
     stats["use_kv_cache"] = args.use_cache
     stats["dequantize"] = args.dequantize
+    stats["argmax"] = args.argmax
     stats["draft_top_p"] = args.draft_top_p
     stats["target_top_p"] = args.target_top_p
     if args.speculative:

@@ -27,7 +27,7 @@ class DistributedDataLoader:
         obj = None
         for pattern, constructor in cl._resolvers.items():
             if re.match(pattern, dataset, re.DOTALL):
-                if isinstance(constructor, LocalDistributedDataLoader):
+                if constructor is LocalDistributedDataLoader:
                     assert (
                         as_iterable is True
                     ), "Only iterable supported for LocalDataLoader"

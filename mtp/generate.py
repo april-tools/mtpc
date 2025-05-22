@@ -151,8 +151,9 @@ def generate(
             x = torch.cat([x, tokens], dim=1)
             num_tokens.append(tokens.shape[1])
             pbar.update(tokens.shape[1])
-            if torch.any(tokens == tokeniser.eos_token_id):
-                break
+            if tokeniser is not None:
+                if torch.any(tokens == tokeniser.eos_token_id):
+                    break
 
     if args.device == "cpu":
         end_time = time.perf_counter()

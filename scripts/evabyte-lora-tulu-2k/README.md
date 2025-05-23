@@ -22,4 +22,4 @@ After evaluating on 250 prompts, performance on tulu-train and tulu-valid are no
 
 * Tulu-train vs Tulu-valid: no diff
 * For vanilla speculative decoding, we are improving mean acceptance rate 5. -> 5.3.
-* For greedy speculative decoding, we cannot beat argmax decoding from the indep model; the indep model is really good!
+* For greedy speculative decoding, we cannot beat argmax decoding from the indep model; the indep model is really good (~7 mean acceptance rate).

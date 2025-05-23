@@ -21,27 +21,28 @@ def compute_num_valid_tokens(mask: torch.Tensor, dim=None):
 def compute_full_kl(draft_log_probs: torch.Tensor,
                     teacher_log_probs: torch.Tensor,
                     kl_type: str,
-                    mask: torch.Tensor | None = None) -> torch.Tensor:
+                    valid_mask: torch.Tensor | None = None) -> torch.Tensor:
     """
     Computes the Kullback–Leibler (KL) divergence between two distributions.
 
     Args:
         draft_log_probs (torch.Tensor): Log probabilities from the draft model,
-        shape (H, BS, V), where:
+        shape (H, B, S, V), where:
             H: is the # of tokens in the MTP window
-            BS: is the seq len * batch size (collapsed)
+            B: is the batch size
+            S: is the seq len
             V: is the vocabulary size
         teacher_log_probs (torch.Tensor): Log probabilities from the
-        teacher model, shape (H, BS, V).
+        teacher model, shape (H, B, S, V).
         kl_type (str): Specifies the type of KL divergence to compute
         ('forward' or 'reverse').
-        mask (torch.Tensor): A boolean mask specifying whether each output should
-        be predicted or not (affects mean loss computation), shape (H, BS)
+        valid_mask (torch.Tensor): A boolean mask specifying whether each output should
+        be predicted or not (affects mean loss computation), shape (H, B, S)
 
     Returns:
         kl_losses (torch.Tensor of shape H): KL divergence loss computed
         for each of the H positions in the MTP window. The value for each
-        position is the average across the sequence and batch dimension
+        position is the average across the valid sequence and batch dimension
         (not vocab).
 
     Raises:
@@ -53,48 +54,45 @@ def compute_full_kl(draft_log_probs: torch.Tensor,
         The forward KL divergence is computed as D_{KL}(P || Q) and the reverse
         as D_{KL}(Q || P).
     """
-    raise NotImplementedError('For KL, need to deal with new dimensions')
     assert draft_log_probs.shape == teacher_log_probs.shape
     assert kl_type in ('forward', 'reverse')
-    H, BS, V = draft_log_probs.shape
-    assert mask is None or mask.shape == (BS, H)
+    H, B, S, V = draft_log_probs.shape
+    assert valid_mask is None or valid_mask.shape == (H, B, S)
 
-    kl_losses = torch.zeros(H, device=teacher_log_probs.device)
-    for h in range(H):
-        if kl_type == 'forward':
-            # We want to compute KL(target_model || draft_model)
-            # For usual order: input, target, pt computes forward KL.
-            # target = torch.softmax(torch.randn(3, 5), dim=-1)
-            # draft = torch.softmax(torch.randn(3, 5), dim=-1)
-            # kl_f = (target * torch.log(target / draft)).sum(axis=1).mean()
-            # # NOTE: the flip in order arguments for pt below
-            # kl_f_pt = F.kl_div(torch.log(draft), torch.log(target), log_target=True, reduction='batchmean')
-            # assert torch.allclose(kl_f, kl_f_pt)
-            # So we do draft, target order for forward KL:
-            if mask is None:
-                kl_losses[h] = F.kl_div(draft_log_probs[h],
-                                        teacher_log_probs[h],
-                                        log_target=True,
-                                        reduction='batchmean')
-            else:
-                kl_losses[h] = F.kl_div(draft_log_probs[h],
-                                        teacher_log_probs[h],
-                                        log_target=True,
-                                        reduction='sum')
-                kl_losses[h] /= compute_num_valid_tokens(mask[:, h])
-        else:
-            if mask is None:
-                kl_losses[h] = F.kl_div(teacher_log_probs[h],
-                                        draft_log_probs[h],
-                                        log_target=True,
-                                        reduction='batchmean')
-            else:
-                kl_losses[h] = F.kl_div(teacher_log_probs[h],
-                                        draft_log_probs[h],
-                                        log_target=True,
-                                        reduction='sum')
-                kl_losses[h] /= compute_num_valid_tokens(mask[:, h])
-    return kl_losses
+    if valid_mask is None:
+        valid_mask = torch.ones((H, B, S), dtype=torch.bool)
+
+    # Broadcast valid mask to V dim (cannot have subset of vocab be invalid)
+    bc_valid_mask = valid_mask.unsqueeze(-1).broadcast_to(H, B, S, V)
+            
+    if kl_type == 'forward':
+        # We want to compute KL(p || q) = sum_k p_k log p_k/q_k
+        # where p = teacher and q = draft
+        # The above is written kl_div(q, p) for the pt function
+        # We use reduction=none as we need to deal with valid tokens
+        # so we aggregate later
+        kl_losses = F.kl_div(draft_log_probs,
+                             teacher_log_probs,
+                             log_target=True,
+                             reduction='none')
+    else:
+        kl_losses = F.kl_div(teacher_log_probs,
+                             draft_log_probs,
+                             log_target=True,
+                             reduction='none')
+
+    # Replace invalid kl losses with 0. so they do not affect sum
+    # H, B, S, V
+    valid_kl_losses = torch.where(bc_valid_mask, kl_losses, 0.)
+
+    # H, B
+    valid_kl_losses = valid_kl_losses.sum(dim=(2,3))
+    # H, B
+    num_valid_tokens = compute_num_valid_tokens(valid_mask, dim=2)
+
+    valid_kl_losses = (valid_kl_losses / num_valid_tokens).sum(dim=1)
+
+    return valid_kl_losses
 
 
 def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
@@ -155,9 +153,9 @@ def compute_binary_approx_kl(draft_log_probs: torch.Tensor,
         kl = torch.exp(draft_log_probs) * (draft_log_probs - teacher_log_probs) + \
             torch.exp(rest_draft_log_probs) * (rest_draft_log_probs - rest_teacher_log_probs)
     if mask is None:
-        kl_losses = kl.mean(axis=-1)
+        kl_losses = kl.mean(dim=-1)
     else:
-        kl_losses = kl.sum(axis=-1) / compute_num_valid_tokens(mask)
+        kl_losses = kl.sum(dim=-1) / compute_num_valid_tokens(mask)
     return kl_losses
 
 
@@ -194,14 +192,14 @@ def compute_cross_entropy(draft_log_probs: torch.Tensor,
         batch_loss_per_head = - draft_log_probs.sum(dim=2)
         # Cross-entropy with one-hot targets == negative log-likelihood
         # The circuit has only computed the log probs for the targets
-        ce_losses = (batch_loss_per_head / num_valid_tokens).sum(axis=1)
+        ce_losses = (batch_loss_per_head / num_valid_tokens).sum(dim=1)
     elif len(draft_log_probs.shape) == 4:
         # NOTE: log_probs are logits, but not vice-versa
         # we compute cross entropy across the S dimension
         # ce_losses is (H, B)  (because we apply cross ent on the two outer dims via vmap)
         ce_losses = torch.vmap(torch.vmap(F.cross_entropy))(draft_log_probs, yy, ignore_index=IGNORE_TOKEN_ID, reduction='mean')
         # Sum across the batch dimension
-        ce_losses = ce_losses.sum(axis=1)
+        ce_losses = ce_losses.sum(dim=1)
     else:
         raise ValueError('Expected draft_log_probs to be shape (H, B, S, [V]), got %r' % draft_log_probs.shape)
     assert ce_losses.shape == (H,)

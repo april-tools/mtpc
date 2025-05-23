@@ -21,11 +21,12 @@ class SingleTokenLM(torch.nn.Module):
 
     def forward(
         self,
-        xx: torch.Tensor,  # (B, S) input ids
-        yy: torch.Tensor,  # (B, S) target ids
+        input_ids: torch.Tensor,  # (B, S) input ids
+        labels: torch.Tensor,  # (B, S) target ids
+        attention_mask: torch.Tensor | None,  # (B, S) target ids
         return_logits: bool = False,
     ) -> dict:
-        return self.lm(xx=xx, yy=yy, return_logits=return_logits)
+        return self.lm(input_ids=input_ids, labels=labels, attention_mask=attention_mask, return_logits=return_logits)
 
     @torch.no_grad()
     def generate(

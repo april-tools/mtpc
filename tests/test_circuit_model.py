@@ -50,7 +50,7 @@ def test_circuit_marginalisation_with_logits(circuit: CircuitModel):
     # Assert entries we get without all logits agree with all logits case
     assert torch.allclose(log_probs_all[torch.arange(BATCH_SIZE), v_idxs], log_probs)
     # Assert we are getting prob distributions
-    assert torch.allclose(torch.exp(log_probs_all).sum(axis=1), torch.ones(BATCH_SIZE))
+    assert torch.allclose(torch.exp(log_probs_all).sum(dim=1), torch.ones(BATCH_SIZE))
 
 
 def test_circuit_conditionals_mask_batch(circuit: CircuitModel):

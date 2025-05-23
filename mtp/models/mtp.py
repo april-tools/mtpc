@@ -631,16 +631,28 @@ class MultiTokenLM(torch.nn.Module):
         # q(x_{t+1}, ..., x_{t+n} \mid x_{\leq t})
         #
         # log_marginal_probs: (H, 1, 1) -> (B=1, H, 1)
-        log_marginal_probs = self.circuit.marginalizer(
-            tokens.expand(size=(tokens.shape[1], -1)),
-            integrate_vars=self.circuit._autoregressive_mar_mask,
-        )
-        log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
-        log_marginal_probs_cpu = log_marginal_probs.cpu()  # Move to the CPU as it will be slightly faster due to non-vectorizable code below
+        if use_argmax:
+            log_marginal_probs = torch.zeros(size=(tokens.shape[0], tokens.shape[1], 1), dtype=logits.dtype, device=logits.device)
+        else:
+            log_marginal_probs = self.circuit.marginalizer(
+                tokens.expand(size=(tokens.shape[1], -1)),
+                integrate_vars=self.circuit._autoregressive_mar_mask,
+            )
+            log_marginal_probs = log_marginal_probs.squeeze(dim=1).unsqueeze(dim=0)
         #
         # Sample H uniform noise values in [0,1), and take their log
         # log_noise: (B=1, H)
         log_noise = torch.log(torch.rand(size=(tokens.shape[0], tokens.shape[1])))
+        #
+        # Compute target model token probabilities
+        # lm_next_token_log_probs: (B, H + 1, V)
+        lm_next_token_log_probs = torch.log_softmax(logits, dim=2)
+        if target_top_p < 1.0:
+            lm_next_token_log_probs = truncate_logprobs_top_p(lm_next_token_log_probs, p=target_top_p)
+        # lm_next_token_log_probs_cpu: (B, H, 1)
+        lm_next_token_log_probs_cpu = torch.gather(lm_next_token_log_probs[:, :-1], dim=2, index=tokens.unsqueeze(dim=-1)).cpu()
+        # log_marginal_probs_cpu: (B, H, 1)
+        log_marginal_probs_cpu = log_marginal_probs.cpu()  # Move to the CPU as it will be slightly faster due to non-vectorizable code below
         #
         # Compute the number of tokens to accept
         num_accepted_tokens = 0
@@ -649,13 +661,8 @@ class MultiTokenLM(torch.nn.Module):
             # i.e., we should stop accepting tokens
             # In the log space, this becomes log noise > difference of some log probabilities,
             # which avoids many floating point divisions and is more numerically stable
-            lm_next_token_log_probs = torch.log_softmax(logits[:, j], dim=1)
-            if target_top_p < 1.:
-                lm_next_token_log_probs = truncate_logprobs_top_p(lm_next_token_log_probs, p=target_top_p)
             # lm_jth_token_log_prob: (B, 1)
-            lm_jth_token_log_prob = torch.gather(
-                lm_next_token_log_probs, dim=1, index=tokens[:, [j]]
-            ).cpu()
+            lm_jth_token_log_prob = lm_next_token_log_probs_cpu[:, j]
             # Compute log conditional probabilities, conditioned on the context
             if j == 0:
                 # q(x_{t+1}\mid x_{\leq t})
@@ -677,18 +684,14 @@ class MultiTokenLM(torch.nn.Module):
         if num_accepted_tokens == tokens.shape[1]:
             # We are so lucky! We accept all the H tokens
             # Let's index the probabilities to sample the H+1-th one
-            lm_last_probs = torch.softmax(logits[:, -1], dim=1)
-            if target_top_p < 1.:
-                lm_last_probs = truncate_probs_top_p(lm_last_probs, p=target_top_p)
+            lm_last_probs = torch.exp(lm_next_token_log_probs[:, -1])
             # Sample the last token
             last_token = torch.multinomial(lm_last_probs, num_samples=1)
         else:  # num_accepted_tokens < tokens.shape[1]
             # We accepted H' < H tokens
             # Let's adjust the probabilities to sample the H'+1-th one
             # lm_last_probs: (B, V)
-            lm_last_probs = torch.softmax(logits[:, num_accepted_tokens], dim=1)
-            if target_top_p < 1.:
-                lm_last_probs = truncate_probs_top_p(lm_last_probs, p=target_top_p)
+            lm_last_probs = torch.exp(lm_next_token_log_probs[:, num_accepted_tokens])
             # Let j be the number of accepted tokens, then
             # max(0, p(x_{t+j+1}\mid x_{\leq t+j}) - q(x_{t+j+1}\mid x_{\leq t+j}))
             # under the consideration that

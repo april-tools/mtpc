@@ -27,7 +27,7 @@ class DistributedDataLoader:
         obj = None
         for pattern, constructor in cl._resolvers.items():
             if re.match(pattern, dataset, re.DOTALL):
-                if isinstance(constructor, LocalDistributedDataLoader):
+                if constructor is LocalDistributedDataLoader:
                     assert (
                         as_iterable is True
                     ), "Only iterable supported for LocalDataLoader"
@@ -73,4 +73,4 @@ class DistributedDataLoader:
 DistributedDataLoader.register(".+\.bin", LocalDistributedDataLoader)
 DistributedDataLoader.register("Aeala/ShareGPT_Vicuna_unfiltered", ShareGPTDataLoader)
 DistributedDataLoader.register("allenai/tulu-3-sft-mixture", TuluDataLoader)
-DistributedDataLoader.register("agrv/tulu-v3-sft-evabyte-seq-len-8196", EvaByteTuluDataLoader)
+DistributedDataLoader.register("agrv/tulu-v3-sft-evabyte-seq-len-8192", EvaByteTuluDataLoader)

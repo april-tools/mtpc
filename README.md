@@ -266,7 +266,7 @@ python mtp/plots/plot_wandb_metric.py --run-ids pd39py1e c8o44gf0 384rukjw --tra
 ```
 
 
-# Old Sections (beloew needs revision)
+# Old Sections (below needs revision)
 
 
 ## Shakespeare Char-Level Model

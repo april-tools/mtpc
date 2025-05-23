@@ -172,7 +172,6 @@ class MultiTokenLM(torch.nn.Module):
         # 2) Compute teacher log probs.
         #  teacher_log_probs: shape (B * S, H, V)
         if self.compute_kl:
-            raise NotImplementedError('For KL we need to revisit code below after padding')
             with torch.no_grad(), self.lm.disable_adapter_if_any():
                 if self.lm.has_adapter:
                     xxv = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask)['last_hidden_state']
@@ -182,24 +181,30 @@ class MultiTokenLM(torch.nn.Module):
                 logits = self.lm.head_logits(xxv)
 
                 # shape: B, S, V
-                teacher_log_probs = torch.log_softmax(logits, axis=-1)
+                teacher_log_probs = torch.log_softmax(logits, dim=-1)
 
                 _, S, V = teacher_log_probs.shape
                 assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
 
+                # Pad the teacher_log_probs on the right along the sequence length
+                # such that when we unfold we still get S windows to predict
+                # We pad with -inf to make sure we notice if we are using invalid tokens (kl would be inf or nan)
+                # shape: B, S+, V   (pad starts from last dim and moves forward in pairs)
+                teacher_log_probs = F.pad(teacher_log_probs, (0, 0, 0, H - 1), mode='constant', value=-torch.inf)
+
                 if self.kl_algorithm == "binary_approx":
                     # We only need the log probs for the target category
-                    # shape: B, S, 1
+                    # shape: B, S+, 1
                     teacher_log_probs = torch.gather(
                         teacher_log_probs, dim=-1, index=labels.unsqueeze(-1)
                     )
                 # Make teacher_log_probs windowed for kl with circuit logprobs
                 # TODO: Since we are using a for loop in the KL computation
-                # shape: B, S', V, H
+                # shape: B, S, V, H
                 teacher_log_probs = teacher_log_probs.unfold(
                     dimension=1, size=H, step=1
                 )
-                # shape: H, B, S', V
+                # shape: H, B, S, V
                 teacher_log_probs = teacher_log_probs.permute(3, 0, 1, 2)
                 # If V=1 because of binary approx, remove the dim
                 teacher_log_probs = teacher_log_probs.squeeze(-1)
@@ -236,13 +241,13 @@ class MultiTokenLM(torch.nn.Module):
 
         # 6) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == "full":
-            # shape: H, B * S, V   We need the full conditional distributions
+            # shape: H, B, S, V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(
                 yy=yy, marg_mask=marg_mask, with_logits=True
             )
             log_probs = log_probs.view(H, B, -1, V)
         else:
-            # shape: H, B * S  We need conditional distributions for yy only
+            # shape: H, B, S  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(
                 yy=yy, marg_mask=marg_mask, with_logits=False
             )
@@ -371,11 +376,11 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl:
             if self.kl_algorithm == "full":
                 losses["kl_loss"] = compute_full_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type, mask=compute_valid_mask(yy)
+                    draft_log_probs, teacher_log_probs, self.kl_type, valid_mask=compute_valid_mask(yy)
                 )
             elif self.kl_algorithm == "binary_approx":
                 losses["kl_loss"] = compute_binary_approx_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type, mask=compute_valid_mask(yy)
+                    draft_log_probs, teacher_log_probs, self.kl_type, valid_mask=compute_valid_mask(yy)
                 )
             else:
                 raise ValueError("Unknown kl_algorithm = %s" % self.kl_algorithm)

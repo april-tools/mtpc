@@ -12,7 +12,7 @@ def setup_tueplots(
     ncols: int,
     rel_width: float = 1.0,
     hw_ratio: float | None = None,
-    default_smaller: int = -2,
+    default_smaller: int = -6,
     use_tex: bool = False,
     tight_layout=False,
     constrained_layout=False,

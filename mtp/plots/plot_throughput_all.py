@@ -28,6 +28,8 @@ if __name__ == '__main__':
     with open(args.results, 'r') as f:
         for line in f:
             r = json.loads(line)
+            if 'argmax' not in r:
+                r['argmax'] = False
             if r['speculative'] and '@2000' not in r['checkpoint']:
                 continue
             entries.append(r)
@@ -38,10 +40,10 @@ if __name__ == '__main__':
 
     if 'argmax' in df.columns:
         if args.argmax:
-            df['argmax'] = df['argmax'].fillna(False)
             df = df[(df['argmax'] == True) | ((df['draft_top_p'] == 1.0) & (df['target_top_p'] == 1.0))]
         else:
             df = df[df['argmax'] == False]
+        df = df.reset_index()
 
     def row_gen_setting(r: pd.Series) -> str:
         gen_setting = ''

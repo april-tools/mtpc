@@ -118,17 +118,26 @@ def generate(
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
             if args.speculative:
-                outputs = model.self_speculative_generate(
-                    x,
-                    use_cache=args.use_cache,
-                    use_argmax=args.argmax,
-                    draft_past_key_values=past_key_values,
-                    verifier_past_key_values=verifier_past_key_values,
-                    head_past_key_values=head_past_key_values,
-                    past_num_tokens=past_num_tokens,
-                    draft_top_p=draft_top_p,
-                    target_top_p=target_top_p,
-                )
+                if args.argmax:
+                    outputs = model.self_speculative_generate_argmax(
+                        x,
+                        use_cache=args.use_cache,
+                        draft_past_key_values=past_key_values,
+                        verifier_past_key_values=verifier_past_key_values,
+                        head_past_key_values=head_past_key_values,
+                        past_num_tokens=past_num_tokens,
+                    )
+                else:
+                    outputs = model.self_speculative_generate(
+                        x,
+                        use_cache=args.use_cache,
+                        draft_past_key_values=past_key_values,
+                        verifier_past_key_values=verifier_past_key_values,
+                        head_past_key_values=head_past_key_values,
+                        past_num_tokens=past_num_tokens,
+                        draft_top_p=draft_top_p,
+                        target_top_p=target_top_p,
+                    )
                 tokens = outputs['tokens']
                 past_key_values = outputs['draft_past_key_values']
                 verifier_past_key_values = outputs['verifier_past_key_values']

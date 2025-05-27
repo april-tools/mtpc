@@ -139,21 +139,72 @@ def test_padding_does_not_affect_loss():
     assert torch.allclose(loss_a, loss_b)
 
 
-# TODO: Add below back when we correct the ordering
-# def test_zero_kl():
-#
-#     pp = torch.tensor([[.1, .7, .2],
-#                        [.4, .5, .1]])
-#     tt = torch.log(pp).reshape(1, -1, 3)
-#     dd = torch.log(pp).reshape(1, -1, 3)
-#
-#     fkl = compute_full_kl(tt, dd, 'forward')
-#     assert torch.allclose(fkl, torch.zeros(1))
-#
-#     rkl = compute_full_kl(tt, dd, 'reverse')
-#     assert torch.allclose(rkl, torch.zeros(1))
-#
-#
+def test_zero_kl():
+
+    pp = torch.tensor([[.1, .7, .2],
+                       [.4, .5, .1]])
+    tt = torch.log(pp).reshape(1, 1, -1, 3)
+    dd = torch.log(pp).reshape(1, 1, -1, 3)
+
+    fkl = compute_full_kl(tt, dd, 'forward')
+    assert torch.allclose(fkl, torch.zeros(1))
+
+    rkl = compute_full_kl(tt, dd, 'reverse')
+    assert torch.allclose(rkl, torch.zeros(1))
+
+
+def test_one_hot_kl_equals_ce():
+
+    H, B, S, V = 5, 8, 3, 5
+    ll = torch.log_softmax(torch.randn(H, B, S, V), dim=-1)
+    # NOTE: While in theory using -inf should work
+    # kl_div returns nan - so just use a large neg number
+    tt = torch.full_like(ll, -10000)
+    idxs = torch.randint(0, V, (H, B, S, 1))
+    tt = torch.scatter(tt, -1, idxs, 0.)
+
+    fkl = compute_full_kl(ll, tt, 'forward')
+    ce = compute_cross_entropy(ll, idxs.squeeze(-1))
+    assert torch.allclose(fkl, ce)
+
+
+def test_one_hot_kl_equals_ce_just_target_logprobs():
+
+    H, B, S, V = 5, 8, 3, 5
+    ll = torch.log_softmax(torch.randn(H, B, S, V), dim=-1)
+    # NOTE: While in theory using -inf should work
+    # kl_div returns nan - so just use a large neg number
+    tt = torch.full_like(ll, -10000)
+    idxs = torch.randint(0, V, (H, B, S, 1))
+    tt = torch.scatter(tt, -1, idxs, 0.)
+
+    fkl = compute_full_kl(ll, tt, 'forward')
+    target_ll = torch.gather(ll, -1, idxs).squeeze(-1)
+    ce = compute_cross_entropy(target_ll, idxs.squeeze(-1))
+    assert torch.allclose(fkl, ce)
+
+
+def test_one_hot_kl_equals_ce_with_mask():
+
+    H, B, S, V = 5, 8, 3, 5
+
+    ll = torch.log_softmax(torch.randn(H, B, S, V), dim=-1)
+    # NOTE: While in theory using -inf should work
+    # kl_div returns nan - so just use a large neg number
+    tt = torch.full_like(ll, -10000)
+    idxs = torch.randint(0, V, (H, B, S, 1))
+    tt = torch.scatter(tt, -1, idxs, 0.)
+
+    valid_mask = torch.randn(5, 8, 3) > -1.
+    idxs = torch.where(valid_mask.unsqueeze(-1), idxs, IGNORE_TOKEN_ID)
+
+    print(idxs)
+    fkl = compute_full_kl(ll, tt, 'forward', valid_mask=valid_mask)
+    ce = compute_cross_entropy(ll, idxs.squeeze(-1))
+    assert torch.allclose(fkl, ce)
+
+
+# TODO: Uncomment below when we fix approx KL
 # def test_binary_zero_not_nan():
 #
 #     tt = torch.tensor([0., -torch.inf]).reshape(2, 1)

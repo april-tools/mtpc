@@ -31,5 +31,5 @@ if __name__ == "__main__":
         "valid": valid_dataset
     })
 
-    dataset_dict.push_to_hub("agrv/tulu-v3-sft-evabyte-seq-len-8196", token=os.environ['HF_TOKEN'])
+    dataset_dict.push_to_hub("agrv/tulu-v3-sft-evabyte-seq-len-8192", token=os.environ['HF_TOKEN'])
     dataset_dict.cleanup_cache_files()

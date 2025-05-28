@@ -367,7 +367,7 @@ if __name__ == "__main__":
             split = args.prompt_source.split("-")[-1]
             assert split in ("train", "valid")
             dl = DistributedDataLoader.resolve(
-                "agrv/tulu-v3-sft-evabyte-seq-len-8196",
+                "agrv/tulu-v3-sft-evabyte-seq-len-8192",
                 "EvaByte/EvaByte",
                 1,
                 8192,

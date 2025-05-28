@@ -8,6 +8,30 @@ from omegaconf import OmegaConf
 from mtp.utils.distributed import get_local_device
 
 
+def load_model_with_overrides(checkpoint, config_overrides):
+    if checkpoint is None:
+        # If we have no checkpoint, use a randomly initialised model
+        with hydra.initialize_config_dir(
+            version_base=None,
+            config_dir=os.path.join(os.environ["MTP_ROOT"], "configs"),
+        ):
+            cfg = hydra.compose(config_name="config", overrides=config_overrides)
+        model = hydra.utils.instantiate(cfg.model).model
+    else:
+        # Else, override the config and load the model
+        ckp = Checkpoint.load(checkpoint)
+        # Use Hydra to load saved config, so that we can override
+        with hydra.initialize_config_dir(
+            version_base=None,
+            config_dir=ckp.folder,
+        ):
+            cfg = hydra.compose(config_name="config", overrides=config_overrides)
+        model = hydra.utils.instantiate(cfg.model).model
+        # Restore the checkpoint
+        ckp.restore(model=model)
+    return model, cfg
+
+
 def maskcwd(func):
     # https://github.com/omry/omegaconf/blob/117f7de07285e4d1324b9229eaf873de15279457/omegaconf/omegaconf.py#L184
     # Omegaconf uses abspath everywhere, which when combined with hydra's
@@ -33,7 +57,7 @@ class Checkpoint(object):
         super().__init__()
         self.folder = folder
         self.config = config
-        assert global_step >= 0
+        assert global_step >= 0 or global_step is None
         self.global_step = global_step
         self.configpath = os.path.join(self.folder, "config.yaml")
         self.expname = self.config.expname
@@ -71,16 +95,18 @@ class Checkpoint(object):
                 raise ValueError('Found unexpected missing keys when loading: %s' % unexpected)
 
     @maskcwd
-    def save(self, global_step=0, model=None, optimizer=None, scheduler=None):
-        assert global_step >= 0
-        # Advance global_step
-        self.global_step = global_step
-        if global_step == 0 and model is None:
+    def save(self, global_step=None, model=None, optimizer=None, scheduler=None):
+        if global_step is None:
+            assert model is None
             # We haven't begun training, just serialise the config file
             with open(self.configpath, "w") as f:
                 OmegaConf.save(self.config, f)
         else:
             assert model is not None
+            assert global_step >= 0
+            # Advance global_step
+            self.global_step = global_step
+
             model_state_dict = model.state_dict()
             optimizer_state_dict = (
                 None if optimizer is None else optimizer.state_dict()
@@ -111,6 +137,7 @@ class Checkpoint(object):
 
     @property
     def modelpath(self):
+        assert self.global_step >= 0
         modelpath = os.path.join(
             self.folder, "model@%d.pt" % self.global_step
         )
@@ -139,19 +166,21 @@ class Checkpoint(object):
         # If we pass a .pt file, load a specific checkpoint
         if filepath.endswith(".pt"):
             modelname = os.path.basename(filepath)
-            match = re.match(r"model@(?P<global_step>\d+).pt", modelname)
-            if match is None:
+            rmatch = re.match(r"model@(?P<global_step>\d+).pt", modelname)
+            if rmatch is None:
                 raise ValueError(
                     "Could not extract global_step from modelname"
                 )
-            global_step = int(match.group("global_step"))
+            global_step = int(rmatch.group("global_step"))
+            assert global_step >= 0
 
             configname = os.path.join(folder, "config.yaml")
             config = OmegaConf.load(configname)
         # If we pass the config path, just load the config.
         elif filepath.endswith(".yaml"):
             config = OmegaConf.load(filepath)
-            global_step = 0
+            # We have not started training yet
+            global_step = None
         else:
             raise ValueError("Invalid checkpoint/config file: %s" % filepath)
         return cls(folder=folder, config=config, global_step=global_step)

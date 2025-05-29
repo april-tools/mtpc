@@ -757,6 +757,7 @@ class MultiTokenLM(torch.nn.Module):
         )
 
     # TODO: Refactor to bring for-loop into function as per Edoardo's comment
+    @torch.no_grad()
     def self_speculative_generate_argmax(
         self,
         inputs: Tensor,
@@ -856,7 +857,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # (approximate) Argmax the next H tokens
         # tokens: (B=1, H)
-        tokens = self.circuit.argmax(num_samples=1)
+        tokens = self.circuit.argmax()
 
         # Concatenate the tokens with the current sequence,
         # which gives the candidate next sequence
@@ -893,10 +894,15 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the number of accepted tokens, i.e., by stopping at the first draft token
         # that is different from the token predicted by the target model by argmaxing
         assert tokens.shape[0] == 1  # B = 1 for now
-        num_accepted_tokens = torch.argwhere(tokens != target_argmax_tokens[:-1])[0, -1].item()
+        #import pdb; pdb.set_trace()
+        rej_idx = torch.argwhere(tokens != target_argmax_tokens[:, :-1])
+        if rej_idx.shape[0] == 0:
+            num_accepted_tokens = tokens.shape[1]
+        else:
+            num_accepted_tokens = rej_idx[0, -1].item()
 
         # Retrieve the accepted tokens, plus the last one
-        last_token = target_argmax_tokens[:, num_accepted_tokens]
+        last_token = target_argmax_tokens[:, num_accepted_tokens].unsqueeze(dim=1)
         tokens = torch.cat([tokens[:, :num_accepted_tokens], last_token], dim=1)
         num_generated_tokens = tokens.shape[1]  # num_accepted_tokens + 1
 

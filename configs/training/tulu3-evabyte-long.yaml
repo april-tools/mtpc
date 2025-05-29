@@ -17,6 +17,9 @@ save_model: true
 # Whether to save the optimizer and scheduler at checkpoints
 save_optimizer: true
 save_model_every: 200
+val_loss_every: 200
+# 512 * 8196 (i.e. 512 examples)
+val_tokens: 4194304
 
 # wandb
 expname: null

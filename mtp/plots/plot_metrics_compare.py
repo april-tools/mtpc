@@ -4,6 +4,20 @@ import argparse
 
 import matplotlib.pyplot as plt
 
+from mtp.plots.utils import setup_tueplots
+
+
+def label_from_experiment(exp):
+    pattern = r".*-(?P<circuit>\w+)-n-(?P<n>\d+)-r-(?P<r>\d+)"
+    regex = re.compile(pattern)
+
+    print(exp)
+    m = regex.match(exp)
+    if m:
+        return f"{m.group('circuit')} n={m.group('n')} r={m.group('r')}"
+    else:
+        return "Unparseable-exp"
+
 
 if __name__ == '__main__':
 
@@ -25,7 +39,15 @@ if __name__ == '__main__':
             row['step'] = int(step)
             mc_rows.append(row)
 
-    fig, axes = plt.subplots(figsize=(16, 8), ncols=len(args.metrics), nrows=1)
+    n_cols = len(args.metrics)
+    setup_tueplots(
+        1,
+        n_cols,
+        rel_width=0.8 * n_cols,
+        hw_ratio=0.8,
+        tight_layout=True
+    )
+    fig, axes = plt.subplots(figsize=(12, 6), ncols=n_cols, nrows=1, sharey=True, sharex=True)
 
 
     for i, mname in enumerate(args.metrics):
@@ -38,10 +60,11 @@ if __name__ == '__main__':
 
             metric = tuple(row[mname] for row in mc_stats)
             steps = tuple(row['step'] for row in mc_stats)
-            axes[i].plot(steps, metric, '-o', label=experiment)
-            axes[i].set_ylabel(mpname, fontsize=20)
-            axes[i].set_xlabel('# Training steps', fontsize=24)
-    axes[-1].legend(fontsize=12)
-    plt.suptitle('Validation Loss Over Training', fontsize=30)
+            axes[i].plot(steps, metric, '-o', label=label_from_experiment(experiment))
+            axes[i].set_title(mpname)
+            axes[i].set_xlabel('# Train steps')
+    axes[0].set_ylabel('Metric Value')
+    axes[-1].legend()
+    plt.suptitle('Validation Loss Over Training')
     plt.tight_layout()
     plt.show()

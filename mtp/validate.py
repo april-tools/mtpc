@@ -66,7 +66,7 @@ if __name__ == "__main__":
         for kl_algo in ["full"]:
             model.kl_algorithm = kl_algo
 
-            val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, args.num_examples, ctx, print_progress=True)
+            val_loss, val_metrics = validation_step(optimized_model, val_loader, val_steps, args.num_examples, ctx, print_progress=master_process)
             if master_process:
                 stats.update(**{k: v.item() for k, v in val_metrics.items()})
         if master_process:

@@ -16,6 +16,6 @@ python mtp/plots/plot_wandb_metric.py --run-ids pd39py1e c8o44gf0 384rukjw --tra
 
 
 ## Validation plots
-python mtp/plots/plot_metrics_compare.py  --metric-results scripts/evabyte-lora-tulu-2k/validate_models.jsonl       --experiments  full-tulu-evabyte-lora-last-8-cp-n-8-r-8 full-tulu-evabyte-lora-last-8-cp-n-8-r-32      --metrics kl_loss_at_1 kl_loss_at_2 kl_loss_at_3 kl_loss_at_7 kl_loss_at_8
-python mtp/plots/plot_metrics_compare.py  --metric-results scripts/evabyte-lora-tulu-2k/validate_models.jsonl       --experiments  full-tulu-evabyte-lora-last-8-cp-n-8-r-8 full-tulu-evabyte-lora-last-8-cp-n-8-r-32      --metrics ce_loss_at_1 ce_loss_at_2 ce_loss_at_3 ce_loss_at_7 ce_loss_at_8
-python mtp/plots/plot_metrics_compare.py  --metric-results scripts/evabyte-lora-tulu-2k/validate_models.jsonl       --experiments  full-tulu-evabyte-lora-last-8-cp-n-8-r-8 full-tulu-evabyte-lora-last-8-cp-n-8-r-32      --metrics kl_loss_at_1 ce_loss_at_1
+python mtp/plots/plot_metrics_compare.py  --metric-results scripts/evabyte-lora-tulu-2k/validate_models.jsonl       --experiments  full-tulu-evabyte-lora-last-8-ff-n-8-r-1  full-tulu-evabyte-lora-last-8-cp-n-8-r-8 full-tulu-evabyte-lora-last-8-cp-n-8-r-32      --metrics kl_loss_at_1 kl_loss_at_2 kl_loss_at_3 kl_loss_at_7 kl_loss_at_8
+python mtp/plots/plot_metrics_compare.py  --metric-results scripts/evabyte-lora-tulu-2k/validate_models.jsonl       --experiments  full-tulu-evabyte-lora-last-8-ff-n-8-r-1  full-tulu-evabyte-lora-last-8-cp-n-8-r-8 full-tulu-evabyte-lora-last-8-cp-n-8-r-32      --metrics ce_loss_at_1 ce_loss_at_2 ce_loss_at_3 ce_loss_at_7 ce_loss_at_8
+python mtp/plots/plot_metrics_compare.py  --metric-results scripts/evabyte-lora-tulu-2k/validate_models.jsonl       --experiments  full-tulu-evabyte-lora-last-8-ff-n-8-r-1  full-tulu-evabyte-lora-last-8-cp-n-8-r-8 full-tulu-evabyte-lora-last-8-cp-n-8-r-32      --metrics kl_loss_at_1 ce_loss_at_1

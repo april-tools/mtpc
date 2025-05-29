@@ -12,7 +12,7 @@ default="$MTP_ROOT/outputs/models/finewebedu10B"
 # If not overriden by cli, use default
 directory="${1:-$default}"
 
-for file in $(find "$directory" -type f -name "*.pt");
+for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
 	echo -e "Processing $file..."
 	torchrun \
@@ -21,5 +21,6 @@ do
 		-m mtp.validate \
 		--device cuda \
 		--device-batch-size 4 \
+		--num-examples 512 \
 		--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/validate_models.jsonl
 done

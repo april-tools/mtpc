@@ -1,12 +1,14 @@
 import os
+import time
 import wandb
 import hydra
 import torch
 import torch.distributed as dist
+
+from tqdm import tqdm
 from torch import autocast
 from omegaconf import DictConfig, OmegaConf, open_dict
 from collections import defaultdict
-import time
 
 from mtp.data import DistributedDataLoader
 from mtp.utils.distributed import setup_distributed, wrap_model_distributed
@@ -51,12 +53,12 @@ def create_optimizers(raw_model, cfg):
 
 
 @torch.no_grad()
-def validation_step(model, val_loader, val_steps, val_examples, ctx):
+def validation_step(model, val_loader, val_steps, val_examples, ctx, print_progress=False):
     """Run validation."""
     model.eval()
     val_loader.reset()
     val_loss, metrics = 0., defaultdict(lambda: torch.tensor([0.], device=model.device))
-    for _ in range(val_steps):
+    for _ in tqdm(range(val_steps), disable=not print_progress):
         batch = val_loader.next_batch()
         with ctx:
             results = model(**batch)

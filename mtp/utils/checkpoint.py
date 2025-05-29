@@ -17,6 +17,10 @@ def load_model_with_overrides(checkpoint, config_overrides):
         ):
             cfg = hydra.compose(config_name="config", overrides=config_overrides)
         model = hydra.utils.instantiate(cfg.model).model
+        # Enable modifying the config
+        OmegaConf.set_struct(cfg, False)
+        cfg.global_step = None
+        OmegaConf.set_struct(cfg, True)
     else:
         # Else, override the config and load the model
         ckp = Checkpoint.load(checkpoint)
@@ -29,6 +33,10 @@ def load_model_with_overrides(checkpoint, config_overrides):
         model = hydra.utils.instantiate(cfg.model).model
         # Restore the checkpoint
         ckp.restore(model=model)
+        # Enable modifying the config
+        OmegaConf.set_struct(cfg, False)
+        cfg.global_step = ckp.global_step
+        OmegaConf.set_struct(cfg, True)
     return model, cfg
 
 

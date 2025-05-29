@@ -421,11 +421,10 @@ if __name__ == "__main__":
     stats["batch_size"] = BATCH_SIZE
     stats["elapsed_time"] = elapsed_time
     stats["tokens_per_second"] = tps
-    stats["checkpoint"] = (
-        "%s-%s@0" % (cfg.model.name, cfg.lm.name)
-        if args.checkpoint is None
-        else repr(cfg)
-    )
+    if args.checkpoint is None:
+        stats["checkpoint"] = f"{cfg.model.name}-{cfg.lm.name}@0"
+    else:
+        stats["checkpoint"] = f"{cfg.expname}@{cfg.global_step}"
     stats["mode"] = args.mode
     # Below attributes only exist for MTP
     if "stp" not in stats["model"]:

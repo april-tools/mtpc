@@ -8,7 +8,7 @@ import pickle
 import argparse
 import numpy as np
 
-from mtp.utils.checkpoint import Checkpoint
+from mtp.utils.checkpoint import Checkpoint, load_model_with_overrides
 from mtp.data import DistributedDataLoader
 
 from transformers import AutoTokenizer
@@ -278,32 +278,12 @@ if __name__ == "__main__":
     # Initialize training context
     ctx = autocast(device_type=args.device, dtype=torch.bfloat16)
 
-    # If we do not pass in a checkpoint, read basic config with overrides
-    if args.checkpoint is None:
-        with hydra.initialize(
-            version_base=None, config_path="../configs", job_name=None
-        ):
-            ckp = hydra.compose(config_name="config", overrides=args.overrides)
-        if args.speculative:
-            ckp.lm.model.encoder_only = False
-        model = hydra.utils.instantiate(ckp.model).model
-        model.to(args.device)
-        cfg = ckp
-    else:
-        ckp = Checkpoint.load(args.checkpoint)
-        # Hydra tries to make all paths global - urgh.
-        cfgfolder = os.path.relpath(f"{ckp.folder}", os.environ["MTP_ROOT"])
-        # Use Hydra so that we get the overrides
-        with hydra.initialize(
-            version_base=None, config_path=f"../{cfgfolder}", job_name=None
-        ):
-            cfg = hydra.compose(config_name="config", overrides=args.overrides)
-        if args.speculative:
-            cfg.lm.model.encoder_only = False
-        model = hydra.utils.instantiate(cfg.model).model
-        # Restore the checkpoint
-        ckp.restore(model=model)
-        model.to(args.device)
+    if args.speculative:
+        args.overrides.append('lm.model.encoder_only=false')
+    # If args.checkpoint=None, load random initialised model with overrides
+    model, cfg = load_model_with_overrides(args.checkpoint, args.overrides)
+
+    model.to(args.device)
     if args.compile:
         model = torch.compile(model)
     model.eval()
@@ -441,11 +421,10 @@ if __name__ == "__main__":
     stats["batch_size"] = BATCH_SIZE
     stats["elapsed_time"] = elapsed_time
     stats["tokens_per_second"] = tps
-    stats["checkpoint"] = (
-        "%s-%s@0" % (ckp.model.name, ckp.lm.name)
-        if args.checkpoint is None
-        else repr(ckp)
-    )
+    if args.checkpoint is None:
+        stats["checkpoint"] = f"{cfg.model.name}-{cfg.lm.name}@0"
+    else:
+        stats["checkpoint"] = f"{cfg.expname}@{cfg.global_step}"
     stats["mode"] = args.mode
     # Below attributes only exist for MTP
     if "stp" not in stats["model"]:

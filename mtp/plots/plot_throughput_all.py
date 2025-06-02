@@ -149,7 +149,7 @@ if __name__ == '__main__':
     df = df.drop('hist_accepted_tokens', axis=1)
     df = df.explode(['acceptance_xs', 'acceptance_probs'])
 
-    setup_tueplots(1, 2, rel_width=1.5, hw_ratio=0.8, tight_layout=True)
+    setup_tueplots(1, 2, rel_width=2.0, hw_ratio=0.8, tight_layout=True)
     _, ax = plt.subplots(1, 2, sharey=True, squeeze=True)
 
     if args.argmax:

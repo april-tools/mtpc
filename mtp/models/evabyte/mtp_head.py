@@ -345,6 +345,9 @@ class MultiTokenHead(nn.Module):
         position_ids: Tensor = None,
         multibyte_decoding: bool = None,
     ) -> tuple:
+        if use_cache and multibyte_decoding:
+            raise ValueError("Multi-byte decoding with caching enabled and transformers head is not yet supported")
+
         batch_size, seq_len = xx.shape[0], xx.shape[1]
         past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         max_seq_length = past_seen_tokens + seq_len

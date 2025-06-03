@@ -27,6 +27,7 @@ class LM(nn.Module):
         ref_head: str = "lm_head",
         encoder_only: bool = True,
         freeze: bool = True,
+        **kwargs
     ):
         super().__init__()
 
@@ -131,6 +132,16 @@ class LM(nn.Module):
         overriden_state = {f"{prefix}{k}": None for k in self._filter_state_dict_keys}
         sd.update(overriden_state)
         return sd
+
+    def dequantize(self):
+        # Dequantize the LLM layers, if any
+        # This rewrites bitsandbytes Linear4bit into Linear layers
+        self._lm.dequantize()
+        # TODO: how to remove peft lora's Linear4bit layers as well? Is it needed?
+
+    @property
+    def config(self):
+        return self.lm_model.config
 
     @property
     def lm_head_weights(self):

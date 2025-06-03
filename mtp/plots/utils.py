@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 from tueplots import figsizes, fonts, fontsizes
 
 
+PALETTE = ["#0173B2", "#DE8F05", "#029E73", "#D55E00", "#CC78BC", "#CA9161", "#FBAFE4", "#949494", "#ECE133", "#56B4E9"]
+
+
 def setup_tueplots(
     nrows: int,
     ncols: int,
@@ -39,10 +42,7 @@ def setup_tueplots(
     rc_params.update({"text.latex.preamble": r"\usepackage{amsfonts}"})
     plt.rcParams.update(rc_params)
     plt.rcParams.update({
-       "axes.prop_cycle": plt.cycler(
-           color=["#0173B2", "#DE8F05", "#029E73", "#D55E00", "#CC78BC",
-                  "#CA9161", "#FBAFE4", "#949494", "#ECE133", "#56B4E9"]
-       ),
+       "axes.prop_cycle": plt.cycler(color=PALETTE),
        "patch.facecolor": "#0173B2"
     })
     sb.color_palette("colorblind")

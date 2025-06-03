@@ -95,10 +95,13 @@ class GPTEncoder(nn.Module):
     def forward(self,
                 input_ids: LongTensor,
                 attention_mask: LongTensor | None = None,
+                use_cache: bool = False,
                 ) -> Tensor:
 
         if not (attention_mask is None or torch.all(attention_mask == 1)):
             raise NotImplementedError('NanoGPT transformers cannot handle attention mask that is not all ones')
+        if use_cache:
+            raise NotImplementedError('NanoGPT does not have KV cache support yet')
 
         xx = self.transformer.wte(input_ids)  # token embeddings of shape (B, S, n_embd)
         # TODO: Decide RMS_NORM positioning

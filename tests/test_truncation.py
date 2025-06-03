@@ -75,9 +75,9 @@ def test_truncation_at_zero_is_approx_argmax():
         layer.weight = torch.softmax(torch.randn(*sum_weights_shape), dim=-1)
         layer.weight = truncate_probs_top_p(layer.weight, p=0.0)
 
-    approx_argmax_sample, _ = circuit.sample(1)
+    approx_argmax_sample = circuit.sample(1)
     approx_argmax_sample = approx_argmax_sample.squeeze()
     assert torch.allclose(approx_argmax_tokens, approx_argmax_sample)
 
-    approx_argmax_sample, _ = circuit.sample(100)
+    approx_argmax_sample = circuit.sample(100)
     assert torch.allclose(torch.tile(approx_argmax_tokens, (100, 1)), approx_argmax_sample)

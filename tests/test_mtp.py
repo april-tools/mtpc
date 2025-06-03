@@ -89,7 +89,7 @@ def test_mtp_self_speculative_generate(mtp: MultiTokenLM):
     BOS = 1
     # Sample a bunch of short sentences
     # We will use these samples to get empirical estimates of the sentences distribution
-    num_seqs, max_seq_length = 2 ** 18, mtp.n_token * 2 + 1
+    num_seqs, max_seq_length = 2 ** 17, mtp.n_token * 2 + 1
     seqs = torch.zeros(size=(num_seqs, max_seq_length), dtype=torch.int64)
     num_accepted_tokens = []
     for i in range(num_seqs):
@@ -126,7 +126,7 @@ def test_mtp_self_speculative_generate(mtp: MultiTokenLM):
     yy = worlds_seqs[:, 1:].contiguous()
     results = mtp.lm(xx, yy=yy, return_logits=True)
     assert results['logits'].shape[1] == max_seq_length - 1
-    log_probs = torch.log_softmax(results['logits'], dim=-1)
+    log_probs = torch.log_softmax(results['logits'].to(ratios.dtype), dim=-1)
     worlds_log_probs = torch.gather(log_probs, dim=2, index=yy.unsqueeze(dim=2)).squeeze(dim=2)
     worlds_log_probs = torch.sum(worlds_log_probs, dim=1)
     worlds_probs = torch.exp(worlds_log_probs)

@@ -118,16 +118,26 @@ def generate(
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
             if args.speculative:
-                outputs = model.self_speculative_generate(
-                    x,
-                    use_cache=args.use_cache,
-                    draft_past_key_values=past_key_values,
-                    verifier_past_key_values=verifier_past_key_values,
-                    head_past_key_values=head_past_key_values,
-                    past_num_tokens=past_num_tokens,
-                    draft_top_p=draft_top_p,
-                    target_top_p=target_top_p,
-                )
+                if args.argmax:
+                    outputs = model.self_speculative_generate_argmax(
+                        x,
+                        use_cache=args.use_cache,
+                        draft_past_key_values=past_key_values,
+                        verifier_past_key_values=verifier_past_key_values,
+                        head_past_key_values=head_past_key_values,
+                        past_num_tokens=past_num_tokens,
+                    )
+                else:
+                    outputs = model.self_speculative_generate(
+                        x,
+                        use_cache=args.use_cache,
+                        draft_past_key_values=past_key_values,
+                        verifier_past_key_values=verifier_past_key_values,
+                        head_past_key_values=head_past_key_values,
+                        past_num_tokens=past_num_tokens,
+                        draft_top_p=draft_top_p,
+                        target_top_p=target_top_p,
+                    )
                 tokens = outputs['tokens']
                 past_key_values = outputs['draft_past_key_values']
                 verifier_past_key_values = outputs['verifier_past_key_values']
@@ -137,6 +147,7 @@ def generate(
                 outputs = model.generate(
                     x,
                     mode="mtp",
+                    use_argmax=args.argmax,
                     use_cache=args.use_cache,
                     past_key_values=past_key_values,
                     head_past_key_values=head_past_key_values,
@@ -270,6 +281,12 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Whether to dequantize the model before measuring the throughput"
+    )
+    parser.add_argument(
+        "--argmax",
+        default=False,
+        action="store_true",
+        help="Whether to use argmax to get samples from the circuit or the STP model"
     )
     parser.add_argument(
         "--compile",
@@ -419,6 +436,7 @@ if __name__ == "__main__":
     stats["speculative"] = args.speculative
     stats["use_kv_cache"] = args.use_cache
     stats["dequantize"] = args.dequantize
+    stats["argmax"] = args.argmax
     stats["draft_top_p"] = args.draft_top_p
     stats["target_top_p"] = args.target_top_p
     if args.speculative:

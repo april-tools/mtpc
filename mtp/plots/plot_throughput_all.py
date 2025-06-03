@@ -19,6 +19,7 @@ if __name__ == '__main__':
     parser.add_argument('--use-cache', action='store_true', default=False, help="Whether to show the results with KV cache enabled")
     parser.add_argument('--n_token', type=int, default=8, help="The number of tokens for the circuit model")
     parser.add_argument('--n_components', type=int, nargs='+', help="The number of components for the circuit model")
+    parser.add_argument('--argmax', action='store_true', default=False, help="Whether to show the argmax or the argmax with top-p p=0")
     parser.add_argument('--id', type=str, default="", help="The id of the experiment that will be appended to the filename")
 
     args = parser.parse_args()
@@ -27,6 +28,8 @@ if __name__ == '__main__':
     with open(args.results, 'r') as f:
         for line in f:
             r = json.loads(line)
+            if 'argmax' not in r:
+                r['argmax'] = False
             if r['speculative'] and '@2000' not in r['checkpoint']:
                 continue
             entries.append(r)
@@ -35,20 +38,28 @@ if __name__ == '__main__':
     df = df[df['ncomponent'].isin(args.n_components)]
     df = df[df['use_kv_cache'] == args.use_cache]
 
+    if 'argmax' in df.columns:
+        if args.argmax:
+            df = df[(df['argmax'] == True) | ((df['draft_top_p'] == 1.0) & (df['target_top_p'] == 1.0))]
+        else:
+            df = df[df['argmax'] == False]
+        df = df.reset_index()
+
     def row_gen_setting(r: pd.Series) -> str:
         gen_setting = ''
         speculative = r['speculative']
         if speculative:
             gen_setting += 'Spec.'
+            argmax = r.get('argmax', default=False)
+            argmax = argmax if not np.isnan(argmax) else False
             draft_top_p, target_top_p = r['draft_top_p'], r['target_top_p']
-            argmax = draft_top_p == 0.0 and target_top_p == 0.0
-            sampling = draft_top_p == 1.0 and target_top_p == 1.0
-            if argmax:
+            argmax_top_p0 = draft_top_p == 0.0 and target_top_p == 0.0
+            if argmax_top_p0:
+                gen_setting += ' (argmax top-p)'
+            elif argmax:
                 gen_setting += ' (argmax)'
-            elif sampling:
-                gen_setting += ' (sample)'
             else:
-                gen_setting += f' (draft-p={draft_top_p}) (target-p={target_top_p})'
+                gen_setting += ' (sample)'
         else:
             gen_setting += 'Sampling'
         return gen_setting
@@ -78,17 +89,22 @@ if __name__ == '__main__':
     df['gen_setting'] = df.apply(lambda r: row_gen_setting(r), axis=1)
     df['model_id'] = df.apply(lambda r: row_model_id(r), axis=1)
 
-    setup_tueplots(1, 1, rel_width=1.0, hw_ratio=0.65)
+    setup_tueplots(1, 1, rel_width=1.25, hw_ratio=0.65)
     _, ax = plt.subplots(1, 1, sharey=True, squeeze=True)
 
     # Plot based on generation setting
 
+    if args.argmax:
+        order = ['Sampling', 'Spec. (sample)', 'Spec. (argmax)']
+    else:
+        order = ['Sampling', 'Spec. (sample)', 'Spec. (argmax top-p)']
     hue_order = ["STP", "FF", "CP (r=8)", "CP (r=32)"]
     sb.barplot(
         df,
         x="gen_setting",
         y="tokens_per_second",
         hue="model_id",
+        order=order,
         hue_order=hue_order,
         ax=ax
     )
@@ -133,11 +149,15 @@ if __name__ == '__main__':
     df = df.drop('hist_accepted_tokens', axis=1)
     df = df.explode(['acceptance_xs', 'acceptance_probs'])
 
-    setup_tueplots(1, 2, rel_width=1.5, hw_ratio=0.8, tight_layout=True)
+    setup_tueplots(1, 2, rel_width=2.0, hw_ratio=0.8, tight_layout=True)
     _, ax = plt.subplots(1, 2, sharey=True, squeeze=True)
 
-    titles = ["Speculative (sample)", "Speculative (argmax)"]
-    filters = [{'draft_top_p': 1.0, 'target_top_p': 1.0}, {'draft_top_p': 0.0, 'target_top_p': 0.0}]
+    if args.argmax:
+        titles = ["Speculative (sample)", "Speculative (argmax)"]
+        filters = [{'argmax': False}, {'argmax': True}]
+    else:
+        titles = ["Speculative (sample)", "Speculative (argmax top-p)"]
+        filters = [{'draft_top_p': 1.0, 'target_top_p': 1.0}, {'draft_top_p': 0.0, 'target_top_p': 0.0}]
     for i, title in zip(range(len(ax)), titles):
         df_ = df.copy()
         for k, v in filters[i].items():
@@ -175,36 +195,3 @@ if __name__ == '__main__':
 
     filename = f"throughput-acceptance-{args.id}.pdf" if args.id else "throughput-acceptance.pdf"
     plt.savefig(os.path.join("outputs", "plots", filename), bbox_inches='tight')
-
-    # unique_ntokens = np.aran
-    # if unique_ntokens[0] == 1:
-    #     del unique_ntokens[0]
-    # for ntoken in unique_ntokens:
-    #     df = pd.DataFrame(entries)
-    #     df = df[df['ntoken'] == ntoken]
-    #     df = df[df['speculative'] == True]
-    #     df['hy_accepted_tokens_prob'] = df.apply(lambda r: r['hy_accepted_tokens'] / np.sum(r['hy_accepted_tokens']), axis=1)
-    #     df['run_id'] = df.apply(
-    #         lambda r: f"{run_identifier(r, show_ncomponent=True)} (A-rate={r['avg_accepted_tokens']}, T-rate={r['avg_tokens_llm_call']})",
-    #         axis=1
-    #     )
-    #     if len(df) == 0:
-    #         break
-    #     df = df.explode(['hx_accepted_tokens', 'hy_accepted_tokens', 'hy_accepted_tokens_prob'])
-
-    #     ax = sb.barplot(
-    #         df,
-    #         x="hx_accepted_tokens",
-    #         y="hy_accepted_tokens_prob",
-    #         hue="run_id"
-    #     )
-    #     ax.set_ylabel("probability")
-    #     ax.set_xlabel("accepted tokens")
-
-    #     ax.grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
-    #     ax.legend(loc='upper left', bbox_to_anchor=(1, 1), alignment='left')
-
-    #     filename = f"acceptance-rate-{args.id}-n-{ntoken}.pdf" if args.id else f"acceptance-rate-n-{ntoken}.pdf"
-    #     plt.savefig(os.path.join("outputs", "plots", filename))
-    #     plt.clf()
-    #     plt.cla()

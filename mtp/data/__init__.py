@@ -4,6 +4,7 @@ from mtp.data.local_dataloader import LocalDistributedDataLoader
 from mtp.data.sharegpt import ShareGPTDataLoader
 from mtp.data.tuluv3 import TuluDataLoader
 from mtp.data.tuluv3_evabyte import EvaByteTuluDataLoader
+from mtp.data.tuluv3_packing import TuluPackedDataLoader
 
 
 class DistributedDataLoader:

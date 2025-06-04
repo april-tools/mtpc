@@ -85,13 +85,13 @@ class TuluPackedDataLoader(HFDistributedDataLoader):
         # input_ids = out["input_ids"][0, :-1]
         # labels = out["labels"][0, 1:]
 
-        input_ids = out["input_ids"]
+        input_ids = out["input_ids"][0]
         # We wouldn't condition on <eot_id> anyway, so we can drop it
-        input_ids[0, -1] = self.tokenizer.added_tokens_encoder['<file_sep>']
+        input_ids[-1] = self.tokenizer.added_tokens_encoder['<file_sep>']
 
-        labels = out["labels"].clone()
-        labels[0, :-1] = out["labels"][0, 1:]
-        labels[0, -1] = IGNORE_TOKEN_ID
+        labels = out["labels"][0].clone()
+        labels[:-1] = out["labels"][0, 1:]
+        labels[-1] = IGNORE_TOKEN_ID
 
         output = dict(
             input_ids=input_ids, labels=labels, **x

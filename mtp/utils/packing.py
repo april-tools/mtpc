@@ -39,16 +39,17 @@ def packed_targets_to_target_windows(yy, n, EOS_ID, IGNORE_TOKEN_ID):
     return torch.concat(parts, dim=0).reshape(B, S, n)
 
 
-def pack_by_length(ds, max_len=8192, num_bins=5, num_proc=1, pad_id=0, ignore_token_id=-100, get_length=lambda x: x['input_ids'].shape[0]):
+def pack_by_length(ds, max_len=8192, num_bins=5, num_proc=1, pad_id=0, ignore_token_id=-100, get_length=lambda x: len(x['input_ids'])):
     # Go through bins in decreasing sequenced length
     assert np.log2(max_len) % 1 == 0
     assert num_bins > 0
+    assert len(ds[0]['input_ids'].shape) == 1, 'Expected input_ids to be 1d tensor'
     bins =  [0] + [int(max_len ** 1/(2**i)) for i in range(num_bins - 1, -1, -1)]
     binned_subsets = []
 
     pad_values = {'input_ids': pad_id, 'labels': ignore_token_id, 'attention_mask': 0}
     # Split dataset into subsets depending on length
-    for i in range(len(bins)-1):
+    for i in range(len(bins) - 1):
         subset = ds.filter(lambda x: bins[i] < get_length(x) <= bins[i+1], num_proc=num_proc)
         subset = subset.to_iterable_dataset() if len(subset) > 0 else []
         subset = peekable(iter(subset))

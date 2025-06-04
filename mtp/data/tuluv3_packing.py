@@ -58,6 +58,11 @@ class TuluPackedDataLoader(HFDistributedDataLoader):
             "messages": [{"role": Value("string"), "content": Value("string")}],
         })
 
+    @property
+    def model_max_length(self):
+        # use max_length=T because we use full input_ids and labels
+        return self.T
+
     def filter(self, example):
         n = len(example["labels"])
         inactive = (example["labels"] == IGNORE_TOKEN_ID).sum().item()
@@ -81,11 +86,11 @@ class TuluPackedDataLoader(HFDistributedDataLoader):
         # labels = out["labels"][0, 1:]
 
         input_ids = out["input_ids"]
-        # We wouldn't condition on <eot_id> anyway
+        # We wouldn't condition on <eot_id> anyway, so we can drop it
         input_ids[0, -1] = self.tokenizer.added_tokens_encoder['<file_sep>']
 
-        labels = out["labels"]
-        labels[0, :-1] = labels[0, 1:]
+        labels = out["labels"].clone()
+        labels[0, :-1] = out["labels"][0, 1:]
         labels[0, -1] = IGNORE_TOKEN_ID
 
         output = dict(

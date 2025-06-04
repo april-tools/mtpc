@@ -60,8 +60,8 @@ class TuluPackedDataLoader(HFDistributedDataLoader):
 
     def filter(self, example):
         n = len(example["labels"])
-        active = (example["labels"] == IGNORE_TOKEN_ID).sum().item()
-        return (n - active > 0) and (n < self.model_max_length - 1)
+        inactive = (example["labels"] == IGNORE_TOKEN_ID).sum().item()
+        return (n - inactive > 0) and (n <= self.model_max_length)
 
     def process(self, x):
         tokens = self.tokenizer.apply_chat_template(
@@ -69,7 +69,7 @@ class TuluPackedDataLoader(HFDistributedDataLoader):
             tokenize=True,
             return_dict=True,
             padding='do_not_pad',
-            truncation=True,
+            truncation=False,
         )
         # return_tensors='np' is needed as the non-iterable hf datasets use
         # rely on PyArrow, which is not compatible with PT tensors.
@@ -77,8 +77,16 @@ class TuluPackedDataLoader(HFDistributedDataLoader):
         out = self.data_collator([tokens], return_tensors='pt')
 
         # NOTE: in our implementation we expect label @ i to be target for input_id @ i
-        input_ids = out["input_ids"][0, :-1]
-        labels = out["labels"][0, 1:]
+        # input_ids = out["input_ids"][0, :-1]
+        # labels = out["labels"][0, 1:]
+
+        input_ids = out["input_ids"]
+        # We wouldn't condition on <eot_id> anyway
+        input_ids[0, -1] = self.tokenizer.added_tokens_encoder['<file_sep>']
+
+        labels = out["labels"]
+        labels[0, :-1] = labels[0, 1:]
+        labels[0, -1] = IGNORE_TOKEN_ID
 
         output = dict(
             input_ids=input_ids, labels=labels, **x

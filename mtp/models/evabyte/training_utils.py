@@ -3,6 +3,11 @@ from typing import List, Optional, Tuple, Union
 import math
 import torch
 
+
+EVABYTE_PAD_TOKEN_ID = 0
+EVABYTE_EOS_TOKEN_ID = 2
+
+
 def prepare_eva_attention_mask(
         seq_len,
         device,
@@ -296,3 +301,11 @@ def prepare_doc_mask_position_ids(
 #     position_ids=position_ids,
 #     labels=labels,
 # )
+
+
+def prepare_evabyte_mask_and_position(input_ids, model, eos_token_id=EVABYTE_EOS_TOKEN_ID):
+    inp_ids = input_ids.clone().cpu()
+    attn_mask, pos_ids = prepare_doc_mask_position_ids(inp_ids, model.config.chunk_size, model.config.window_size, eos_token_id)
+    position_ids = pos_ids.cuda()
+    attn_mask = tuple(m.cuda() for m in attn_mask)
+    return attn_mask, position_ids

@@ -6,6 +6,7 @@ from torch import Tensor, LongTensor
 from transformers.cache_utils import Cache
 from mtp.models.evabyte.multibyte_decoding_evabyte import multi_byte_pred_prepare_attn_mask
 from mtp.utils.sampling import truncate_logprobs_top_p, truncate_probs_top_p
+from mtp.models.evabyte.training_utils import prepare_evabyte_mask_and_position, EVABYTE_PAD_TOKEN_ID
 
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 
@@ -161,19 +162,22 @@ class MultiTokenLM(torch.nn.Module):
             # We are not packing, so pass attention=None
             # https://github.com/OpenEvaByte/evabyte/issues/6
             enc_attention_mask = None
+            attention_mask = input_ids != EVABYTE_PAD_TOKEN_ID
+            enc_attention_mask, position_ids = prepare_evabyte_mask_and_position(input_ids, self.lm)
         else:
             enc_attention_mask = attention_mask
+            position_ids = None
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
-        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask)['last_hidden_state']
+        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask, position_ids=position_ids)['last_hidden_state']
 
         # 2) Compute teacher log probs.
         #  teacher_log_probs: shape (B * S, H, V)
         if self.compute_kl:
             with torch.no_grad(), self.lm.disable_adapter_if_any():
                 if self.lm.has_adapter:
-                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask)['last_hidden_state']
+                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask, position_ids=position_ids)['last_hidden_state']
                 else:  # If the LM has no adaptors, then the verifier hidden features are the same as the draft features
                     xxv = xxd
                 # logits: (B, S, V)

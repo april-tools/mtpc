@@ -85,7 +85,7 @@ if __name__ == "__main__":
         out = lm.generate(inputs=tokens['input_ids'], draft_top_p=args.draft_top_p)
 
     NS = args.num_samples
-    out, _ = lm.circuit.sample(NS)
+    out = lm.circuit.sample(NS)
     scores = lm.circuit(out)
     ar_scores = score_autoregressive(vanilla_lm, tokens['input_ids'], out, 'cuda')
     eva_scores = score_evabyte(vanilla_lm, tokens['input_ids'], out, 'cuda')

@@ -21,7 +21,7 @@ subsample_prompts="${3:-$default_subsample_prompts}"
 
 for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
-	if [[ $file =~ (@0\.pt|000\.pt)$ ]]; then
+	if [[ $file =~ (@0\.pt|00\.pt)$ ]]; then
 		echo -e "Processing $file..."
 		python -m mtp.generate \
 			--device cuda \
@@ -34,6 +34,7 @@ do
 			--target-top-p 1. \
 			--draft-top-p 1. \
 			--task chat \
+			--use-cache \
 			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput-models-$prompt_source-ns-$subsample_prompts.jsonl
 	fi
 done

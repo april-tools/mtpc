@@ -35,6 +35,8 @@ do
 			--draft-top-p 1. \
 			--task chat \
 			--use-cache \
+			--compile \
+			--dequantize \
 			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput-models-$prompt_source-ns-$subsample_prompts.jsonl
 	fi
 done

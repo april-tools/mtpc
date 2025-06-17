@@ -1,7 +1,8 @@
 # Copied from https://github.com/OpenEvaByte/evabyte/blob/main/training_utils.py
-from typing import List, Optional, Tuple, Union
 import math
 import torch
+
+from typing import List, Optional, Tuple, Union
 
 
 EVABYTE_PAD_TOKEN_ID = 0
@@ -303,6 +304,7 @@ def prepare_doc_mask_position_ids(
 # )
 
 
+@torch._dynamo.disable
 def prepare_evabyte_mask_and_position(input_ids, model, eos_token_id=EVABYTE_EOS_TOKEN_ID):
     if is_packed_sequence(input_ids):
         inp_ids = input_ids.clone().cpu()

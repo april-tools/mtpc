@@ -213,7 +213,7 @@ class MultiTokenLM(torch.nn.Module):
             teacher_log_probs = None
 
         # 3) Parameterize the circuit with our NN activations
-        self._parameterize_circuit(xxd, attention_mask=attention_mask)
+        self._parameterize_circuit(xxd, attention_mask=enc_attention_mask, position_ids=position_ids)
 
         # 4) Pad labels on the right by H - 1  (B, S+)
         yy = F.pad(labels, (0, H - 1), mode='constant', value=IGNORE_TOKEN_ID)

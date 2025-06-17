@@ -304,8 +304,18 @@ def prepare_doc_mask_position_ids(
 
 
 def prepare_evabyte_mask_and_position(input_ids, model, eos_token_id=EVABYTE_EOS_TOKEN_ID):
-    inp_ids = input_ids.clone().cpu()
-    attn_mask, pos_ids = prepare_doc_mask_position_ids(inp_ids, model.config.chunk_size, model.config.window_size, eos_token_id)
-    position_ids = pos_ids.cuda()
-    attn_mask = tuple(m.cuda() for m in attn_mask)
+    if is_packed_sequence(input_ids):
+        inp_ids = input_ids.clone().cpu()
+        attn_mask, pos_ids = prepare_doc_mask_position_ids(inp_ids, model.config.chunk_size, model.config.window_size, eos_token_id)
+        position_ids = pos_ids.cuda()
+        attn_mask = tuple(m.cuda() for m in attn_mask)
+    else:
+        # When we are not packing, we can pass attn_mask=None - see
+        # https://github.com/OpenEvaByte/evabyte/issues/6
+        attn_mask, position_ids = None, None
     return attn_mask, position_ids
+
+
+def is_packed_sequence(input_ids):
+    # When we pack sequences, we include EVABYTE_EOS_TOKEN_ID
+    return torch.any(input_ids == EVABYTE_EOS_TOKEN_ID)

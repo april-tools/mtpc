@@ -157,11 +157,9 @@ class MultiTokenLM(torch.nn.Module):
             attention_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=torch.int32)
 
         # Evabyte needs special treatment since they construct two types of
-        # attention mask (window and block), and cannot use vanilla huggingface
+        # attention mask (window and block), and the huggingface attention mask does not suffice
+        # EvaByte also supports packing - see the helper function below
         if self.mt_head_type == 'evabyte':
-            # We are not packing, so pass attention=None
-            # https://github.com/OpenEvaByte/evabyte/issues/6
-            enc_attention_mask = None
             attention_mask = input_ids != EVABYTE_PAD_TOKEN_ID
             enc_attention_mask, position_ids = prepare_evabyte_mask_and_position(input_ids, self.lm)
         else:

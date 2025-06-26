@@ -221,14 +221,15 @@ class MultiTokenLM(torch.nn.Module):
                 teacher_log_probs = teacher_log_probs.unfold(
                     dimension=1, size=H, step=1
                 )
+
                 # shape: H, B, S, V
                 teacher_log_probs = teacher_log_probs.permute(3, 0, 1, 2)
                 # If V=1 because of binary approx, remove the dim
                 teacher_log_probs = teacher_log_probs.squeeze(-1)
 
+                # If we use packing make sure we don't leak predictions across example boundaries
                 if self.mt_head_type == 'evabyte' and is_evabyte_packed_sequence(input_ids):
-                    # Do not predict across example boundaries when using packing
-                    teacher_log_probs[yy == IGNORE_TOKEN_ID] = -torch.inf
+                    teacher_log_probs[yy.permute(2, 0, 1) == IGNORE_TOKEN_ID] = -torch.inf
         else:
             teacher_log_probs = None
 

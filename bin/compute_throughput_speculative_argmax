@@ -35,7 +35,7 @@ do
 			--use-cache \
 			--task chat \
 			--compile \
-			--dequantize \
+			# --dequantize \
 			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/argmax_throughput_models-$prompt_source-ns-$subsample_prompts.jsonl
 	fi
 done

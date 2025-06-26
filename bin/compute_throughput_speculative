@@ -36,7 +36,7 @@ do
 			--task chat \
 			--use-cache \
 			--compile \
-			--dequantize \
+			# --dequantize \
 			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/throughput-models-$prompt_source-ns-$subsample_prompts.jsonl
 	fi
 done

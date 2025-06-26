@@ -2,7 +2,8 @@ import os
 import torch
 import argparse
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import BitsAndBytesConfig
 from torch import autocast
 
 from mtp.utils.checkpoint import Checkpoint
@@ -73,7 +74,8 @@ if __name__ == "__main__":
     lm = ckp.model
     lm.eval()
 
-    vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True, quantization_config=BitsAndBytesConfig(load_in_4bit=True))
+    # vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True, quantization_config=BitsAndBytesConfig(load_in_4bit=True))
+    vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True)
     vanilla_lm.cuda()
     vanilla_lm.eval()
     

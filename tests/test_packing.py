@@ -9,6 +9,7 @@ def test_expand_target_windows_of_packed_targets():
     yy = torch.tensor([[1, 2, 3, EOS, 1, 2, EOS],
                        [1, 2, 3, 4, 5, 6, EOS]],
                        dtype=torch.int)
+    yy_orig_shape = yy.shape
 
     outs = packed_targets_to_target_windows(yy, 3, EOS, IGNORE_TOKEN_ID)
 
@@ -30,3 +31,6 @@ def test_expand_target_windows_of_packed_targets():
         ], dtype=torch.int)
 
     assert torch.allclose(outs, expected_output)
+
+    ## Assert no side-effects
+    assert(yy.shape == yy_orig_shape)

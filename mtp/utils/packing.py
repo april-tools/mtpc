@@ -31,7 +31,7 @@ def packed_targets_to_target_windows(yy, n, EOS_ID, IGNORE_TOKEN_ID):
     # yy is B x S
     yy = yy.ravel()
     # Split into parts when we find EOS or the end of the sequence
-    split_idxs = torch.nonzero((yy == EOS_ID) | ((torch.arange(B*S) % S) == (S-1))).ravel()
+    split_idxs = torch.nonzero((yy == EOS_ID) | ((torch.arange(B*S, device=yy.device) % S) == (S-1))).ravel()
     # Include the EOS in the sequence it ends
     split_idxs += 1
     split_sizes = tuple(split_idxs_to_sizes(split_idxs).tolist())

@@ -5,9 +5,10 @@ from torch import Tensor, LongTensor
 
 from transformers.cache_utils import Cache
 from mtp.models.evabyte.multibyte_decoding_evabyte import multi_byte_pred_prepare_attn_mask
-from mtp.utils.sampling import truncate_logprobs_top_p, truncate_probs_top_p
-from mtp.models.evabyte.training_utils import prepare_evabyte_mask_and_position, EVABYTE_PAD_TOKEN_ID
-
+from mtp.utils.sampling import truncate_logprobs_top_p
+from mtp.utils.packing import packed_targets_to_target_windows
+from mtp.models.evabyte.training_utils import prepare_evabyte_mask_and_position
+from mtp.models.evabyte.training_utils import is_evabyte_packed_sequence, EVABYTE_EOS_TOKEN_ID
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 
 from .lm import LM
@@ -160,22 +161,37 @@ class MultiTokenLM(torch.nn.Module):
         # attention mask (window and block), and the huggingface attention mask does not suffice
         # EvaByte also supports packing - see the helper function below
         if self.mt_head_type == 'evabyte':
-            attention_mask = input_ids != EVABYTE_PAD_TOKEN_ID
-            enc_attention_mask, position_ids = prepare_evabyte_mask_and_position(input_ids, self.lm)
+            attention_mask, position_ids = prepare_evabyte_mask_and_position(input_ids, self.lm)
         else:
-            enc_attention_mask = attention_mask
             position_ids = None
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
-        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask, position_ids=position_ids)['last_hidden_state']
+        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)['last_hidden_state']
 
-        # 2) Compute teacher log probs.
-        #  teacher_log_probs: shape (B * S, H, V)
+        # 2) Parameterize the circuit with our NN activations
+        self._parameterize_circuit(xxd, attention_mask=attention_mask, position_ids=position_ids)
+
+        # 3) Expand target tokens into windows of size H
+        if self.mt_head_type == 'evabyte' and is_evabyte_packed_sequence(input_ids):
+            # If we are using packing (i.e. multiple seqs per batch), we need to ignore 
+            # predictions that take us across example boundaries by introducing IGNORE_TOKEN_ID.
+            # yy: (B, S) -> (B, S, H)
+            yy = packed_targets_to_target_windows(labels, H, EVABYTE_EOS_TOKEN_ID, IGNORE_TOKEN_ID)
+        else:
+            # Pad labels on the right by H - 1  (B, S+)
+            yy = F.pad(labels, (0, H - 1), mode='constant', value=IGNORE_TOKEN_ID)
+
+            # Make target labels, yy, and attention masks, windowed
+            # from yy: (B, S+) to yy: (B, S, H)
+            yy = yy.unfold(dimension=1, size=H, step=1)
+
+        # 4) Compute teacher log probs.
+        #  teacher_log_probs: shape (H, B, S, V)
         if self.compute_kl:
             with torch.no_grad(), self.lm.disable_adapter_if_any():
                 if self.lm.has_adapter:
-                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=enc_attention_mask, position_ids=position_ids)['last_hidden_state']
+                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)['last_hidden_state']
                 else:  # If the LM has no adaptors, then the verifier hidden features are the same as the draft features
                     xxv = xxd
                 # logits: (B, S, V)
@@ -187,20 +203,20 @@ class MultiTokenLM(torch.nn.Module):
                 _, S, V = teacher_log_probs.shape
                 assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
 
-                # Pad the teacher_log_probs on the right along the sequence length
-                # such that when we unfold we still get S windows to predict
-                # We pad with -inf to make sure we notice if we are using invalid tokens (kl would be inf or nan)
-                # shape: B, S+, V   (pad starts from last dim and moves forward in pairs)
-                teacher_log_probs = F.pad(teacher_log_probs, (0, 0, 0, H - 1), mode='constant', value=-torch.inf)
-
                 if self.kl_algorithm == "binary_approx":
                     # We only need the log probs for the target category
                     # shape: B, S+, 1
                     teacher_log_probs = torch.gather(
                         teacher_log_probs, dim=-1, index=labels.unsqueeze(-1)
                     )
+
+                # Pad the teacher_log_probs on the right along the sequence length
+                # such that when we unfold we still get S windows to predict
+                # We pad with -inf to make sure we notice if we are using invalid tokens (kl would be inf or nan)
+                # shape: B, S+, V   (pad starts from last dim and moves forward in pairs)
+                teacher_log_probs = F.pad(teacher_log_probs, (0, 0, 0, H - 1), mode='constant', value=-torch.inf)
+
                 # Make teacher_log_probs windowed for kl with circuit logprobs
-                # TODO: Since we are using a for loop in the KL computation
                 # shape: B, S, V, H
                 teacher_log_probs = teacher_log_probs.unfold(
                     dimension=1, size=H, step=1
@@ -209,59 +225,41 @@ class MultiTokenLM(torch.nn.Module):
                 teacher_log_probs = teacher_log_probs.permute(3, 0, 1, 2)
                 # If V=1 because of binary approx, remove the dim
                 teacher_log_probs = teacher_log_probs.squeeze(-1)
+
+                if self.mt_head_type == 'evabyte' and is_evabyte_packed_sequence(input_ids):
+                    # Do not predict across example boundaries when using packing
+                    teacher_log_probs[yy == IGNORE_TOKEN_ID] = -torch.inf
         else:
             teacher_log_probs = None
 
-        # 3) Parameterize the circuit with our NN activations
-        self._parameterize_circuit(xxd, attention_mask=enc_attention_mask, position_ids=position_ids)
-
-        # 4) Pad labels on the right by H - 1  (B, S+)
-        yy = F.pad(labels, (0, H - 1), mode='constant', value=IGNORE_TOKEN_ID)
-
-        # 5) Make target labels, yy, and attention masks, windowed
-        # from yy: (B, S+) to yy: (B, S, H)
-        yy = yy.unfold(dimension=1, size=H, step=1)
         # yy: (B, S, H) -> (B * S, H)
         yy = yy.reshape(-1, H)
 
-        # Also process the attention mask
-        yym = attention_mask.bool()
-        # Pad in the same way we padded outputs
-        yym = F.pad(yym, (0, H - 1), mode='constant', value=False)
-        yym = yym.unfold(dimension=1, size=H, step=1)
-
-        # We condition on tokens with attention_mask = True
-        # so we want to marginalise out those with attention_mask=False
-        do_not_condition_mask = ~yym.reshape(-1, H)
         # We do not predict tokens with IGNORE_TOKEN_ID
         do_not_predict_mask = ~compute_valid_mask(yy)
 
-        # We want to marginalise out tokens that should either not be predicted
-        # or tokens that should not be conditioned on
-        marg_mask = do_not_condition_mask | do_not_predict_mask
-
-        # 6) Compute draft log probs with the circuit
+        # 5) Compute draft log probs with the circuit
         if self.compute_kl and self.kl_algorithm == "full":
             # shape: H, B, S, V   We need the full conditional distributions
             log_probs = self.circuit.autoregressive_conditionals(
-                yy=yy, marg_mask=marg_mask, with_logits=True
+                yy=yy, marg_mask=do_not_predict_mask, with_logits=True
             )
             log_probs = log_probs.view(H, B, -1, V)
         else:
             # shape: H, B, S  We need conditional distributions for yy only
             log_probs = self.circuit.autoregressive_conditionals(
-                yy=yy, marg_mask=marg_mask, with_logits=False
+                yy=yy, marg_mask=do_not_predict_mask, with_logits=False
             )
             log_probs = log_probs.view(H, B, -1)
 
-        # 7) Compute CE loss per token and, optionally, KL loss
+        # 6) Compute CE loss per token and, optionally, KL loss
         # First we reshape tensors so they have the same leading dims
         yy_hbs = yy.permute(1, 0).view(H, B, -1)
         losses = self.compute_per_token_losses(
             yy_hbs, draft_log_probs=log_probs, teacher_log_probs=teacher_log_probs
         )
 
-        # 8) Weigh the losses and optionally discount
+        # 7) Weigh the losses and optionally discount
         kl_loss = losses['kl_loss'] if self.compute_kl else 0.0
         ce_loss = losses['ce_loss'] if self.compute_ce else 0.0
         # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )

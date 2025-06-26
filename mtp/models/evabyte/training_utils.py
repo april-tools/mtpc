@@ -306,7 +306,7 @@ def prepare_doc_mask_position_ids(
 
 @torch._dynamo.disable
 def prepare_evabyte_mask_and_position(input_ids, model, eos_token_id=EVABYTE_EOS_TOKEN_ID):
-    if is_packed_sequence(input_ids):
+    if is_evabyte_packed_sequence(input_ids):
         inp_ids = input_ids.clone().cpu()
         attn_mask, pos_ids = prepare_doc_mask_position_ids(inp_ids, model.config.chunk_size, model.config.window_size, eos_token_id)
         position_ids = pos_ids.cuda()
@@ -318,6 +318,6 @@ def prepare_evabyte_mask_and_position(input_ids, model, eos_token_id=EVABYTE_EOS
     return attn_mask, position_ids
 
 
-def is_packed_sequence(input_ids):
+def is_evabyte_packed_sequence(input_ids):
     # When we pack sequences, we include EVABYTE_EOS_TOKEN_ID
     return torch.any(input_ids == EVABYTE_EOS_TOKEN_ID)

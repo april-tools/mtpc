@@ -6,7 +6,7 @@ from mtp.models.loss import IGNORE_TOKEN_ID
 from mtp.data.hf_dataloader import HFDistributedDataLoader
 
 
-class EvaByteTuluDataLoader(HFDistributedDataLoader):
+class EvaByteTuluPackedDataLoader(HFDistributedDataLoader):
     def __init__(
         self,
         hf_dataset: str,
@@ -38,10 +38,9 @@ class EvaByteTuluDataLoader(HFDistributedDataLoader):
         )
 
         self.features = Features({
-            "id": Value("string"),
-            "source": Value("string"),
-            "messages": [{"role": Value("string"), "content": Value("string")}],
+            "id": [Value("string")],
+            "source": [Value("string")],
+            "messages": [[{"role": Value("string"), "content": Value("string")}]],
             "input_ids": Sequence(Value("int16"), length=self.T),
-            "labels": Sequence(Value("int16"), length=self.T),
-            "attention_mask": Sequence(Value("bool"), length=self.T),
+            "labels": Sequence(Value("int16"), length=self.T)
         })

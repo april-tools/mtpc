@@ -104,7 +104,7 @@ class HFDistributedDataLoader(object):
         return self
 
     def load_dataset(self):
-        return load_dataset(self.hf_dataset, split=self.split, num_proc=self.num_proc, features=self.features)
+        return load_dataset(self.hf_dataset, split=self.split, num_proc=self.num_proc, features=self.features, token=os.getenv('HF_TOKEN'))
 
     @property
     def model_max_length(self):

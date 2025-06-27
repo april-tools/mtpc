@@ -3,7 +3,9 @@ import re
 from mtp.data.local_dataloader import LocalDistributedDataLoader
 from mtp.data.sharegpt import ShareGPTDataLoader
 from mtp.data.tuluv3 import TuluDataLoader
+from mtp.data.tuluv3_packing import TuluPackedDataLoader
 from mtp.data.tuluv3_evabyte import EvaByteTuluDataLoader
+from mtp.data.tuluv3_evabyte_packed import EvaByteTuluPackedDataLoader
 
 
 class DistributedDataLoader:
@@ -74,3 +76,4 @@ DistributedDataLoader.register(".+\.bin", LocalDistributedDataLoader)
 DistributedDataLoader.register("Aeala/ShareGPT_Vicuna_unfiltered", ShareGPTDataLoader)
 DistributedDataLoader.register("allenai/tulu-3-sft-mixture", TuluDataLoader)
 DistributedDataLoader.register("agrv/tulu-v3-sft-evabyte-seq-len-8192", EvaByteTuluDataLoader)
+DistributedDataLoader.register("agrv/tulu-v3-sft-evabyte-packed-seq-len-8192", EvaByteTuluPackedDataLoader)

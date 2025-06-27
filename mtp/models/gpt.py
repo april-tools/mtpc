@@ -95,6 +95,7 @@ class GPTEncoder(nn.Module):
     def forward(self,
                 input_ids: LongTensor,
                 attention_mask: LongTensor | None = None,
+                position_ids: LongTensor | None = None,
                 use_cache: bool = False,
                 ) -> Tensor:
 

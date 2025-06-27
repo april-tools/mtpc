@@ -6,7 +6,8 @@ import peft
 from peft import PeftModel
 
 from torch import nn, Tensor
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM
+# from transformers import BitsAndBytesConfig
 from transformers.cache_utils import Cache
 
 from mtp.utils.distributed import get_local_device
@@ -109,13 +110,14 @@ class LM(nn.Module):
                 )._lm
         elif self.from_huggingface is not None:
             if 'EvaByte' in self.from_huggingface:
-                kwargs = {'trust_remote_code': True}
+                # Set use_cache to false to avoid weird EvaByte behaviour during training
+                kwargs = {'trust_remote_code': True, 'use_cache': False}
             else:
                 kwargs = {'attn_implementation': "flash_attention_2"}
             lm = AutoModelForCausalLM.from_pretrained(
                 self.from_huggingface,
                 torch_dtype=torch.bfloat16,
-                quantization_config=BitsAndBytesConfig(load_in_4bit=True),
+                # quantization_config=BitsAndBytesConfig(load_in_4bit=True),
                 **kwargs
             )
             if 'EvaByte' in self.from_huggingface:

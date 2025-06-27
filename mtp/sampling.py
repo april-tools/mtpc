@@ -2,7 +2,8 @@ import os
 import torch
 import argparse
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import BitsAndBytesConfig
 from torch import autocast
 
 from mtp.utils.checkpoint import Checkpoint
@@ -73,7 +74,8 @@ if __name__ == "__main__":
     lm = ckp.model
     lm.eval()
 
-    vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True, quantization_config=BitsAndBytesConfig(load_in_4bit=True))
+    # vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True, quantization_config=BitsAndBytesConfig(load_in_4bit=True))
+    vanilla_lm = AutoModelForCausalLM.from_pretrained(lm.lm.from_huggingface, torch_dtype=torch.bfloat16, trust_remote_code=True)
     vanilla_lm.cuda()
     vanilla_lm.eval()
     
@@ -85,7 +87,7 @@ if __name__ == "__main__":
         out = lm.generate(inputs=tokens['input_ids'], draft_top_p=args.draft_top_p)
 
     NS = args.num_samples
-    out, _ = lm.circuit.sample(NS)
+    out = lm.circuit.sample(NS)
     scores = lm.circuit(out)
     ar_scores = score_autoregressive(vanilla_lm, tokens['input_ids'], out, 'cuda')
     eva_scores = score_evabyte(vanilla_lm, tokens['input_ids'], out, 'cuda')

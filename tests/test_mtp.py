@@ -124,7 +124,7 @@ def test_mtp_self_speculative_generate(mtp: MultiTokenLM):
     worlds_seqs = torch.cat([torch.full(size=(worlds.shape[0], 1), fill_value=BOS, dtype=torch.int64), worlds], dim=1)
     xx = worlds_seqs[:, :-1].contiguous()
     yy = worlds_seqs[:, 1:].contiguous()
-    results = mtp.lm(xx, yy=yy, return_logits=True)
+    results = mtp.lm(xx, labels=yy, return_logits=True)
     assert results['logits'].shape[1] == max_seq_length - 1
     log_probs = torch.log_softmax(results['logits'].to(ratios.dtype), dim=-1)
     worlds_log_probs = torch.gather(log_probs, dim=2, index=yy.unsqueeze(dim=2)).squeeze(dim=2)

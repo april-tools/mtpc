@@ -19,7 +19,6 @@ if __name__ == '__main__':
     parser.add_argument('--use-cache', action='store_true', default=False, help="Whether to show the results with KV cache enabled")
     parser.add_argument('--n_token', type=int, default=8, help="The number of tokens for the circuit model")
     parser.add_argument('--n_components', type=int, nargs='+', help="The number of components for the circuit model")
-    parser.add_argument('--argmax', action='store_true', default=False, help="Whether to show the argmax or the argmax with top-p p=0")
     parser.add_argument('--id', type=str, default="", help="The id of the experiment that will be appended to the filename")
 
     args = parser.parse_args()
@@ -28,35 +27,19 @@ if __name__ == '__main__':
     with open(args.results, 'r') as f:
         for line in f:
             r = json.loads(line)
-            if 'argmax' not in r:
-                r['argmax'] = False
-            if r['speculative'] and '@2000' not in r['checkpoint']:
-                continue
             entries.append(r)
     df = pd.DataFrame(entries)
     df = df[(df['model'] == 'mtp.models.stp.SingleTokenLM') | (df['ntoken'] == args.n_token)]
     df = df[df['ncomponent'].isin(args.n_components)]
     df = df[df['use_kv_cache'] == args.use_cache]
 
-    if 'argmax' in df.columns:
-        if args.argmax:
-            df = df[(df['argmax'] == True) | ((df['draft_top_p'] == 1.0) & (df['target_top_p'] == 1.0))]
-        else:
-            df = df[df['argmax'] == False]
-        df = df.reset_index()
-
     def row_gen_setting(r: pd.Series) -> str:
         gen_setting = ''
         speculative = r['speculative']
         if speculative:
             gen_setting += 'Spec.'
-            argmax = r.get('argmax', default=False)
-            argmax = argmax if not np.isnan(argmax) else False
-            draft_top_p, target_top_p = r['draft_top_p'], r['target_top_p']
-            argmax_top_p0 = draft_top_p == 0.0 and target_top_p == 0.0
-            if argmax_top_p0:
-                gen_setting += ' (argmax top-p)'
-            elif argmax:
+            argmax = r['argmax']
+            if argmax:
                 gen_setting += ' (argmax)'
             else:
                 gen_setting += ' (sample)'
@@ -71,17 +54,18 @@ if __name__ == '__main__':
             model_id += 'STP'
         elif model == "mtp.models.mtp.MultiTokenLM":
             circuit = r['circuit']
+            n_component = r['ncomponent']
             if circuit == 'fully_factorized':
-                model_id += 'FF'
-            else:
-                n_component = r['ncomponent']
-                if circuit == 'cp':
-                    model_id += 'CP'
-                elif circuit == 'hmm':
-                    model_id += 'HMM'
+               assert n_component == 1
+               model_id += 'FF'
+            elif circuit == 'cp':
+                assert n_component > 0
+                if n_component == 1:
+                    model_id += 'FF'
                 else:
-                    assert False
-                model_id += f' (r={n_component})'
+                    model_id += f'CP (r={n_component})'
+            elif circuit == 'hmm':
+                model_id += f'HMM (r={n_component})'
         else:
             assert False
         return model_id
@@ -94,11 +78,9 @@ if __name__ == '__main__':
 
     # Plot based on generation setting
 
-    if args.argmax:
-        order = ['Sampling', 'Spec. (sample)', 'Spec. (argmax)']
-    else:
-        order = ['Sampling', 'Spec. (sample)', 'Spec. (argmax top-p)']
-    hue_order = ["STP", "FF", "CP (r=8)", "CP (r=32)"]
+    order = ['Sampling', 'Spec. (sample)', 'Spec. (argmax)']
+    #hue_order = ["STP", "FF", "CP (r=8)", "CP (r=32)"]
+    hue_order = ["STP", "FF", "CP (r=32)"]
     sb.barplot(
         df,
         x="gen_setting",
@@ -109,7 +91,7 @@ if __name__ == '__main__':
         ax=ax
     )
     for container in ax.containers:
-        ax.bar_label(container, fontsize=8, fmt='{:.1f}')
+        ax.bar_label(container, fontsize=9, fmt='{:.1f}')
 
     ax.set_axisbelow(True)
     ax.grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
@@ -118,6 +100,7 @@ if __name__ == '__main__':
     ax.set_xlabel("")
     ax.set_ylabel("Throughput (tok/s)")
     ax.legend(loc="upper left", bbox_to_anchor=(1, 1), alignment="left")
+    ax.set_title(f"Generation Throughput (n={args.n_token})")
 
     filename = f"throughput-{args.id}.pdf" if args.id else "throughput.pdf"
     plt.savefig(os.path.join("outputs", "plots", filename), bbox_inches='tight')
@@ -152,12 +135,8 @@ if __name__ == '__main__':
     setup_tueplots(1, 2, rel_width=2.0, hw_ratio=0.8, tight_layout=True)
     _, ax = plt.subplots(1, 2, sharey=True, squeeze=True)
 
-    if args.argmax:
-        titles = ["Speculative (sample)", "Speculative (argmax)"]
-        filters = [{'argmax': False}, {'argmax': True}]
-    else:
-        titles = ["Speculative (sample)", "Speculative (argmax top-p)"]
-        filters = [{'draft_top_p': 1.0, 'target_top_p': 1.0}, {'draft_top_p': 0.0, 'target_top_p': 0.0}]
+    titles = ["Speculative (sample)", "Speculative (argmax)"]
+    filters = [{'argmax': False}, {'argmax': True}]
     for i, title in zip(range(len(ax)), titles):
         df_ = df.copy()
         for k, v in filters[i].items():

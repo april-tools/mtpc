@@ -29,17 +29,15 @@ class ResBlock(nn.Module):
         n_fold: int,
         n_expand: int,
         hidden_size: int,
-        output_size: int = None,
         use_skip: bool = True
     ):
         super().__init__()
         self.n_fold = n_fold
         self.n_expand = n_expand
         self.hidden_size = hidden_size
-        self.output_size = output_size
         self.use_skip = use_skip
         self.weight = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size, hidden_size))
-        self.bias = nn.Parameter(torch.empty(n_fold, n_expand, output_size))
+        self.bias = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size))
 
         # Use SiLU activation to keep consistent with the Llama model
         self.act = nn.SiLU()
@@ -189,6 +187,7 @@ class MultiTokenHead(nn.Module):
         expander_n_layer: int = 2,
         expander_use_skip: bool = True,
         freeze_vocab_unembedding: bool = False,
+        share_sum_weights: bool = False
     ):
         super().__init__()
         self.config = config
@@ -230,19 +229,43 @@ class MultiTokenHead(nn.Module):
 
         # Instantiate as many expander heads as needed by the circuit parameters configuration
         sum_weights_heads = []
+        sum_weights_unique_indices: list[int] | None = None
         categorical_log_probs_heads = []
-        for k, shape in enumerate(config.sum_weights_shapes):
-            n_folds, n_output_units, n_input_units = shape
-            head = ExpanderHead(
-                type=expander_type,
-                n_fold=n_folds,
-                n_expand=n_output_units,
-                hidden_size=n_embd,
-                output_size=n_input_units,
-                n_layer=expander_n_layer,
-                use_skip=expander_use_skip
-            )
-            sum_weights_heads.append(head)
+        if share_sum_weights:
+            sum_weights_unique_shapes = {}
+            sum_weights_unique_indices = []
+            for k, shape in enumerate(config.sum_weights_shapes):
+                if shape in sum_weights_unique_shapes:
+                    idx = sum_weights_unique_shapes[shape]
+                    sum_weights_unique_indices.append(idx)
+                    continue
+                n_folds, n_output_units, n_input_units = shape
+                head = ExpanderHead(
+                    type=expander_type,
+                    n_fold=n_folds,
+                    n_expand=n_output_units,
+                    hidden_size=n_embd,
+                    output_size=n_input_units,
+                    n_layer=expander_n_layer,
+                    use_skip=expander_use_skip
+                )
+                sum_weights_heads.append(head)
+                cur_sum_weight_idx = len(sum_weights_unique_shapes)
+                sum_weights_unique_shapes[shape] = cur_sum_weight_idx
+                sum_weights_unique_indices.append(cur_sum_weight_idx)
+        else:
+            for k, shape in enumerate(config.sum_weights_shapes):
+                n_folds, n_output_units, n_input_units = shape
+                head = ExpanderHead(
+                    type=expander_type,
+                    n_fold=n_folds,
+                    n_expand=n_output_units,
+                    hidden_size=n_embd,
+                    output_size=n_input_units,
+                    n_layer=expander_n_layer,
+                    use_skip=expander_use_skip
+                )
+                sum_weights_heads.append(head)
         for k, shape in enumerate(config.categorical_log_probs_shapes):
             n_folds, n_components, vocab_size = shape
             head = ExpanderHead(
@@ -256,6 +279,7 @@ class MultiTokenHead(nn.Module):
             )
             categorical_log_probs_heads.append(head)
         self._sum_weights_heads = nn.ModuleList(sum_weights_heads)
+        self._sum_weights_unique_indices = sum_weights_unique_indices
         self._categorical_log_probs_heads = nn.ModuleList(categorical_log_probs_heads)
 
         # Initialize the parameters
@@ -453,6 +477,9 @@ class MultiTokenHead(nn.Module):
                 sum_weights.append(
                     torch.softmax(sum_logits.permute(2, 0, 1, 3, 4), dim=-1)
                 )
+            # Share the sum weights, if needed
+            if self._sum_weights_unique_indices is not None:
+                sum_weights = [sum_weights[i] for i in self._sum_weights_unique_indices]
 
         # Parameterize the token Categoricals of the circuit
         categorical_log_probs = []  # A list of tensors (F, B, S, R, V)

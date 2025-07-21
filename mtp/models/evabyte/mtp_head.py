@@ -38,6 +38,7 @@ class ResBlock(nn.Module):
         self.use_skip = use_skip
         self.weight = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size, hidden_size))
         self.bias = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size))
+        print((n_fold, n_expand, hidden_size, hidden_size))
 
         # Use SiLU activation to keep consistent with the Llama model
         self.act = nn.SiLU()
@@ -196,7 +197,7 @@ class MultiTokenHead(nn.Module):
         self.n_embd = n_embd
         self.transformer_n_head = transformer_n_head
         self.transformer_n_layer = transformer_n_layer
-        self.expander_type = expander_n_layer
+        self.expander_type = expander_type
         self.expander_n_layer = expander_n_layer
 
         # Evabyte transformers necessarily work with bfloat16

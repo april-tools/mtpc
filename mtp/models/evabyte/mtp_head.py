@@ -34,8 +34,10 @@ class NonContextualParameter(nn.Module):
         self.weight = nn.Parameter(torch.empty(*shape))
 
     def forward(self, xx: Tensor) -> Tensor:
-        # Expand the parameters to be the right size
-        pass
+        # Expand the parameters for them to apply to all sequence positions
+        # and all sequences in the batch
+        # xx: (B, S, F, R, D)
+        return self.weight.broadcast_to(xx.shape)
 
 
 class ResBlock(nn.Module):
@@ -99,7 +101,7 @@ class LinearHead(nn.Module):
         self.n_expand = n_expand  # R
         self.hidden_size = hidden_size  # D
         self.output_size = output_size
-        
+
         # Instantiate the projection layer
         self.proj = nn.Parameter(torch.empty(n_fold, n_expand, output_size, hidden_size))
 
@@ -177,7 +179,7 @@ class ExpanderHead(nn.Module):
             )
         else:
             raise NotImplementedError(f"Unknown expander layer type called '{type}'")
-        
+
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, F, R, V) or (B, S, F, Ko, Ki)
         return self.head(xx)
@@ -376,6 +378,15 @@ class MultiTokenHead(nn.Module):
             elif isinstance(module, (LinearHead, MLPHead)):
                 bound = getattr(self._evabyte_config, "initializer_range", 0.02)
                 module.proj.data.uniform_(-bound, bound)
+            elif isinstance(module, (NonContextualParameter)):
+                if module.init == 'identity':
+                    with torch.no_grad():
+                        assert module.shape[-2] == module.shape[-1]
+                        module.weight.copy_(torch.eye(module.shape[-1]))
+                else:
+                    # This is approx. uniform distribution if used as logits
+                    std = getattr(self._evabyte_config, "initializer_range", 0.02)
+                    module.weight.data.normal_(mean=0.0, std=std)
 
         for module in self.modules():
             _init_weights(module)

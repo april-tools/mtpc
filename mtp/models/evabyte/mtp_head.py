@@ -20,12 +20,13 @@ class NonContextualParameter(nn.Module):
     We create this module to simplify interfacing and also make it easy
     to expand the parameters to the needed size (that does depend on the input).
     """
+
     def __init__(
         self,
         shape: tuple,
         init: str = 'random',
     ):
-        super().__init()
+        super().__init__()
         self.shape = shape
         assert init in ('identity', 'random')
         self.init = init
@@ -37,8 +38,9 @@ class NonContextualParameter(nn.Module):
     def forward(self, xx: Tensor) -> Tensor:
         # Expand the parameters for them to apply to all sequence positions
         # and all sequences in the batch
-        # xx: (B, S, F, R, D)
-        return self.weight.broadcast_to(xx.shape)
+        # xx: (B, S, D)
+        new_shape = xx.shape[:-1] + self.shape
+        return self.weight.broadcast_to(new_shape)
 
 
 class ResBlock(nn.Module):

@@ -73,7 +73,9 @@ class MultiTokenLM(torch.nn.Module):
             expander_n_layer=mt_head_kwargs.get('expander_n_layer', 1),
             expander_use_skip=not init_from_lm_head,
             freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False),
-            share_sum_weights=mt_head_kwargs.get('share_sum_weights', False)
+            share_sum_weights=mt_head_kwargs.get('share_sum_weights', False),
+            contextual_hmm_weights=mt_head_kwargs.get('contextual_hmm_weights', True),
+            init_hmm_identity=mt_head_kwargs.get('init_hmm_identity', False)
         )
         self.init_from_lm_head = init_from_lm_head
 

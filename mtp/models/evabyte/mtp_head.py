@@ -1,5 +1,4 @@
 from functools import cached_property
-import math
 import torch
 
 from torch import Tensor
@@ -11,6 +10,32 @@ from mtp.models.circuits import ParametersConfig
 from mtp.models.evabyte.configuration_evabyte import EvaByteConfig
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.models.evabyte.modeling_evabyte import EvaByteDecoderLayer, EvaByteRMSNorm, EvaByteRotaryEmbedding, prepare_eva_generation_attn_mask_triton
+
+
+class NonContextualParameter(nn.Module):
+    """
+    This module returns a set of parameters that doesn't depend on the input.
+
+    We create this module to simplify interfacing and also make it easy
+    to expand the parameters to the needed size (that does depend on the input).
+    """
+    def __init__(
+        self,
+        shape: tuple,
+        init: str = 'random',
+    ):
+        super().__init()
+        self.shape = shape
+        assert init in ('identity', 'random')
+        self.init = init
+        if init == 'identity':
+            assert self.shape[-1] == self.shape[-2], 'Matrix must be square to init to identity'
+
+        self.weight = nn.Parameter(torch.empty(*shape))
+
+    def forward(self, xx: Tensor) -> Tensor:
+        # Expand the parameters to be the right size
+        pass
 
 
 class ResBlock(nn.Module):
@@ -38,7 +63,6 @@ class ResBlock(nn.Module):
         self.use_skip = use_skip
         self.weight = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size, hidden_size))
         self.bias = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size))
-        print((n_fold, n_expand, hidden_size, hidden_size))
 
         # Use SiLU activation to keep consistent with the Llama model
         self.act = nn.SiLU()
@@ -188,7 +212,9 @@ class MultiTokenHead(nn.Module):
         expander_n_layer: int = 2,
         expander_use_skip: bool = True,
         freeze_vocab_unembedding: bool = False,
-        share_sum_weights: bool = False
+        share_sum_weights: bool = False,
+        contextual_hmm_weights: bool = True,
+        init_hmm_identity: bool = False,
     ):
         super().__init__()
         self.config = config
@@ -199,6 +225,11 @@ class MultiTokenHead(nn.Module):
         self.transformer_n_layer = transformer_n_layer
         self.expander_type = expander_type
         self.expander_n_layer = expander_n_layer
+        self.expander_use_skip = expander_use_skip
+        self.freeze_vocab_unembedding = freeze_vocab_unembedding
+        self.share_sum_weights = share_sum_weights
+        self.contextual_hmm_weights = contextual_hmm_weights
+        self.init_hmm_identity = init_hmm_identity
 
         # Evabyte transformers necessarily work with bfloat16
         prev_dtype = torch.get_default_dtype()
@@ -232,6 +263,7 @@ class MultiTokenHead(nn.Module):
         sum_weights_heads = []
         sum_weights_unique_indices: list[int] | None = None
         categorical_log_probs_heads = []
+        # Deal with sum weights first
         if share_sum_weights:
             sum_weights_unique_shapes = {}
             sum_weights_unique_indices = []
@@ -241,15 +273,20 @@ class MultiTokenHead(nn.Module):
                     sum_weights_unique_indices.append(idx)
                     continue
                 n_folds, n_output_units, n_input_units = shape
-                head = ExpanderHead(
-                    type=expander_type,
-                    n_fold=n_folds,
-                    n_expand=n_output_units,
-                    hidden_size=n_embd,
-                    output_size=n_input_units,
-                    n_layer=expander_n_layer,
-                    use_skip=expander_use_skip
-                )
+                # If we are dealing with an HMM layer
+                if (n_output_units == n_input_units) and (not self.contextual_hmm_weights):
+                    init = 'identity' if self.init_hmm_identity else 'random'
+                    head = NonContextualParameter(shape, init=init)
+                else:
+                    head = ExpanderHead(
+                        type=expander_type,
+                        n_fold=n_folds,
+                        n_expand=n_output_units,
+                        hidden_size=n_embd,
+                        output_size=n_input_units,
+                        n_layer=expander_n_layer,
+                        use_skip=expander_use_skip
+                    )
                 sum_weights_heads.append(head)
                 cur_sum_weight_idx = len(sum_weights_unique_shapes)
                 sum_weights_unique_shapes[shape] = cur_sum_weight_idx
@@ -257,16 +294,21 @@ class MultiTokenHead(nn.Module):
         else:
             for k, shape in enumerate(config.sum_weights_shapes):
                 n_folds, n_output_units, n_input_units = shape
-                head = ExpanderHead(
-                    type=expander_type,
-                    n_fold=n_folds,
-                    n_expand=n_output_units,
-                    hidden_size=n_embd,
-                    output_size=n_input_units,
-                    n_layer=expander_n_layer,
-                    use_skip=expander_use_skip
-                )
+                if (n_output_units == n_input_units) and (not self.contextual_hmm_weights):
+                    init = 'identity' if self.init_hmm_identity else 'random'
+                    head = NonContextualParameter(shape, init=init)
+                else:
+                    head = ExpanderHead(
+                        type=expander_type,
+                        n_fold=n_folds,
+                        n_expand=n_output_units,
+                        hidden_size=n_embd,
+                        output_size=n_input_units,
+                        n_layer=expander_n_layer,
+                        use_skip=expander_use_skip
+                    )
                 sum_weights_heads.append(head)
+        # Deal with categorical weights
         for k, shape in enumerate(config.categorical_log_probs_shapes):
             n_folds, n_components, vocab_size = shape
             head = ExpanderHead(
@@ -378,7 +420,7 @@ class MultiTokenHead(nn.Module):
         max_seq_length = past_seen_tokens + seq_len
         # Shamelessly copying preparation of Evabyte transformer's arguments from the Evabyte pre-trained model
         if (not self.training) and (not use_cache) and (not multibyte_decoding):
-            # forward-only inference mode. 
+            # forward-only inference mode.
             # We tweak use_cache to be True to reuse code for generation
             use_cache = True
             if position_ids is None:
@@ -465,7 +507,7 @@ class MultiTokenHead(nn.Module):
                     past_key_value=past_key_values,
                     multibyte_decoding=multibyte_decoding,
                     cos=cos,
-                    sin=sin, 
+                    sin=sin,
                 )
             else:
                 zz_sum = xx
@@ -494,7 +536,7 @@ class MultiTokenHead(nn.Module):
                     past_key_value=past_key_values,
                     multibyte_decoding=multibyte_decoding,
                     cos=cos,
-                    sin=sin, 
+                    sin=sin,
                 )
             else:
                 zz_tok = xx

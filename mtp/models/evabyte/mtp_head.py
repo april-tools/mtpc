@@ -1,8 +1,9 @@
-from functools import cached_property
+import math
 import torch
 
 from torch import Tensor
 from torch import nn
+from functools import cached_property
 
 from transformers.cache_utils import Cache
 
@@ -381,8 +382,17 @@ class MultiTokenHead(nn.Module):
             elif isinstance(module, (NonContextualParameter)):
                 if module.init == 'identity':
                     with torch.no_grad():
-                        assert module.shape[-2] == module.shape[-1]
-                        module.weight.copy_(torch.eye(module.shape[-1]))
+                        assert module.weight.shape[-2] == module.weight.shape[-1]
+                        # Compute logprobs such that distribution is approx one hot
+                        # min_prob for all position apart from i=j in the matrix
+                        # and the rest of the mass is on i=j.
+                        min_prob = 1e-4
+                        max_prob = 1. - min_prob * (module.shape[-1] - 1)
+                        I = torch.eye(module.shape[-1]) 
+                        logprobs = I * math.log(max_prob) + (1 - I) * math.log(min_prob)
+                        # Center the matrix - subtracting constant does not
+                        # affect softmax values
+                        module.weight.copy_(logprobs - logprobs.mean())
                 else:
                     # This is approx. uniform distribution if used as logits
                     std = getattr(self._evabyte_config, "initializer_range", 0.02)

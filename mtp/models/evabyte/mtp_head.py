@@ -210,6 +210,22 @@ class ExpanderHead(nn.Module):
             zz = zz + self.bias
         return zz
 
+    @property
+    def n_fold(self):
+        return self.head.n_fold
+
+    @property
+    def n_expand(self):
+        return self.head.n_expand
+
+    @property
+    def hidden_size(self):
+        return self.head.hidden_size
+
+    @property
+    def output_size(self):
+        return self.head.output_size
+
 
 class TransformerHead(nn.Module):
     def __init__(self, config: EvaByteConfig, n_layer: int = 1, layer_start_idx: int = 0):

@@ -13,6 +13,20 @@ from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.models.evabyte.modeling_evabyte import EvaByteDecoderLayer, EvaByteRMSNorm, EvaByteRotaryEmbedding, prepare_eva_generation_attn_mask_triton
 
 
+@torch.no_grad()
+def init_identity(weight, min_prob=1e-4):
+    assert weight.shape[-2] == weight.shape[-1]
+    # Compute logprobs such that distribution is approx one hot
+    # min_prob for all position apart from i=j in the matrix
+    # and the rest of the mass is on i=j.
+    max_prob = 1. - min_prob * (weight.shape[-1] - 1)
+    I = torch.eye(weight.shape[-1]) 
+    logprobs = I * math.log(max_prob) + (1 - I) * math.log(min_prob)
+    # Center the matrix - subtracting constant does not
+    # affect softmax values
+    weight.copy_(logprobs - logprobs.mean())
+
+
 class NonContextualParameter(nn.Module):
     """
     This module returns a set of parameters that doesn't depend on the input.
@@ -161,9 +175,12 @@ class ExpanderHead(nn.Module):
         type: str = 'linear',
         n_layer: int = 1,
         use_skip: bool = True,
+        add_bias: bool = False,
         **kwargs
     ):
         super().__init__()
+        self.add_bias = add_bias
+
         if type == 'linear':
             self.head = LinearHead(
                 n_fold,
@@ -183,9 +200,15 @@ class ExpanderHead(nn.Module):
         else:
             raise NotImplementedError(f"Unknown expander layer type called '{type}'")
 
+        if self.add_bias:
+            self.bias = nn.Parameter(torch.empty(n_fold, n_expand, output_size))
+
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, F, R, V) or (B, S, F, Ko, Ki)
-        return self.head(xx)
+        zz = self.head(xx)
+        if self.add_bias:
+            zz = zz + self.bias
+        return zz
 
 
 class TransformerHead(nn.Module):
@@ -279,9 +302,22 @@ class MultiTokenHead(nn.Module):
                     continue
                 n_folds, n_output_units, n_input_units = shape
                 # If we are dealing with an HMM layer
-                if (n_output_units == n_input_units) and (not self.contextual_hmm_weights):
-                    init = 'identity' if self.init_hmm_identity else 'random'
-                    head = NonContextualParameter(shape, init=init)
+                if (n_output_units == n_input_units):
+                    if (not self.contextual_hmm_weights):
+                        init = 'identity' if self.init_hmm_identity else 'random'
+                        head = NonContextualParameter(shape, init=init)
+                    else:
+                        # If we want to init to identity, we add a bias
+                        head = ExpanderHead(
+                            type=expander_type,
+                            n_fold=n_folds,
+                            n_expand=n_output_units,
+                            hidden_size=n_embd,
+                            output_size=n_input_units,
+                            n_layer=expander_n_layer,
+                            use_skip=expander_use_skip,
+                            add_bias=self.init_hmm_identity
+                        )
                 else:
                     head = ExpanderHead(
                         type=expander_type,
@@ -299,9 +335,23 @@ class MultiTokenHead(nn.Module):
         else:
             for k, shape in enumerate(config.sum_weights_shapes):
                 n_folds, n_output_units, n_input_units = shape
-                if (n_output_units == n_input_units) and (not self.contextual_hmm_weights):
-                    init = 'identity' if self.init_hmm_identity else 'random'
-                    head = NonContextualParameter(shape, init=init)
+                # If we are dealing with an HMM layer
+                if (n_output_units == n_input_units):
+                    if (not self.contextual_hmm_weights):
+                        init = 'identity' if self.init_hmm_identity else 'random'
+                        head = NonContextualParameter(shape, init=init)
+                    else:
+                        # If we want to init to identity, we add a bias
+                        head = ExpanderHead(
+                            type=expander_type,
+                            n_fold=n_folds,
+                            n_expand=n_output_units,
+                            hidden_size=n_embd,
+                            output_size=n_input_units,
+                            n_layer=expander_n_layer,
+                            use_skip=expander_use_skip,
+                            add_bias=self.init_hmm_identity
+                        )
                 else:
                     head = ExpanderHead(
                         type=expander_type,
@@ -379,22 +429,19 @@ class MultiTokenHead(nn.Module):
                 if module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
             elif isinstance(module, (LinearHead, MLPHead)):
-                bound = getattr(self._evabyte_config, "initializer_range", 0.02)
-                module.proj.data.uniform_(-bound, bound)
-            elif isinstance(module, (NonContextualParameter)):
+                # bound = getattr(self._evabyte_config, "initializer_range", 0.02)
+                # module.proj.data.uniform_(-bound, bound)
+                module.proj.data.normal_(mean=0.0, std=1e-3)
+            elif isinstance(module, ExpanderHead):
+                if module.add_bias:
+                    # If this is HMM and we have the flag
+                    if module.output_size == module.n_expand and self.init_hmm_identity:
+                        init_identity(module.bias)
+                    else:
+                        module.bias.data.zero_()
+            elif isinstance(module, NonContextualParameter):
                 if module.init == 'identity':
-                    with torch.no_grad():
-                        assert module.weight.shape[-2] == module.weight.shape[-1]
-                        # Compute logprobs such that distribution is approx one hot
-                        # min_prob for all position apart from i=j in the matrix
-                        # and the rest of the mass is on i=j.
-                        min_prob = 1e-4
-                        max_prob = 1. - min_prob * (module.shape[-1] - 1)
-                        I = torch.eye(module.shape[-1]) 
-                        logprobs = I * math.log(max_prob) + (1 - I) * math.log(min_prob)
-                        # Center the matrix - subtracting constant does not
-                        # affect softmax values
-                        module.weight.copy_(logprobs - logprobs.mean())
+                    init_identity(module.weight)
                 else:
                     # This is approx. uniform distribution if used as logits
                     std = getattr(self._evabyte_config, "initializer_range", 0.02)

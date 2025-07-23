@@ -20,14 +20,18 @@ if __name__ == "__main__":
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-packed-seq-len-{S}',
                                        'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='train',
                                        as_iterable=True)
-    for row in iter(ds.dataset):
+    for i, row in enumerate(iter(ds.dataset), 1):
         train_ids.extend(row['id'][0])
+        if i % 100 == 0:
+            print(f'Processed {i} packed training rows..')
 
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-packed-seq-len-{S}',
                                        'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='valid',
                                        as_iterable=True)
-    for row in iter(ds.dataset):
+    for i, row in enumerate(iter(ds.dataset), 1):
         valid_ids.extend(row['id'][0])
+        if i % 100 == 0:
+            print(f'Processed {i} packed validation rows..')
 
     assert len(train_ids) == len(set(train_ids))
     assert len(valid_ids) == len(set(valid_ids))
@@ -39,22 +43,37 @@ if __name__ == "__main__":
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-seq-len-{S}',
                                        'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='train',
                                        as_iterable=True)
-    for row in iter(ds.dataset):
+    for i, row in enumerate(iter(ds.dataset), 1):
         row_id = row['id'][0]
         padded_rows[row_id] = row
+        if i % 100 == 0:
+            print(f'Processed {i} padded train rows..')
     # Deal with valid
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-seq-len-{S}',
                                        'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='valid',
                                        as_iterable=True)
-    for row in iter(ds.dataset):
+    for i, row in enumerate(iter(ds.dataset), 1):
         row_id = row['id'][0]
         padded_rows[row_id] = row
+        if i % 100 == 0:
+            print(f'Processed {i} padded validation rows..')
 
+    num_errors = 0
+    print('Converting packed dataset splits to padded ones')
     train_rows, valid_rows = [], []
     for row_id in train_ids:
-        train_rows.append(padded_rows[row_id])
+        try:
+            train_rows.append(padded_rows[row_id])
+        except KeyError:
+            print(f'Could not find {row_id}')
+            num_errors += 1
     for row_id in valid_ids:
-        valid_rows.append(padded_rows[row_id])
+        try:
+            valid_rows.append(padded_rows[row_id])
+        except KeyError:
+            print(f'Could not find {row_id}')
+            num_errors += 1
+    print(f'Converted to padding and dropped {num_errors} examples which could not be found')
 
     train_dataset = Dataset.from_list(train_rows, features=ds.features)
     valid_dataset = Dataset.from_list(valid_rows, features=ds.features)

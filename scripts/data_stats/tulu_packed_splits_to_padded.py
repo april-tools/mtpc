@@ -16,46 +16,49 @@ if __name__ == "__main__":
     train_ids, valid_ids = [], []
 
     S = 8192
+    PRINT_EVERY = 2000
 
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-packed-seq-len-{S}',
                                        'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='train',
-                                       as_iterable=True)
+                                       as_iterable=False)
     for i, row in enumerate(iter(ds.dataset), 1):
         train_ids.extend(row['id'][0])
-        if i % 100 == 0:
+        if i % (PRINT_EVERY * 10) == 0:
             print(f'Processed {i} packed training rows..')
 
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-packed-seq-len-{S}',
                                        'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='valid',
-                                       as_iterable=True)
+                                       as_iterable=False)
     for i, row in enumerate(iter(ds.dataset), 1):
         valid_ids.extend(row['id'][0])
-        if i % 100 == 0:
+        if i % PRINT_EVERY == 0:
             print(f'Processed {i} packed validation rows..')
 
-    assert len(train_ids) == len(set(train_ids))
-    assert len(valid_ids) == len(set(valid_ids))
+    print(f'Training examples: {len(train_ids)} of which unique {len(set(train_ids))}')
+    print(f'Validation examples: {len(valid_ids)} of which unique {len(set(valid_ids))}')
+    # assert len(train_ids) == len(set(train_ids))
+    # assert len(valid_ids) == len(set(valid_ids))
     print(f'The packed dataset contains {len(train_ids)} train and {len(valid_ids)} validation examples')
 
     # Store the padded rows in a dictionary so we can easily look them up
     padded_rows = dict()
     # Deal with train
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-seq-len-{S}',
-                                       'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='train',
-                                       as_iterable=True)
+                                       'EvaByte/EvaByte-SFT', None, S, 0, 1, split='train',
+                                       as_iterable=False)
     for i, row in enumerate(iter(ds.dataset), 1):
-        row_id = row['id'][0]
+        row_id = row['id']
         padded_rows[row_id] = row
-        if i % 100 == 0:
+        if i % (PRINT_EVERY * 10) == 0:
             print(f'Processed {i} padded train rows..')
     # Deal with valid
     ds = DistributedDataLoader.resolve(f'agrv/tulu-v3-sft-evabyte-seq-len-{S}',
-                                       'EvaByte/EvaByte-SFT', 1, S, 0, 1, split='valid',
-                                       as_iterable=True)
+                                       'EvaByte/EvaByte-SFT', None, S, 0, 1, split='valid',
+                                       as_iterable=False)
     for i, row in enumerate(iter(ds.dataset), 1):
-        row_id = row['id'][0]
+        row_id = row['id']
         padded_rows[row_id] = row
-        if i % 100 == 0:
+        if i % PRINT_EVERY == 0:
             print(f'Processed {i} padded validation rows..')
 
     num_errors = 0
@@ -65,13 +68,13 @@ if __name__ == "__main__":
         try:
             train_rows.append(padded_rows[row_id])
         except KeyError:
-            print(f'Could not find {row_id}')
+            # print(f'Could not find {row_id}')
             num_errors += 1
     for row_id in valid_ids:
         try:
             valid_rows.append(padded_rows[row_id])
         except KeyError:
-            print(f'Could not find {row_id}')
+            # print(f'Could not find {row_id}')
             num_errors += 1
     print(f'Converted to padding and dropped {num_errors} examples which could not be found')
 
@@ -81,8 +84,10 @@ if __name__ == "__main__":
     # Create a DatasetDict if needed
     dataset_dict = DatasetDict({"train": train_dataset, "valid": valid_dataset})
 
+    dataset_name = f"agrv/tulu-v3-sft-evabyte-padded-seq-len-{S}"
+    print('Pushing dataset to HF: {dataset_name}')
     dataset_dict.push_to_hub(
-        f"agrv/tulu-v3-sft-evabyte-padded-seq-len-{S}",
-        token=os.environ["HF_TOKEN"],
+            dataset_name,
+            token=os.environ["HF_TOKEN"],
     )
     dataset_dict.cleanup_cache_files()

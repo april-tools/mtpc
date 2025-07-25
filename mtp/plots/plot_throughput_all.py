@@ -80,7 +80,7 @@ if __name__ == '__main__':
 
     order = ['Sampling', 'Spec. (sample)', 'Spec. (argmax)']
     #hue_order = ["STP", "FF", "CP (r=8)", "CP (r=32)"]
-    hue_order = ["STP", "FF", "CP (r=32)"]
+    hue_order = ["STP", "FF", "CP (r=32)", "HMM (r=32)"]
     sb.barplot(
         df,
         x="gen_setting",
@@ -141,10 +141,11 @@ if __name__ == '__main__':
         df_ = df.copy()
         for k, v in filters[i].items():
             df_ = df_[df_[k] == v]
+        print(df_['model_id_acceptance_rate'].unique().tolist())
         hue_order_acceptance_rate = sorted(
             df_['model_id_acceptance_rate'].unique().tolist(),
             key=lambda miar: hue_order.index(
-                ' '.join(miar.split(' ')[:2]) if 'CP' in miar else miar.split(' ')[0]
+                miar.split(' ')[0] if 'FF' in miar else ' '.join(miar.split(' ')[:2])
             )
         )
         assert len(hue_order_acceptance_rate) < len(PALETTE)

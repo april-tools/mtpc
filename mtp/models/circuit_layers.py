@@ -251,20 +251,19 @@ class TorchBatchedSumLayer(TorchInnerLayer):
         )  # shape (F, B, Ko).
 
     def sample(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        # NOTE: Commenting out this runtime check as it is very expensive for HMMs with many sum layers
         # weight: (F, B, Ko, H * Ki)
-        weight = self.weight
-        negative = torch.any(weight < 0.0)
-        normalized = torch.allclose(
-            torch.sum(weight, dim=-1), torch.ones(1, device=weight.device)
-        )
-        if negative or not normalized:
-            raise TypeError(
-                "Sampling in sum layers only works with positive weights summing to 1"
-            )
-        probs = weight
+        # normalized = torch.allclose(
+        #     torch.sum(weight, dim=-1), torch.ones(1, device=weight.device)
+        # )
+        # if negative or not normalized:
+        #     raise TypeError(
+        #         "Sampling in sum layers only works with positive weights summing to 1"
+        #     )
+        probs = self.weight
 
         # x: (F, H, Ki, num_samples * B, D) -> (F, H * Ki, num_samples * B, D)
-        num_samples = x.shape[3] // weight.shape[1]
+        num_samples = x.shape[3] // probs.shape[1]
         x = x.flatten(1, 2)
 
         # mixing_distribution: (F, B, Ko, H * Ki)

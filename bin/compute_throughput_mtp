@@ -3,13 +3,13 @@
 mkdir -p $MTP_ROOT/outputs/results
 
 device=cuda
-seed=42
 num_tokens=2048
 default="$MTP_ROOT/outputs/models/"
 subsample_prompts=150
 prompt_source="tulu-valid"
 directory="${1:-$default}"
 filetag="${2:-unspecified}"
+seed="${3:-42}"
 
 export GPUS=1
 export GPU=1

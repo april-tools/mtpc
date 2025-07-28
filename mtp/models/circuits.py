@@ -6,7 +6,8 @@ from cirkit.backend.torch.circuits import TorchCircuit
 from cirkit.backend.torch.layers import TorchHadamardLayer, TorchKroneckerLayer
 from cirkit.pipeline import PipelineContext
 from cirkit.utils.scope import Scope
-from cirkit.templates import utils, tensor_factorizations, pgms
+from cirkit.symbolic.layers import CategoricalLayer
+from cirkit.templates import utils, tensor_factorizations, pgms, region_graph
 
 from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 from mtp.models.circuit_queries import IntegrateQuery, SamplingQuery, ArgmaxQuery
@@ -56,7 +57,7 @@ class ParametersConfig:
 
     def register_sum_layer(self, layer: TorchBatchedSumLayer):
         self._sum_layers.append(layer)
-        shape = (layer.num_folds, layer.num_output_units, layer.num_input_units)
+        shape = (layer.num_folds, layer.num_output_units, layer.arity * layer.num_input_units)
         self._sum_weights_shapes.append(shape)
 
     def register_categorical_layer(self, layer: TorchBatchedCategoricalLayer):
@@ -72,7 +73,7 @@ class CircuitModel(torch.nn.Module):
         assert vocab_size > 1
         assert n_token > 1
         assert n_component > 0
-        assert kind in ["cp", "hmm"]
+        assert kind in ["cp", "hmm", "random-btree"]
         super().__init__()
 
         self.vocab_size = vocab_size  # V
@@ -108,6 +109,20 @@ class CircuitModel(torch.nn.Module):
                 num_latent_states=self.n_component,
                 input_params={"logits": utils.Parameterization()},
                 input_layer_kwargs={"num_categories": self.vocab_size},
+            )
+        elif kind == "random-btree":
+            assert self.n_component > 1, "An Random Binary Tree model requires n_component > 1"
+            num_repetitions = 16
+            rg = region_graph.RandomBinaryTree(n_token, num_repetitions=num_repetitions, seed=42)
+            symb_circuit = rg.build_circuit(
+                input_factory=lambda scope, num_units: CategoricalLayer(
+                    scope=scope,
+                    num_categories=self.vocab_size,
+                    num_output_units=num_units
+                ),
+                sum_product='cp-t',
+                num_input_units=self.n_component,
+                num_sum_units=self.n_component,
             )
         else:
             assert False, f"Unknown model kind called {kind}"

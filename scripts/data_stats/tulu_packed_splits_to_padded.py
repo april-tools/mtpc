@@ -78,7 +78,12 @@ if __name__ == "__main__":
             num_errors += 1
     print(f'Converted to padding and dropped {num_errors} examples which could not be found')
 
-    train_dataset = Dataset.from_list(train_rows, features=ds.features)
+    # NOTE: Below we just sample as many train rows as the validation set
+    # this is because for some reason the hf library uses a huge amount of memory
+    # for the operation below and it just wasn't worth spending time to debug this now.
+    print(f'Creating new set with {len(valid_rows)} subsampled training examples')
+    train_dataset = Dataset.from_list(train_rows[:len(valid_rows)], features=ds.features)
+    print(f'Creating new validation set with {len(valid_rows)} validation examples')
     valid_dataset = Dataset.from_list(valid_rows, features=ds.features)
 
     # Create a DatasetDict if needed

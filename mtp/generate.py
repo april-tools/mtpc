@@ -346,8 +346,10 @@ if __name__ == "__main__":
         if args.prompt_source.startswith("tulu"):
             split = args.prompt_source.split("-")[-1]
             assert split in ("train", "valid")
+            # The dataset below is a subset of the packed dataset but in padded format
+            # for easy use with EvaByte
             dl = DistributedDataLoader.resolve(
-                "agrv/tulu-v3-sft-evabyte-seq-len-8192",
+                "agrv/tulu-v3-sft-padded-evabyte-seq-len-8192",
                 "EvaByte/EvaByte",
                 1,
                 8192,

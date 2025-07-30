@@ -1,0 +1,40 @@
+#!/bin/bash
+
+mkdir -p $MTP_ROOT/outputs/results
+
+device=cuda
+seed=42
+num_tokens=2048
+default="$MTP_ROOT/outputs/models/"
+subsample_prompts=150
+prompt_source="tulu-valid"
+directory="${1:-$default}"
+filetag="${2:-unspecified}"
+
+export GPUS=1
+export GPU=1
+
+for circuit in fully_factorized cp hmm;
+do
+  for n_token in 8 16;
+  do
+    if [[ $circuit == "fully_factorized" ]]; then
+      n_components="1"
+    else
+      n_components="32"
+    fi
+
+    args=( --device cuda --mode mtp --num-tokens $num_tokens --random-seed $seed )
+    gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
+    mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=lora-last-16 data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )
+
+    for n_component in $n_components;
+    do
+      circuit_args=( circuit=$circuit circuit.n_token=$n_token circuit.n_component=$n_component )
+      python -m mtp.generate \
+        ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
+        --use-cache --dequantize  \
+        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}.jsonl"
+    done
+  done
+done

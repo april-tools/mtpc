@@ -1,9 +1,9 @@
-from functools import cached_property
 import math
 import torch
 
 from torch import Tensor
 from torch import nn
+from functools import cached_property
 
 from transformers.cache_utils import Cache
 
@@ -11,6 +11,50 @@ from mtp.models.circuits import ParametersConfig
 from mtp.models.evabyte.configuration_evabyte import EvaByteConfig
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.models.evabyte.modeling_evabyte import EvaByteDecoderLayer, EvaByteRMSNorm, EvaByteRotaryEmbedding, prepare_eva_generation_attn_mask_triton
+
+
+@torch.no_grad()
+def init_identity(weight, min_prob=1e-4):
+    assert weight.shape[-2] == weight.shape[-1]
+    # Compute logprobs such that distribution is approx one hot
+    # min_prob for all position apart from i=j in the matrix
+    # and the rest of the mass is on i=j.
+    max_prob = 1. - min_prob * (weight.shape[-1] - 1)
+    I = torch.eye(weight.shape[-1]) 
+    logprobs = I * math.log(max_prob) + (1 - I) * math.log(min_prob)
+    # Center the matrix - subtracting constant does not
+    # affect softmax values
+    weight.copy_(logprobs - logprobs.mean())
+
+
+class NonContextualParameter(nn.Module):
+    """
+    This module returns a set of parameters that doesn't depend on the input.
+
+    We create this module to simplify interfacing and also make it easy
+    to expand the parameters to the needed size (that does depend on the input).
+    """
+
+    def __init__(
+        self,
+        shape: tuple,
+        init: str = 'random',
+    ):
+        super().__init__()
+        self.shape = shape
+        assert init in ('identity', 'random')
+        self.init = init
+        if init == 'identity':
+            assert self.shape[-1] == self.shape[-2], 'Matrix must be square to init to identity'
+
+        self.weight = nn.Parameter(torch.empty(*shape))
+
+    def forward(self, xx: Tensor) -> Tensor:
+        # Expand the parameters for them to apply to all sequence positions
+        # and all sequences in the batch
+        # xx: (B, S, D)
+        new_shape = xx.shape[:-1] + self.shape
+        return self.weight.broadcast_to(new_shape)
 
 
 class ResBlock(nn.Module):
@@ -29,17 +73,15 @@ class ResBlock(nn.Module):
         n_fold: int,
         n_expand: int,
         hidden_size: int,
-        output_size: int = None,
         use_skip: bool = True
     ):
         super().__init__()
         self.n_fold = n_fold
         self.n_expand = n_expand
         self.hidden_size = hidden_size
-        self.output_size = output_size
         self.use_skip = use_skip
         self.weight = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size, hidden_size))
-        self.bias = nn.Parameter(torch.empty(n_fold, n_expand, output_size))
+        self.bias = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size))
 
         # Use SiLU activation to keep consistent with the Llama model
         self.act = nn.SiLU()
@@ -76,7 +118,7 @@ class LinearHead(nn.Module):
         self.n_expand = n_expand  # R
         self.hidden_size = hidden_size  # D
         self.output_size = output_size
-        
+
         # Instantiate the projection layer
         self.proj = nn.Parameter(torch.empty(n_fold, n_expand, output_size, hidden_size))
 
@@ -133,9 +175,12 @@ class ExpanderHead(nn.Module):
         type: str = 'linear',
         n_layer: int = 1,
         use_skip: bool = True,
+        add_bias: bool = False,
         **kwargs
     ):
         super().__init__()
+        self.add_bias = add_bias
+
         if type == 'linear':
             self.head = LinearHead(
                 n_fold,
@@ -154,10 +199,32 @@ class ExpanderHead(nn.Module):
             )
         else:
             raise NotImplementedError(f"Unknown expander layer type called '{type}'")
-        
+
+        if self.add_bias:
+            self.bias = nn.Parameter(torch.empty(n_fold, n_expand, output_size))
+
     def forward(self, xx: Tensor) -> Tensor:
         # xx: (B, S, D) -> (B, S, F, R, V) or (B, S, F, Ko, Ki)
-        return self.head(xx)
+        zz = self.head(xx)
+        if self.add_bias:
+            zz = zz + self.bias
+        return zz
+
+    @property
+    def n_fold(self):
+        return self.head.n_fold
+
+    @property
+    def n_expand(self):
+        return self.head.n_expand
+
+    @property
+    def hidden_size(self):
+        return self.head.hidden_size
+
+    @property
+    def output_size(self):
+        return self.head.output_size
 
 
 class TransformerHead(nn.Module):
@@ -189,6 +256,9 @@ class MultiTokenHead(nn.Module):
         expander_n_layer: int = 2,
         expander_use_skip: bool = True,
         freeze_vocab_unembedding: bool = False,
+        share_sum_weights: bool = False,
+        contextual_hmm_weights: bool = True,
+        init_hmm_identity: bool = False,
     ):
         super().__init__()
         self.config = config
@@ -197,8 +267,13 @@ class MultiTokenHead(nn.Module):
         self.n_embd = n_embd
         self.transformer_n_head = transformer_n_head
         self.transformer_n_layer = transformer_n_layer
-        self.expander_type = expander_n_layer
+        self.expander_type = expander_type
         self.expander_n_layer = expander_n_layer
+        self.expander_use_skip = expander_use_skip
+        self.freeze_vocab_unembedding = freeze_vocab_unembedding
+        self.share_sum_weights = share_sum_weights
+        self.contextual_hmm_weights = contextual_hmm_weights
+        self.init_hmm_identity = init_hmm_identity
 
         # Evabyte transformers necessarily work with bfloat16
         prev_dtype = torch.get_default_dtype()
@@ -230,19 +305,81 @@ class MultiTokenHead(nn.Module):
 
         # Instantiate as many expander heads as needed by the circuit parameters configuration
         sum_weights_heads = []
+        sum_weights_unique_indices: list[int] | None = None
         categorical_log_probs_heads = []
-        for k, shape in enumerate(config.sum_weights_shapes):
-            n_folds, n_output_units, n_input_units = shape
-            head = ExpanderHead(
-                type=expander_type,
-                n_fold=n_folds,
-                n_expand=n_output_units,
-                hidden_size=n_embd,
-                output_size=n_input_units,
-                n_layer=expander_n_layer,
-                use_skip=expander_use_skip
-            )
-            sum_weights_heads.append(head)
+        # Deal with sum weights first
+        if share_sum_weights:
+            sum_weights_unique_shapes = {}
+            sum_weights_unique_indices = []
+            for k, shape in enumerate(config.sum_weights_shapes):
+                if shape in sum_weights_unique_shapes:
+                    idx = sum_weights_unique_shapes[shape]
+                    sum_weights_unique_indices.append(idx)
+                    continue
+                n_folds, n_output_units, n_input_units = shape
+                # If we are dealing with an HMM layer
+                if (n_output_units == n_input_units):
+                    if (not self.contextual_hmm_weights):
+                        init = 'identity' if self.init_hmm_identity else 'random'
+                        head = NonContextualParameter(shape, init=init)
+                    else:
+                        # If we want to init to identity, we add a bias
+                        head = ExpanderHead(
+                            type=expander_type,
+                            n_fold=n_folds,
+                            n_expand=n_output_units,
+                            hidden_size=n_embd,
+                            output_size=n_input_units,
+                            n_layer=expander_n_layer,
+                            use_skip=expander_use_skip,
+                            add_bias=self.init_hmm_identity
+                        )
+                else:
+                    head = ExpanderHead(
+                        type=expander_type,
+                        n_fold=n_folds,
+                        n_expand=n_output_units,
+                        hidden_size=n_embd,
+                        output_size=n_input_units,
+                        n_layer=expander_n_layer,
+                        use_skip=expander_use_skip
+                    )
+                sum_weights_heads.append(head)
+                cur_sum_weight_idx = len(sum_weights_unique_shapes)
+                sum_weights_unique_shapes[shape] = cur_sum_weight_idx
+                sum_weights_unique_indices.append(cur_sum_weight_idx)
+        else:
+            for k, shape in enumerate(config.sum_weights_shapes):
+                n_folds, n_output_units, n_input_units = shape
+                # If we are dealing with an HMM layer
+                if (n_output_units == n_input_units):
+                    if (not self.contextual_hmm_weights):
+                        init = 'identity' if self.init_hmm_identity else 'random'
+                        head = NonContextualParameter(shape, init=init)
+                    else:
+                        # If we want to init to identity, we add a bias
+                        head = ExpanderHead(
+                            type=expander_type,
+                            n_fold=n_folds,
+                            n_expand=n_output_units,
+                            hidden_size=n_embd,
+                            output_size=n_input_units,
+                            n_layer=expander_n_layer,
+                            use_skip=expander_use_skip,
+                            add_bias=self.init_hmm_identity
+                        )
+                else:
+                    head = ExpanderHead(
+                        type=expander_type,
+                        n_fold=n_folds,
+                        n_expand=n_output_units,
+                        hidden_size=n_embd,
+                        output_size=n_input_units,
+                        n_layer=expander_n_layer,
+                        use_skip=expander_use_skip
+                    )
+                sum_weights_heads.append(head)
+        # Deal with categorical weights
         for k, shape in enumerate(config.categorical_log_probs_shapes):
             n_folds, n_components, vocab_size = shape
             head = ExpanderHead(
@@ -256,6 +393,7 @@ class MultiTokenHead(nn.Module):
             )
             categorical_log_probs_heads.append(head)
         self._sum_weights_heads = nn.ModuleList(sum_weights_heads)
+        self._sum_weights_unique_indices = sum_weights_unique_indices
         self._categorical_log_probs_heads = nn.ModuleList(categorical_log_probs_heads)
 
         # Initialize the parameters
@@ -307,8 +445,23 @@ class MultiTokenHead(nn.Module):
                 if module.padding_idx is not None:
                     module.weight.data[module.padding_idx].zero_()
             elif isinstance(module, (LinearHead, MLPHead)):
-                bound = getattr(self._evabyte_config, "initializer_range", 0.02)
-                module.proj.data.uniform_(-bound, bound)
+                # bound = getattr(self._evabyte_config, "initializer_range", 0.02)
+                # module.proj.data.uniform_(-bound, bound)
+                module.proj.data.normal_(mean=0.0, std=1e-3)
+            elif isinstance(module, ExpanderHead):
+                if module.add_bias:
+                    # If this is HMM and we have the flag
+                    if module.output_size == module.n_expand and self.init_hmm_identity:
+                        init_identity(module.bias)
+                    else:
+                        module.bias.data.zero_()
+            elif isinstance(module, NonContextualParameter):
+                if module.init == 'identity':
+                    init_identity(module.weight)
+                else:
+                    # This is approx. uniform distribution if used as logits
+                    std = getattr(self._evabyte_config, "initializer_range", 0.02)
+                    module.weight.data.normal_(mean=0.0, std=std)
 
         for module in self.modules():
             _init_weights(module)
@@ -353,7 +506,7 @@ class MultiTokenHead(nn.Module):
         max_seq_length = past_seen_tokens + seq_len
         # Shamelessly copying preparation of Evabyte transformer's arguments from the Evabyte pre-trained model
         if (not self.training) and (not use_cache) and (not multibyte_decoding):
-            # forward-only inference mode. 
+            # forward-only inference mode.
             # We tweak use_cache to be True to reuse code for generation
             use_cache = True
             if position_ids is None:
@@ -440,7 +593,7 @@ class MultiTokenHead(nn.Module):
                     past_key_value=past_key_values,
                     multibyte_decoding=multibyte_decoding,
                     cos=cos,
-                    sin=sin, 
+                    sin=sin,
                 )
             else:
                 zz_sum = xx
@@ -453,6 +606,9 @@ class MultiTokenHead(nn.Module):
                 sum_weights.append(
                     torch.softmax(sum_logits.permute(2, 0, 1, 3, 4), dim=-1)
                 )
+            # Share the sum weights, if needed
+            if self._sum_weights_unique_indices is not None:
+                sum_weights = [sum_weights[i] for i in self._sum_weights_unique_indices]
 
         # Parameterize the token Categoricals of the circuit
         categorical_log_probs = []  # A list of tensors (F, B, S, R, V)
@@ -466,7 +622,7 @@ class MultiTokenHead(nn.Module):
                     past_key_value=past_key_values,
                     multibyte_decoding=multibyte_decoding,
                     cos=cos,
-                    sin=sin, 
+                    sin=sin,
                 )
             else:
                 zz_tok = xx

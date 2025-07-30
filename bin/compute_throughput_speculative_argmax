@@ -1,40 +1,35 @@
 #!/bin/bash
 
-# In this script we evaluate generation throughput
-# I.e. how many tokens we can generate per second (with a batch size of one)
-
 mkdir -p $MTP_ROOT/outputs/results
 
-
-device=cuda
-seed=12
-num_tokens=512
-# Subsample 100 prompts from spec_bench. Set to 0 to use the whole spec_bench
-# Note that same random seed will imply same prompts selected from spec_bench
-default="$MTP_ROOT/outputs/models/finewebedu10B"
-default_subsample_prompts="200"
-default_prompt_source="tulu-train"
-# If not overriden by cli, use default
+seed=42
+num_tokens=2048
+default="$MTP_ROOT/outputs/models/"
+subsample_prompts=150
+prompt_source="tulu-valid"
 directory="${1:-$default}"
-prompt_source="${2:-$default_prompt_source}"
-subsample_prompts="${3:-$default_subsample_prompts}"
+filetag="${2:-unspecified}"
+
+export GPUS=1
+export GPU=1
 
 for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
-	if [[ $file =~ (@0\.pt|00\.pt)$ ]]; then
-		echo -e "Processing $file..."
-		python -m mtp.generate \
-			--device cuda \
-			--mode mtp \
-			--speculative \
-			--random-seed $seed \
-			--subsample-prompts $subsample_prompts \
-			--prompt-source $prompt_source \
-			--num-tokens $num_tokens \
-			--argmax \
-			--use-cache \
-			--task chat \
-			--compile \
-			--checkpoint $file | tail -n 1 >> $MTP_ROOT/outputs/results/argmax_throughput_models-$prompt_source-ns-$subsample_prompts.jsonl
-	fi
+  if [[ $file =~ (@0\.pt|00\.pt)$ ]]; then
+    echo -e "Processing $file..."
+    python -m mtp.generate \
+      --device cuda \
+      --mode mtp \
+      --use-cache \
+      --speculative \
+      --random-seed $seed \
+      --subsample-prompts $subsample_prompts \
+      --prompt-source $prompt_source \
+      --num-tokens $num_tokens \
+      --argmax \
+      --task chat \
+      --checkpoint $file \
+      | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}.jsonl"
+  fi
 done
+

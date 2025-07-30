@@ -68,7 +68,7 @@ class ParametersConfig:
 
 class CircuitModel(torch.nn.Module):
     def __init__(
-        self, vocab_size: int, n_token: int, n_component: int, *, kind: str = "cp"
+        self, vocab_size: int, n_token: int, n_component: int, *, kind: str = "cp", n_repetition: int = 1
     ):
         assert vocab_size > 1
         assert n_token > 1
@@ -79,6 +79,7 @@ class CircuitModel(torch.nn.Module):
         self.vocab_size = vocab_size  # V
         self.n_token = n_token  # H
         self.n_component = n_component  # R
+        self.n_repetition = n_repetition
         self.kind = kind
 
         if kind == "cp":
@@ -112,8 +113,7 @@ class CircuitModel(torch.nn.Module):
             )
         elif kind == "random-btree":
             assert self.n_component > 1, "An Random Binary Tree model requires n_component > 1"
-            num_repetitions = 16
-            rg = region_graph.RandomBinaryTree(n_token, num_repetitions=num_repetitions, seed=42)
+            rg = region_graph.RandomBinaryTree(n_token, num_repetitions=self.n_repetition, seed=42)
             symb_circuit = rg.build_circuit(
                 input_factory=lambda scope, num_units: CategoricalLayer(
                     scope=scope,

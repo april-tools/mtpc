@@ -1,0 +1,14 @@
+name: mlp-evabyte
+
+hyperparameters:
+  type: 'evabyte'
+  n_embd: ${lm.n_embd}
+  transformer_n_head: ${lm.n_head}
+  transformer_n_layer: 0       # Set to zero if you want no transformer encoder
+  expander_type: 'mlp'         # The available choices are 'linear', 'mlp'
+  expander_n_layer: 1          # Only used if expander_type is 'mlp'
+  expander_hidden_size: 32     # The dimension to down-project to in the MLPs, only used if expander_type is 'mlp'
+  freeze_vocab_unembedding: false
+  share_sum_weights: false            # Only used if circuit kind is hmm
+  contextual_hmm_weights: true        # Only used if circuit kind is hmm
+  init_hmm_identity: true             # Only used if circuit kind is hmm

@@ -74,7 +74,7 @@ class CircuitModel(torch.nn.Module):
         assert vocab_size > 1
         assert n_token > 1
         assert n_component > 0
-        assert kind in ["cp", "hmm", "random-btree"]
+        assert kind in ["cp", "hmm", "btree", "random-btree"]
         super().__init__()
 
         self.vocab_size = vocab_size  # V
@@ -115,7 +115,7 @@ class CircuitModel(torch.nn.Module):
         elif "btree" in kind:
             assert kind in {'btree', 'random-btree'}, f"Unknown Binary Tree kind named '{kind}'"
             assert self.n_component > 1, "An Binary Tree model requires n_component > 1"
-            assert self.n_repetition > 1, "A Binary Tree model requires n_repetition > 1"
+            assert self.n_repetition > 0, "A Binary Tree model requires n_repetition > 0"
             randomize = kind == 'random-btree'
             rg = BinaryTree(n_token, num_repetitions=self.n_repetition, randomize=randomize, seed=42)
             symb_circuit = rg.build_circuit(

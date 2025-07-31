@@ -346,8 +346,10 @@ if __name__ == "__main__":
         if args.prompt_source.startswith("tulu"):
             split = args.prompt_source.split("-")[-1]
             assert split in ("train", "valid")
+            # The dataset below is a subset of the packed dataset but in padded format
+            # for easy use with EvaByte
             dl = DistributedDataLoader.resolve(
-                "agrv/tulu-v3-sft-evabyte-seq-len-8192",
+                "agrv/tulu-v3-sft-evabyte-padded-seq-len-8192",
                 "EvaByte/EvaByte",
                 1,
                 8192,
@@ -355,19 +357,24 @@ if __name__ == "__main__":
                 1,
                 device="cuda",
                 split=split,
-                as_iterable=True,
+                as_iterable=False,
                 shuffle=False,
             )
             ds = iter(dl.dataset)
 
+
             for example in ds:
-                if len(prompts) == args.subsample_prompts:
-                    break
                 prompt = example["messages"][0][0]
                 # We only add the first turn
                 # We also ignore prompts that start with a system prompt (rare)
                 if prompt["role"] == "user":
                     prompts.append(prompt["content"])
+
+            # The above padded dataset contains approx 9k examples
+            random_state = np.random.RandomState(args.random_seed)
+            idxs = random_state.choice(len(prompts), args.subsample_prompts, replace=False)
+            prompts = [prompts[idx] for idx in idxs]
+            assert len(prompts) == args.subsample_prompts
 
         elif args.prompt_source == "spec-bench":
             spec_bench_filepath = os.path.join(
@@ -380,7 +387,7 @@ if __name__ == "__main__":
                     # Only append first turn
                     prompts.append(row["turns"][0])
             # Make sure same seed => same prompts on which we compute the throughput
-            random_state = np.random.RandomState(42)
+            random_state = np.random.RandomState(args.random_seed)
             indices = random_state.permutation(len(prompts))[: args.subsample_prompts]
             prompts = [prompts[i] for i in indices]
         else:
@@ -404,7 +411,7 @@ if __name__ == "__main__":
     # The elapsed time to go through all the prompts
     total_elapsed_time = 0.0
 
-    for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1):
+    for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1, total=len(prompts)):
         elapsed_time, num_tokens = generate(
             x,
             disable_progress_bar=len(prompts) > 1,
@@ -428,6 +435,7 @@ if __name__ == "__main__":
 
     stats = dict()
     stats["model"] = cfg.model.model._target_
+    stats["random_seed"] = args.random_seed
     stats["ntoken"] = n_token
     stats["ncomponent"] = n_component
     stats["task"] = args.task

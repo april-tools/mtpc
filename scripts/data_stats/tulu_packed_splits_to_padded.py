@@ -82,9 +82,11 @@ if __name__ == "__main__":
     # this is because for some reason the hf library uses a huge amount of memory
     # for the operation below and it just wasn't worth spending time to debug this now.
     print(f'Creating new set with {len(valid_rows)} subsampled training examples')
-    train_dataset = Dataset.from_list(train_rows[:len(valid_rows)], features=ds.features)
+    # train_dataset = Dataset.from_list(train_rows[:len(valid_rows)], features=ds.features)
+    train_dataset = Dataset.from_list(train_rows[:len(valid_rows)])
     print(f'Creating new validation set with {len(valid_rows)} validation examples')
-    valid_dataset = Dataset.from_list(valid_rows, features=ds.features)
+    # valid_dataset = Dataset.from_list(valid_rows, features=ds.features)
+    valid_dataset = Dataset.from_list(valid_rows)
 
     # Create a DatasetDict if needed
     dataset_dict = DatasetDict({"train": train_dataset, "valid": valid_dataset})

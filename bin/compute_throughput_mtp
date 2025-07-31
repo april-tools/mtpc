@@ -7,9 +7,8 @@ num_tokens=2048
 default="$MTP_ROOT/outputs/models/"
 subsample_prompts=150
 prompt_source="tulu-valid"
-directory="${1:-$default}"
-filetag="${2:-unspecified}"
-seed="${3:-42}"
+filetag="${1:-unspecified}"
+seed="${2:-42}"
 
 export GPUS=1
 export GPU=1
@@ -33,7 +32,7 @@ do
       circuit_args=( circuit=$circuit circuit.n_token=$n_token circuit.n_component=$n_component )
       python -m mtp.generate \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
-        --use-cache --dequantize  \
+        --use-cache \
         | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}.jsonl"
     done
   done

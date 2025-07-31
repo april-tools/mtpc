@@ -349,7 +349,7 @@ if __name__ == "__main__":
             # The dataset below is a subset of the packed dataset but in padded format
             # for easy use with EvaByte
             dl = DistributedDataLoader.resolve(
-                "agrv/tulu-v3-sft-padded-evabyte-seq-len-8192",
+                "agrv/tulu-v3-sft-evabyte-padded-seq-len-8192",
                 "EvaByte/EvaByte",
                 1,
                 8192,
@@ -357,7 +357,7 @@ if __name__ == "__main__":
                 1,
                 device="cuda",
                 split=split,
-                as_iterable=True,
+                as_iterable=False,
                 shuffle=False,
             )
             ds = iter(dl.dataset)

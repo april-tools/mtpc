@@ -411,7 +411,7 @@ if __name__ == "__main__":
     # The elapsed time to go through all the prompts
     total_elapsed_time = 0.0
 
-    for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1):
+    for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1, total=len(prompts)):
         elapsed_time, num_tokens = generate(
             x,
             disable_progress_bar=len(prompts) > 1,

@@ -58,30 +58,28 @@ class NonContextualParameter(nn.Module):
 
 
 class ResBlock(nn.Module):
-    """
-    A Residual Block module.
-
-    This module performs a linear transformation followed by a SiLU activation,
-    and then adds the result to the original input, creating a residual connection.
-
-    # This is part of the Medusa model. However, here we vectorize it over an extra batch dimension on the parameters.
-    # https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
-    """
-
+    """A Residual Block module."""
     def __init__(
         self,
         n_fold: int,
         n_expand: int,
-        hidden_size: int,
+        in_features: int,
+        out_features: int,
         use_skip: bool = True
     ):
+        if use_skip and in_features != out_features:
+            raise ValueError(
+                "Cannot use skip connections if the number of input features "
+                f"'{in_features}' is different from the number of output features '{out_features}'"
+            )
         super().__init__()
         self.n_fold = n_fold
         self.n_expand = n_expand
-        self.hidden_size = hidden_size
+        self.in_features = in_features
+        self.out_features = out_features
         self.use_skip = use_skip
-        self.weight = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size, hidden_size))
-        self.bias = nn.Parameter(torch.empty(n_fold, n_expand, hidden_size))
+        self.weight = nn.Parameter(torch.empty(n_fold, n_expand, out_features, in_features))
+        self.bias = nn.Parameter(torch.empty(n_fold, n_expand, out_features))
 
         # Use SiLU activation to keep consistent with the Llama model
         self.act = nn.SiLU()
@@ -97,8 +95,9 @@ class ResBlock(nn.Module):
             torch.Tensor: Output after the residual connection and activation.
         """
         # xx: (B, S, F, R, D)
-        # zz: (B, S, F, R, D)
-        zz = torch.einsum('frcd,bsfrd->bsfrc', self.weight, xx)
+        # zz: (B, S, F, R, E), where E might be different from D
+        print(self.weight.shape, xx.shape)
+        zz = torch.einsum('fred,bsfrd->bsfre', self.weight, xx)
         zz = self.act(zz + self.bias)
         if not self.use_skip:
             return zz
@@ -133,6 +132,7 @@ class MLPHead(nn.Module):
         self,
         n_fold: int,
         n_expand: int,
+        embedding_size: int,
         hidden_size: int,
         output_size: int,
         n_layer: int = 1,
@@ -140,27 +140,37 @@ class MLPHead(nn.Module):
     ):
         super().__init__()
         assert n_layer >= 1
-        self.n_fold = n_fold            # F
-        self.n_expand = n_expand        # e.g., R or Ko
-        self.hidden_size = hidden_size  # D
-        self.output_size = output_size  # e.g., V or Ki
-        self.n_layer = n_layer
-        self.use_skip = use_skip
+        self.n_fold = n_fold  # F, the number of folds, e.g., the number of tokesn in the case of Categorical layers
+        self.n_expand = n_expand  # R for Categorical layers and Ko (number of sum units) in the case of sum layers
+        self.embedding_size = embedding_size  # The input embedding size to the MLP head (e.g., 4096 in EvaByte)
+        self.hidden_size = hidden_size  # The MLP hidden embedding size (can be smaller, e.g., 64)
+        self.output_size = output_size  # V for Categorical layers and Ki (number of inputs to each sum unit) in the case of sum layers
+        self.n_layer = n_layer  # The number of residual layer blocks
+        self.use_skip = use_skip  # Whether to use skip connections
 
         # Instantiate the MLPs with residual blocks
-        self.mlp = nn.Sequential(*[
-            ResBlock(n_fold, n_expand, hidden_size, use_skip=use_skip)
-            for _ in range(self.n_layer)
-        ])
+        blocks = []
+        for i in range(n_layer):
+            in_features = embedding_size if i == 0 else hidden_size
+            block = ResBlock(
+                n_fold,
+                n_expand,
+                in_features,
+                hidden_size,
+                use_skip=use_skip and i > 0
+            )
+            blocks.append(block)
+        self.mlp = nn.Sequential(*blocks)
 
         # Instantiate the projection layer
         self.proj = nn.Parameter(torch.empty(n_fold, n_expand, output_size, hidden_size))
 
     def forward(self, xx: Tensor) -> Tensor:
-        # xx: (B, S, D) -> (B, S, 1, D) -> (B, S, F, R, D)
-        xx = xx.unsqueeze(dim=-2)
+        # xx: (B, S, D) -> (B, S, 1, 1, D)
+        xx = xx.unsqueeze(dim=2).unsqueeze(dim=3)
+        # xx: (B, S, F, R, E)
         xx = self.mlp(xx)
-        # xx: (B, S, F, R, D) -> (B, S, F, R, O)
+        # xx: (B, S, F, R, E) -> (B, S, F, R, O)
         return torch.einsum('bsfrd,frod->bsfro', xx, self.proj)
 
 
@@ -170,10 +180,11 @@ class ExpanderHead(nn.Module):
         *,
         n_fold: int,
         n_expand: int,
-        hidden_size: int,
+        embedding_size: int,
         output_size: int,
         type: str = 'linear',
         n_layer: int = 1,
+        hidden_size: int = 32,
         use_skip: bool = True,
         add_bias: bool = False,
         **kwargs
@@ -185,13 +196,14 @@ class ExpanderHead(nn.Module):
             self.head = LinearHead(
                 n_fold,
                 n_expand,
-                hidden_size,
+                embedding_size,
                 output_size,
             )
         elif type == 'mlp':
             self.head = MLPHead(
                 n_fold,
                 n_expand,
+                embedding_size,
                 hidden_size,
                 output_size,
                 n_layer=n_layer,
@@ -219,8 +231,8 @@ class ExpanderHead(nn.Module):
         return self.head.n_expand
 
     @property
-    def hidden_size(self):
-        return self.head.hidden_size
+    def embedding_size(self):
+        return self.head.embedding_size
 
     @property
     def output_size(self):
@@ -253,6 +265,7 @@ class MultiTokenHead(nn.Module):
         transformer_n_head: int = 32,
         transformer_n_layer: int = 1,
         expander_type: str = 'linear',
+        expander_hidden_size: int = 32,
         expander_n_layer: int = 2,
         expander_use_skip: bool = True,
         freeze_vocab_unembedding: bool = False,
@@ -269,6 +282,7 @@ class MultiTokenHead(nn.Module):
         self.transformer_n_layer = transformer_n_layer
         self.expander_type = expander_type
         self.expander_n_layer = expander_n_layer
+        self.expander_hidden_size = expander_hidden_size
         self.expander_use_skip = expander_use_skip
         self.freeze_vocab_unembedding = freeze_vocab_unembedding
         self.share_sum_weights = share_sum_weights
@@ -328,9 +342,10 @@ class MultiTokenHead(nn.Module):
                             type=expander_type,
                             n_fold=n_folds,
                             n_expand=n_output_units,
-                            hidden_size=n_embd,
+                            embedding_size=n_embd,
                             output_size=n_input_units,
                             n_layer=expander_n_layer,
+                            hidden_size=expander_hidden_size,
                             use_skip=expander_use_skip,
                             add_bias=self.init_hmm_identity
                         )
@@ -339,9 +354,10 @@ class MultiTokenHead(nn.Module):
                         type=expander_type,
                         n_fold=n_folds,
                         n_expand=n_output_units,
-                        hidden_size=n_embd,
+                        embedding_size=n_embd,
                         output_size=n_input_units,
                         n_layer=expander_n_layer,
+                        hidden_size=expander_hidden_size,
                         use_skip=expander_use_skip
                     )
                 sum_weights_heads.append(head)
@@ -362,9 +378,10 @@ class MultiTokenHead(nn.Module):
                             type=expander_type,
                             n_fold=n_folds,
                             n_expand=n_output_units,
-                            hidden_size=n_embd,
+                            embedding_size=n_embd,
                             output_size=n_input_units,
                             n_layer=expander_n_layer,
+                            hidden_size=expander_hidden_size,
                             use_skip=expander_use_skip,
                             add_bias=self.init_hmm_identity
                         )
@@ -373,9 +390,10 @@ class MultiTokenHead(nn.Module):
                         type=expander_type,
                         n_fold=n_folds,
                         n_expand=n_output_units,
-                        hidden_size=n_embd,
+                        embedding_size=n_embd,
                         output_size=n_input_units,
                         n_layer=expander_n_layer,
+                        hidden_size=expander_hidden_size,
                         use_skip=expander_use_skip
                     )
                 sum_weights_heads.append(head)
@@ -386,9 +404,10 @@ class MultiTokenHead(nn.Module):
                 type=expander_type,
                 n_fold=n_folds,
                 n_expand=n_components,
-                hidden_size=n_embd,
+                embedding_size=n_embd,
                 output_size=vocab_size,
                 n_layer=expander_n_layer,
+                hidden_size=expander_hidden_size,
                 use_skip=expander_use_skip
             )
             categorical_log_probs_heads.append(head)
@@ -476,12 +495,16 @@ class MultiTokenHead(nn.Module):
 
     @torch.no_grad()
     def set_unembedding_weights(self, weights: Tensor):
+        if self.expander_type == 'mlp':
+            raise ValueError(
+                "Setting the unembeddings weights (e.g., when init_from_lm_head=True) is not supported by MLPs"
+            )
         assert weights.shape[0] % self.config.vocab_size == 0 and weights.shape[1] == self.n_embd, f"{weights.shape}"
         weights = weights.view(-1, self.config.vocab_size, self.n_embd)
         for k, tok_head in enumerate(self._categorical_log_probs_heads):
             assert isinstance(tok_head.head, (LinearHead, MLPHead))
             n_folds, n_components, _ = self.config.categorical_log_probs_shapes[k]
-            assert tok_head.head.proj.shape == (n_folds, n_components, weights.shape[1], weights.shape[2]), f"{tok_head.head.proj.shape.shape}"
+            assert tok_head.head.proj.shape == (n_folds, n_components, weights.shape[1], weights.shape[2]), f"{tok_head.head.proj.shape}"
             for j in range(n_folds):
                 var_idx = self.config.categorical_layers[k].scope_idx[j].item()
                 if not (0 <= var_idx < weights.shape[0]):

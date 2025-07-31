@@ -23,5 +23,5 @@ do
 		--device-batch-size 4 \
 		--num-examples 512 \
 		--checkpoint $file \
-		data.val_bin='agrv/tulu-v3-sft-evabyte-seq-len-8192' | tail -n 1 >> $MTP_ROOT/outputs/results/validate_models.jsonl
+		data.val_bin='agrv/tulu-v3-sft-evabyte-padded-seq-len-8192' | tail -n 1 >> $MTP_ROOT/outputs/results/validate_models.jsonl
 done

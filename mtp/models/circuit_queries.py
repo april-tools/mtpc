@@ -313,25 +313,17 @@ class ArgmaxQuery(Query):
         # TODO: add a check to verify the circuit is monotonic and normalized?
         super().__init__()
         self._circuit = circuit
-        self._cached_max_values: dict[TorchLayer, Tensor] | None = None
-
-    def reset_cached_max_values(self):
-        self._cached_max_values = None
 
     def __call__(self) -> Tensor:
         """Unconditional argmax implementation."""
         # Forward MAP evaluation
-        if self._cached_max_values is None:
-            # Cache the maximum values
-            self._cached_max_values = dict()
-            _ = self._circuit.evaluate(
-                module_fn=functools.partial(
-                    self._layer_forward_fn,
-                    max_values=self._cached_max_values
-                ),
-            )
-        max_values = self._cached_max_values
-
+        max_values: dict[TorchLayer, Tensor] = dict()
+        _ = self._circuit.evaluate(
+            module_fn=functools.partial(
+                self._layer_forward_fn,
+                max_values=max_values
+            ),
+        )
         # Collect the argmax in forward mode
         argmax = self._circuit.evaluate(
             module_fn=functools.partial(

@@ -7,8 +7,9 @@ from cirkit.backend.torch.layers import TorchHadamardLayer, TorchKroneckerLayer
 from cirkit.pipeline import PipelineContext
 from cirkit.utils.scope import Scope
 from cirkit.symbolic.layers import CategoricalLayer
-from cirkit.templates import utils, tensor_factorizations, pgms, region_graph
+from cirkit.templates import utils, tensor_factorizations, pgms
 
+from mtp.models.circuit_region_graphs import BinaryTree
 from mtp.models.circuit_layers import TorchBatchedCategoricalLayer, TorchBatchedSumLayer
 from mtp.models.circuit_queries import IntegrateQuery, SamplingQuery, ArgmaxQuery
 from mtp.models.circuit_layers import sanitize_input
@@ -111,9 +112,12 @@ class CircuitModel(torch.nn.Module):
                 input_params={"logits": utils.Parameterization()},
                 input_layer_kwargs={"num_categories": self.vocab_size},
             )
-        elif kind == "random-btree":
-            assert self.n_component > 1, "An Random Binary Tree model requires n_component > 1"
-            rg = region_graph.RandomBinaryTree(n_token, num_repetitions=self.n_repetition, seed=42)
+        elif "btree" in kind:
+            assert kind in {'btree', 'random-btree'}, f"Unknown Binary Tree kind named '{kind}'"
+            assert self.n_component > 1, "An Binary Tree model requires n_component > 1"
+            assert self.n_repetition > 1, "A Binary Tree model requires n_repetition > 1"
+            randomize = kind == 'random-btree'
+            rg = BinaryTree(n_token, num_repetitions=self.n_repetition, randomize=randomize, seed=42)
             symb_circuit = rg.build_circuit(
                 input_factory=lambda scope, num_units: CategoricalLayer(
                     scope=scope,

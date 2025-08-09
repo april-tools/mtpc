@@ -4,7 +4,7 @@ mkdir -p $MTP_ROOT/outputs/results
 
 num_tokens=2048
 default="$MTP_ROOT/outputs/models/"
-subsample_prompts=150
+subsample_prompts=250
 prompt_source="tulu-valid"
 directory="${1:-$default}"
 filetag="${2:-unspecified}"
@@ -29,7 +29,7 @@ do
       --argmax \
       --task chat \
       --checkpoint $file \
-      | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}.jsonl"
+      | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
   fi
 done
 

@@ -5,7 +5,7 @@ mkdir -p $MTP_ROOT/outputs/results
 device=cuda
 num_tokens=2048
 default="$MTP_ROOT/outputs/models/"
-subsample_prompts=150
+subsample_prompts=250
 prompt_source="tulu-valid"
 filetag="${1:-unspecified}"
 seed="${2:-42}"
@@ -33,7 +33,7 @@ do
       python -m mtp.generate \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
         --use-cache \
-        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}.jsonl"
+        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
     done
   done
 done

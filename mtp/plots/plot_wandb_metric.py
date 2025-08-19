@@ -139,11 +139,15 @@ if __name__ == '__main__':
 
     def run_identifier(r) -> str:
         model = r.config['circuit']['name']
+        n = r.config['circuit']['n_token']
+        r = r.config['circuit']['n_component']
+        if model == 'cp' and r == 1:
+            model = 'ff'
         entries = [model]
-        entries.append(f"n={r.config['circuit']['n_token']}")
-        entries.append(f"r={r.config['circuit']['n_component']}")
-        beta = r.config['model']['beta']
-        gamma = r.config['model']['gamma']
+        entries.append(f"n={n}")
+        entries.append(f"r={r}")
+        # beta = r.config['model']['beta']
+        # gamma = r.config['model']['gamma']
         # transf_tok_n_layer = r.config['model']['mt_head_hparams']['tok_transformer_n_layer']
         # transf_sum_n_layer = r.config['model']['mt_head_hparams']['sum_transformer_n_layer']
         # if transf_tok_n_layer != 0 or transf_sum_n_layer != 0:
@@ -185,7 +189,8 @@ if __name__ == '__main__':
                 ax[i][j].tick_params(labelleft=False)
             if args.log_y:
                 ax[i][j].set_yscale('log')
-    ax[i][j].legend()
+    ax[0][0].legend(loc='upper left')
+    # ax[i][j].legend()
 
     # ax[0][-1].legend(loc='upper left', bbox_to_anchor=(1, 1), alignment='left')
     fig.savefig(args.filepath)

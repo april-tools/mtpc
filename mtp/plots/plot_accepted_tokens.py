@@ -4,6 +4,7 @@ import argparse
 import matplotlib
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from itertools import groupby
 
@@ -51,9 +52,30 @@ if __name__ == '__main__':
         for i, (model, stats) in enumerate(groupby(rows, lambda x: x['model'])):
             stats = tuple(sorted(stats, key=lambda x: x['step']))
 
+            means, stds, unique_steps = [], [], []
+            for step, iter_stats in groupby(stats, lambda x: x['step']):
+                runs = []
+                for run in iter_stats:
+                    runs.append(run['avg_accepted_tokens'])
+                runs = np.array(runs)
+                means.append(np.mean(runs))
+                stds.append(np.std(runs))
+                unique_steps.append(step)
+
+            means, stds = np.array(means), np.array(stds)
+
             avg_accepted_tokens = tuple(row['avg_accepted_tokens'] for row in stats)
             steps = tuple(row['step'] for row in stats)
-            ax.plot(steps, avg_accepted_tokens, '-o', label=get_label(stats))
+
+            label = get_label(stats)
+
+            mean_scatter = ax.scatter(unique_steps, means, label=label, s=40, alpha=.9)
+            color = mean_scatter.get_facecolor()
+
+            mean_plot = ax.plot(unique_steps, means, '-', alpha=.9)
+            ax.fill_between(unique_steps, means-stds, means+stds, color=color, alpha=.1)
+
+            scatter = ax.scatter(steps, avg_accepted_tokens, color=color, s=10, alpha=.3)
 
         ax.tick_params(axis='both')
         ax.set_ylabel('Mean Accepted Tokens')

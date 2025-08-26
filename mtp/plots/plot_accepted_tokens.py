@@ -7,28 +7,43 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from itertools import groupby
+from mtp.plots.utils import setup_tueplots
 
 
 def get_label(stats):
     n = stats[-1]['ntoken']
     r = stats[-1]['ncomponent']
-    circuit = stats[-1]['circuit'].replace('_', '-')
-    return f"n={n}, r={r:<2}, {circuit}"
+    circuit = stats[-1]['circuit'].replace('_', '-').upper()
+    return f"{circuit} r={r:<2} n={n:<2}"
+
+
+def get_model_type(model):
+    if '-cp-' in model:
+        return 'cp'
+    if '-hmm-' in model:
+        return 'hmm'
+    else:
+        return 'unknown'
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--results', help='Path to throughput.txt file (list of json).')
+    parser.add_argument('results', help='Path to throughput.txt file (list of json).')
     parser.add_argument('--type', choices=['accepted_tokens', 'histogram'],
                         default='accepted_tokens', type=str,
                         help='Path to throughput.txt file (list of json).')
     parser.add_argument('--device', choices=('cuda', 'cpu'),
                         default='cuda', type=str,
                         help='Device to plot throughput for.')
+    parser.add_argument('--ntokens', type=int, nargs='+', help="The number of tokens for the circuit model")
+    parser.add_argument('--ncomponents', type=int, nargs='+', help="The number of components for the circuit model")
+    parser.add_argument('--decoding', type=str, required=True, choices=("argmax", "sampling"), help="What decoding to use")
+    parser.add_argument('--steps', type=int, nargs='+', default=None, help="What step to filter for")
     parser.add_argument('--save', action='store_true',
                         help='If specified saves the plot instead of interactive plot.')
-    parser.add_argument('--filter-experiments', nargs='*', default=None,
+    parser.add_argument('--id', type=str, default="", help="The id of the experiment that will be appended to the filename")
+    parser.add_argument('--filter-experiments', nargs='+', default=None,
                         help='Which experiments to keep')
 
     args = parser.parse_args()
@@ -40,10 +55,24 @@ if __name__ == '__main__':
             row = json.loads(line)
             row['model'], step = row['checkpoint'].split('@')
             row['step'] = int(step)
-            if args.filter_experiments is None or row['model'] in args.filter_experiments:
-                rows.append(row)
+            row['model_type'] = get_model_type(row['model'])
+            if args.filter_experiments is not None and row['model'] not in args.filter_experiments:
+                continue
+            if row['ntoken'] not in args.ntokens:
+                continue
+            if row['ncomponent'] not in args.ncomponents:
+                continue
+            if args.steps is not None:
+                if row['step'] not in args.steps:
+                    continue
+            if row['argmax'] != (args.decoding == 'argmax'):
+                continue
+            rows.append(row)
 
-    rows = tuple(sorted(rows, key=lambda x: x['model']))
+    rows = tuple(sorted(rows, key=lambda x: (x['model_type'], x['ncomponent'])))
+
+    setup_tueplots(1, 1, rel_width=1.0, hw_ratio=0.8)
+
 
     if args.type == 'accepted_tokens':
         fig, ax = plt.subplots(figsize=(10, 6), nrows=1, sharex=True)
@@ -80,8 +109,7 @@ if __name__ == '__main__':
         ax.tick_params(axis='both')
         ax.set_ylabel('Mean Accepted Tokens')
         ax.set_xlabel('# Training steps')
-        ax.set_title('Mean Token Acceptance Rate over Training')
-        ax.legend(loc='best')
+        ax.legend(loc='upper left', bbox_to_anchor=(1, 1), alignment='left')
     elif args.type == 'histogram':
         token_range = [0, 8]
         # token_range = tuple(range(ntoken + 1))
@@ -106,15 +134,14 @@ if __name__ == '__main__':
         raise ValueError('Unknown type option: %s' % args.type)
     if args.save:
         filename = os.path.basename(args.results).replace('.jsonl', '')
-        save_dir = matplotlib.rcParams.get("savefig.directory", ".")
-        save_path = os.path.join(f"{save_dir}", f"{filename}-{args.type}.pdf")
+        save_path = os.path.join("outputs", "plots", f"{args.type.replace('_', '-')}-{args.id}.pdf")
         # Save a pdf
         print(f"Saving plot to {save_path} ...")
-        plt.savefig(save_path)
+        plt.savefig(save_path, bbox_inches='tight')
         # Also save a png
-        save_path = os.path.join(f"{save_dir}", f"{filename}-{args.type}.png")
-        plt.savefig(save_path)
+        save_path = os.path.join("outputs", "plots", f"{args.type.replace('_', '-')}-{args.id}.png")
         print(f"Also, saving plot to {save_path} ...")
+        plt.savefig(save_path, bbox_inches='tight')
     else:
         plt.tight_layout()
         plt.show()

@@ -18,8 +18,11 @@ if __name__ == '__main__':
     parser.add_argument('results', type=str, help='Path to throughput.txt file (list of json).')
     parser.add_argument('--ntokens', type=int, nargs='+', help="The number of tokens for the circuit model")
     parser.add_argument('--ncomponents', type=int, nargs='+', help="The number of components for the circuit model")
+    parser.add_argument('--decoding', type=str, required=True, choices=("argmax", "sampling"), help="What decoding to use")
+    parser.add_argument('--step', type=int, default=None, help="What step to filter for")
     parser.add_argument('--device', choices=('cuda', 'cpu'), default='cuda', type=str, help='Device to plot throughput for.')
     parser.add_argument('--id', type=str, default="", help="The id of the experiment that will be appended to the filename")
+    parser.add_argument('--save', action='store_true', help='If specified saves the plot instead of interactive plot.')
 
     args = parser.parse_args()
 
@@ -27,8 +30,15 @@ if __name__ == '__main__':
     with open(args.results, 'r') as f:
         for line in f:
             row = json.loads(line)
+            _, step = row['checkpoint'].split('@')
+            row['step'] = int(step)
             if row['device'] != args.device:
                 continue
+            if row['argmax'] != (args.decoding == 'argmax'):
+                continue
+            if args.step is not None:
+                if args.step != row['step']:
+                    continue
             entry: dict[str, Any] = {}
             if "SingleTokenLM" in row['model']:
                 entry['model'] = 'stp'
@@ -79,7 +89,7 @@ if __name__ == '__main__':
 
     def run_identifier(r, show_ntoken: bool = False, show_ncomponent: bool = False) -> str:
         model = r['model']
-        res = model
+        res = model.upper()
         if model == 'stp':
             return res
         if show_ntoken:
@@ -93,6 +103,7 @@ if __name__ == '__main__':
 
     df = pd.DataFrame(entries)
     df['run_id'] = df.apply(lambda r: run_identifier(r, show_ncomponent=True), axis=1)
+    df = df.sort_values(['model', 'ncomponent'])
 
     # Plot throughput by the number of tokens
 
@@ -104,16 +115,49 @@ if __name__ == '__main__':
         y="throughput",
         hue="run_id",
     )
+    # Uncomment below for numbers on bars
+    # for bar in ax.patches:
+    #     height = bar.get_height()
+    #     ax.text(bar.get_x() + bar.get_width()/2.,
+    #             .2,
+    #             f'{height:.2f}',
+    #             ha='center', va='bottom',
+    #             color='white', weight='bold')  # Make visible against bar color
     ax.set_xlabel("# of tokens")
     ax.set_ylabel("throughput (tok/s)")
     ax.grid(linestyle="--", which="major", alpha=0.4, linewidth=0.6)
+    # ax.legend(loc='best')
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1), alignment='left')
 
-    filename = f"throughput-{args.id}.pdf" if args.id else "throughput.pdf"
-    plt.savefig(os.path.join("outputs", "plots", filename), bbox_inches='tight')
+    if args.save:
+        filename = f"throughput-{args.id}.pdf" if args.id else "throughput.pdf"
+        save_path = os.path.join("outputs", "plots", filename)
+        print(f"Saving plot to {save_path} ...")
+        plt.savefig(save_path, bbox_inches='tight')
+
+        filename = f"throughput-{args.id}.png" if args.id else "throughput.png"
+        save_path = os.path.join("outputs", "plots", filename)
+        print(f"Also, saving plot to {save_path} ...")
+        plt.savefig(save_path, bbox_inches='tight')
+    else:
+        plt.tight_layout()
+        plt.show()
+
     plt.clf()
     plt.cla()
 
+    agg_dfs = []
+    for ntoken in args.ntokens:
+        agg = df[df['ntoken'] == ntoken].groupby(['run_id']).agg({
+        'throughput': ['mean', 'std'],
+        })
+        # Get baseline using the specific index
+        baseline = agg.loc[('CP (S) r=1'), ('throughput', 'mean')]
+        # Normalize
+        agg[('throughput', 'speed-up over CP (S) r=1')] = agg[('throughput', 'mean')] / baseline
+        agg_dfs.append(agg)
+    results = pd.concat(dict(zip(args.ntokens, agg_dfs)), names=['ntoken', 'model'])
+    print(results.to_latex(float_format="%.2f", multirow=False, label='tab:throughput'))
     #
 
     # Plot number of accepted tokens per multi token model

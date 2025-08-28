@@ -103,6 +103,7 @@ def generate(
     past_key_values, head_past_key_values = None, None
     verifier_past_key_values = None
     past_num_tokens = None
+    last_hidden_state = None
 
     if args.device == "cpu":
         start_time = time.perf_counter()
@@ -135,6 +136,7 @@ def generate(
                         verifier_past_key_values=verifier_past_key_values,
                         head_past_key_values=head_past_key_values,
                         past_num_tokens=past_num_tokens,
+                        last_hidden_state=last_hidden_state,
                         draft_top_p=draft_top_p,
                         target_top_p=target_top_p,
                     )
@@ -143,6 +145,7 @@ def generate(
                 verifier_past_key_values = outputs['verifier_past_key_values']
                 head_past_key_values = outputs['head_past_key_values']
                 past_num_tokens = outputs['past_num_tokens']
+                last_hidden_state = outputs['last_hidden_state']
             elif args.mode == 'mtp':
                 outputs = model.generate(
                     x,
@@ -160,6 +163,7 @@ def generate(
                 assert args.mode == "stp"
                 outputs = model.generate(
                     x,
+                    mode='stp',
                     use_cache=args.use_cache,
                     past_key_values=past_key_values
                 )

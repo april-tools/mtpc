@@ -127,6 +127,7 @@ def generate(
                         verifier_past_key_values=verifier_past_key_values,
                         head_past_key_values=head_past_key_values,
                         past_num_tokens=past_num_tokens,
+                        last_hidden_state=last_hidden_state,
                     )
                 else:
                     outputs = model.self_speculative_generate(

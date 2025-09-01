@@ -839,6 +839,7 @@ class MultiTokenLM(torch.nn.Module):
                 draft_past_key_values = verifier_past_key_values
         return dict(
             tokens=tokens,
+            num_accepted_tokens=num_generated_tokens,
             draft_past_key_values=draft_past_key_values,
             verifier_past_key_values=verifier_past_key_values,
             head_past_key_values=head_past_key_values,
@@ -1013,6 +1014,7 @@ class MultiTokenLM(torch.nn.Module):
 
         return dict(
             tokens=tokens,
+            num_accepted_tokens=num_generated_tokens - 1,
             draft_past_key_values=draft_past_key_values,
             verifier_past_key_values=verifier_past_key_values,
             head_past_key_values=head_past_key_values,

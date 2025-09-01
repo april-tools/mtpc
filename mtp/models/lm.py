@@ -94,6 +94,9 @@ class LM(nn.Module):
         if self.encoder_only:
             setattr(self.lm_model, self.ref_head, None)
 
+        self._lm_base = None
+        self._dual_model_enabled = False
+
     def _load_lm(self):
         lm = None
         if self.from_checkpoint is not None:
@@ -154,7 +157,7 @@ class LM(nn.Module):
 
     @property
     def lm_model(self):
-        if self.has_adapter:
+        if isinstance(self._lm, PeftModel):
             return self._lm.base_model.model
         return self._lm
 
@@ -166,23 +169,59 @@ class LM(nn.Module):
     def head(self):
         return getattr(self.lm_model, self.ref_head)
 
+    def enable_dual_model_inference(self):
+        """
+        Enable dual model mode for faster inference. This creates a merged copy
+        of the LoRA model (with LoRA weights baked in) as the default, and recreates
+        the base model for disable_adapter contexts. Should only be called during
+        inference due to memory overhead.
+        """
+        if not self.has_adapter:
+            raise ValueError('No LoRA present, cannot enable dual model inference.')
+
+        if self._dual_model_enabled:
+            return  # Already enabled
+
+        # Create merged model from the LoRA version (LoRA weights baked in)
+        from copy import deepcopy
+        self._lm_merged = deepcopy(self._lm).merge_and_unload()
+        self._lm_merged.compile()
+
+        # Keep track of model without adapters
+        self._lm_base = deepcopy(self._lm)
+
+        # Switch default to merged model (fast path with LoRA baked in)
+        self._lm = self._lm_merged
+        self._dual_model_enabled = True
+
     @property
     def has_adapter(self) -> bool:
-        return isinstance(self._lm, PeftModel)
+        return isinstance(self._lm, PeftModel) or self._dual_model_enabled
 
     @contextmanager
     def disable_adapter(self):
         assert self.has_adapter
-        # Forward the disable adapter context manager of the Peft-managed LM
-        with self._lm.disable_adapter():
-            yield
+
+        original_lm = self._lm
+
+        try:
+            # Switch to base model (no LoRA) for disabled adapter context
+            if self._dual_model_enabled:
+                assert self._lm_base is not None
+                self._lm = self._lm_base
+            # Forward the disable adapter context manager of the Peft-managed LM
+            with self._lm.disable_adapter():
+                yield
+        finally:
+            # Restore original _lm reference
+            self._lm = original_lm
 
     @contextmanager
     def disable_adapter_if_any(self):
         if self.has_adapter:
             # Forward the disable adapter context manager of the Peft-managed LM,
             # only if the lm is Peft-managed
-            with self._lm.disable_adapter():
+            with self.disable_adapter():
                 yield
         else:
             yield

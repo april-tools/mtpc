@@ -1,14 +1,15 @@
 import os
 import json
-import time
 import tqdm
 import torch
-import hydra
 import pickle
+import socket
 import argparse
+import datetime
 import numpy as np
 
-from mtp.utils.checkpoint import Checkpoint, load_model_with_overrides
+from mtp.utils.checkpoint import load_model_with_overrides
+from mtp.utils.profile import time_block
 from mtp.data import DistributedDataLoader
 
 from transformers import AutoTokenizer
@@ -99,100 +100,85 @@ def generate(
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
-    num_tokens = []
+    num_generated_tokens, num_accepted_tokens, time_per_call = [], [], []
     past_key_values, head_past_key_values = None, None
     verifier_past_key_values = None
     past_num_tokens = None
     last_hidden_state = None
-
-    if args.device == "cpu":
-        start_time = time.perf_counter()
-    elif args.device == "cuda":
-        torch.cuda.synchronize(args.device)
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record(torch.cuda.current_stream(args.device))
-    else:
-        raise ValueError("Unexpected device %s" % args.device)
+    acc_tokens = None
 
     with tqdm.tqdm(total=args.num_tokens, disable=disable_progress_bar) as pbar, ctx:
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
-            if args.speculative:
-                if args.argmax:
-                    outputs = model.self_speculative_generate_argmax(
+            with time_block(args.device) as t:
+                if args.speculative:
+                    if args.argmax:
+                        outputs = model.self_speculative_generate_argmax(
+                            x,
+                            use_cache=args.use_cache,
+                            draft_past_key_values=past_key_values,
+                            verifier_past_key_values=verifier_past_key_values,
+                            head_past_key_values=head_past_key_values,
+                            past_num_tokens=past_num_tokens,
+                            last_hidden_state=last_hidden_state,
+                        )
+                    else:
+                        outputs = model.self_speculative_generate(
+                            x,
+                            use_cache=args.use_cache,
+                            draft_past_key_values=past_key_values,
+                            verifier_past_key_values=verifier_past_key_values,
+                            head_past_key_values=head_past_key_values,
+                            past_num_tokens=past_num_tokens,
+                            last_hidden_state=last_hidden_state,
+                            draft_top_p=draft_top_p,
+                            target_top_p=target_top_p,
+                        )
+                    tokens = outputs['tokens']
+                    acc_tokens = outputs['num_accepted_tokens']
+                    past_key_values = outputs['draft_past_key_values']
+                    verifier_past_key_values = outputs['verifier_past_key_values']
+                    head_past_key_values = outputs['head_past_key_values']
+                    past_num_tokens = outputs['past_num_tokens']
+                    last_hidden_state = outputs['last_hidden_state']
+                elif args.mode == 'mtp':
+                    outputs = model.generate(
                         x,
+                        mode="mtp",
+                        use_argmax=args.argmax,
                         use_cache=args.use_cache,
-                        draft_past_key_values=past_key_values,
-                        verifier_past_key_values=verifier_past_key_values,
+                        past_key_values=past_key_values,
                         head_past_key_values=head_past_key_values,
-                        past_num_tokens=past_num_tokens,
-                        last_hidden_state=last_hidden_state,
-                    )
-                else:
-                    outputs = model.self_speculative_generate(
-                        x,
-                        use_cache=args.use_cache,
-                        draft_past_key_values=past_key_values,
-                        verifier_past_key_values=verifier_past_key_values,
-                        head_past_key_values=head_past_key_values,
-                        past_num_tokens=past_num_tokens,
-                        last_hidden_state=last_hidden_state,
                         draft_top_p=draft_top_p,
-                        target_top_p=target_top_p,
                     )
-                tokens = outputs['tokens']
-                past_key_values = outputs['draft_past_key_values']
-                verifier_past_key_values = outputs['verifier_past_key_values']
-                head_past_key_values = outputs['head_past_key_values']
-                past_num_tokens = outputs['past_num_tokens']
-                last_hidden_state = outputs['last_hidden_state']
-            elif args.mode == 'mtp':
-                outputs = model.generate(
-                    x,
-                    mode="mtp",
-                    use_argmax=args.argmax,
-                    use_cache=args.use_cache,
-                    past_key_values=past_key_values,
-                    head_past_key_values=head_past_key_values,
-                    draft_top_p=draft_top_p,
-                )
-                tokens = outputs["tokens"]
-                past_key_values = outputs["past_key_values"]
-                head_past_key_values = outputs["head_past_key_values"]
-            else:
-                assert args.mode == "stp"
-                outputs = model.generate(
-                    x,
-                    mode='stp',
-                    use_cache=args.use_cache,
-                    past_key_values=past_key_values
-                )
-                tokens = outputs["tokens"]
-                past_key_values = outputs["past_key_values"]
-            # Stop if we generate the EOS token
-            x = torch.cat([x, tokens], dim=1)
-            num_tokens.append(tokens.shape[1])
+                    tokens = outputs["tokens"]
+                    past_key_values = outputs["past_key_values"]
+                    head_past_key_values = outputs["head_past_key_values"]
+                else:
+                    assert args.mode == "stp"
+                    outputs = model.generate(
+                        x,
+                        mode='stp',
+                        use_cache=args.use_cache,
+                        past_key_values=past_key_values
+                    )
+                    tokens = outputs["tokens"]
+                    past_key_values = outputs["past_key_values"]
+                # Stop if we generate the EOS token
+                x = torch.cat([x, tokens], dim=1)
+                num_generated_tokens.append(tokens.shape[1])
+                num_accepted_tokens.append(acc_tokens)
+
+            time_per_call.append(t.elapsed_time)
             pbar.update(tokens.shape[1])
             if tokeniser is not None:
                 if torch.any(tokens == tokeniser.eos_token_id):
                     break
 
-    if args.device == "cpu":
-        end_time = time.perf_counter()
-        elapsed_time = end_time - start_time
-    elif args.device == "cuda":
-        end.record(torch.cuda.current_stream(args.device))
-        # Synchronize CUDA Kernels before measuring time
-        torch.cuda.synchronize(args.device)
-        elapsed_time = start.elapsed_time(end) * 1e-3  # CUDA returns ms
-    else:
-        raise ValueError("Unexpected device %s" % args.device)
-
     if print_generation:
         print("\nGeneration:\n", decode(x), "\n\n")
 
-    return elapsed_time, num_tokens
+    return time_per_call, num_generated_tokens, num_accepted_tokens
 
 
 if __name__ == "__main__":
@@ -302,6 +288,8 @@ if __name__ == "__main__":
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
 
+    exp_start = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
+
     set_deterministic(args.random_seed)
 
     os.environ["DEVICE"] = args.device
@@ -325,6 +313,9 @@ if __name__ == "__main__":
 
     if args.dequantize:
         model.lm.dequantize()
+
+    if model.lm.has_adapter:
+        model.lm.enable_dual_model_inference()
 
     # Load the tokeniser once, if needed
     # Otherwise, load the vocabulary (shakespeare models)
@@ -412,12 +403,10 @@ if __name__ == "__main__":
     # The number of generated token at each LLM generation step
     # e.g., it is a list of ones in the case of a STP model or,
     # in the case of speculative decoding, it is a list of numbers of the form #_of_accepted_tokens + 1
-    total_num_tokens = []
-    # The elapsed time to go through all the prompts
-    total_elapsed_time = 0.0
+    total_elapsed_times, total_num_tokens, total_num_accepted_tokens = [], [], []
 
     for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1, total=len(prompts)):
-        elapsed_time, num_tokens = generate(
+        elapsed_times, num_tokens, num_acc_tokens = generate(
             x,
             disable_progress_bar=len(prompts) > 1,
             print_generation=args.print,
@@ -425,11 +414,14 @@ if __name__ == "__main__":
             target_top_p=args.target_top_p,
             warmup=i == 0
         )
-        total_elapsed_time += elapsed_time
+        total_elapsed_times.extend(elapsed_times)
         total_num_tokens.extend(num_tokens)
+        total_num_accepted_tokens.extend(num_acc_tokens)
 
     # Compute the TPS as the total number of generated tokens (across all prompts) by the total elapsed time
+    total_elapsed_time = sum(total_elapsed_times)
     tps = sum(total_num_tokens) / total_elapsed_time
+    avg_time_per_call = np.mean(total_elapsed_times)
 
     n_token = 1
     n_component = 1
@@ -439,6 +431,9 @@ if __name__ == "__main__":
         n_component = model.circuit.n_component
 
     stats = dict()
+    stats["exp_start"] = exp_start
+    stats["exp_end"] = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
+    stats["exp_host"] = socket.gethostname()
     stats["model"] = cfg.model.model._target_
     stats["random_seed"] = args.random_seed
     stats["ntoken"] = n_token
@@ -452,9 +447,8 @@ if __name__ == "__main__":
     stats["argmax"] = args.argmax
     stats["draft_top_p"] = args.draft_top_p
     stats["target_top_p"] = args.target_top_p
+    stats["avg_time_per_call"] = avg_time_per_call
     if args.speculative:
-        # The number of accepted tokens with speculative decoding at each generation step is the number of generated tokens minus one
-        total_num_accepted_tokens = list(map(lambda n: n - 1, total_num_tokens))
         num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(
             total_num_accepted_tokens, return_counts=True

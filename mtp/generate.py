@@ -92,7 +92,7 @@ def generate(
     draft_top_p=1.0,
     target_top_p=1.0,
     warmup: bool = False,
-    stop_on_eos=True
+    stop_on_eos=True,
 ):
     # Init model in case loading takes additional time - do not use this output
     if warmup:
@@ -136,14 +136,14 @@ def generate(
                             draft_top_p=draft_top_p,
                             target_top_p=target_top_p,
                         )
-                    tokens = outputs['tokens']
-                    acc_tokens = outputs['num_accepted_tokens']
-                    past_key_values = outputs['draft_past_key_values']
-                    verifier_past_key_values = outputs['verifier_past_key_values']
-                    head_past_key_values = outputs['head_past_key_values']
-                    past_num_tokens = outputs['past_num_tokens']
-                    last_hidden_state = outputs['last_hidden_state']
-                elif args.mode == 'mtp':
+                    tokens = outputs["tokens"]
+                    acc_tokens = outputs["num_accepted_tokens"]
+                    past_key_values = outputs["draft_past_key_values"]
+                    verifier_past_key_values = outputs["verifier_past_key_values"]
+                    head_past_key_values = outputs["head_past_key_values"]
+                    past_num_tokens = outputs["past_num_tokens"]
+                    last_hidden_state = outputs["last_hidden_state"]
+                elif args.mode == "mtp":
                     outputs = model.generate(
                         x,
                         mode="mtp",
@@ -160,17 +160,19 @@ def generate(
                     assert args.mode == "stp"
                     outputs = model.generate(
                         x,
-                        mode='stp',
+                        mode="stp",
                         use_cache=args.use_cache,
-                        past_key_values=past_key_values
+                        past_key_values=past_key_values,
                     )
                     tokens = outputs["tokens"]
                     past_key_values = outputs["past_key_values"]
 
                 # Handle prefill time
-                if outputs['prefill_time'] != 0:
-                    assert prefill_time == 0, 'Prefill unexpectedly non-zero for more than one forward pass'
-                    prefill_time = outputs['prefill_time']
+                if outputs["prefill_time"] != 0:
+                    assert (
+                        prefill_time == 0
+                    ), "Prefill unexpectedly non-zero for more than one forward pass"
+                    prefill_time = outputs["prefill_time"]
 
                 # Stop if we generate the EOS token
                 x = torch.cat([x, tokens], dim=1)
@@ -186,10 +188,12 @@ def generate(
     if print_generation:
         print("\nGeneration:\n", decode(x), "\n\n")
 
-    result = {'time_per_call': time_per_call,
-              'num_generated_tokens': num_generated_tokens,
-              'num_accepted_tokens': num_accepted_tokens,
-              'prefill_time': prefill_time}
+    result = {
+        "time_per_call": time_per_call,
+        "num_generated_tokens": num_generated_tokens,
+        "num_accepted_tokens": num_accepted_tokens,
+        "prefill_time": prefill_time,
+    }
     return result
 
 
@@ -265,7 +269,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--draft-top-p",
-        default=1.,
+        default=1.0,
         type=float,
         help="The cumulative probability threshold above which to truncate "
         "the circuit categoricals and sum weights. "
@@ -273,7 +277,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--target-top-p",
-        default=1.,
+        default=1.0,
         type=float,
         help="The cumulative probability threshold above which to truncate "
         "the target model's categorical distribution for next token prediction. "
@@ -283,13 +287,13 @@ if __name__ == "__main__":
         "--dequantize",
         default=False,
         action="store_true",
-        help="Whether to dequantize the model before measuring the throughput"
+        help="Whether to dequantize the model before measuring the throughput",
     )
     parser.add_argument(
         "--argmax",
         default=False,
         action="store_true",
-        help="Whether to use argmax to get samples from the circuit or the STP model"
+        help="Whether to use argmax to get samples from the circuit or the STP model",
     )
     parser.add_argument(
         "--compile",
@@ -314,14 +318,14 @@ if __name__ == "__main__":
     os.environ["DEVICE"] = args.device
     os.environ["MODE"] = "generate"
 
-    assert 0. <= args.draft_top_p <= 1.
-    assert 0. <= args.target_top_p <= 1.
+    assert 0.0 <= args.draft_top_p <= 1.0
+    assert 0.0 <= args.target_top_p <= 1.0
 
     # Initialize training context
     ctx = autocast(device_type=args.device, dtype=torch.bfloat16)
 
     if args.speculative:
-        args.overrides.append('lm.model.encoder_only=false')
+        args.overrides.append("lm.model.encoder_only=false")
     # If args.checkpoint=None, load random initialised model with overrides
     model, cfg = load_model_with_overrides(args.checkpoint, args.overrides)
 
@@ -350,10 +354,12 @@ if __name__ == "__main__":
             kwargs["trust_remote_code"] = True
             # For EvaByte, chat eos id is 11, while for completion eos id is 2.
             # Therefore, load different tokenisers depending on the case
-            if args.task == 'chat':
-                tokeniser = AutoTokenizer.from_pretrained('EvaByte/EvaByte-SFT', **kwargs)
+            if args.task == "chat":
+                tokeniser = AutoTokenizer.from_pretrained(
+                    "EvaByte/EvaByte-SFT", **kwargs
+                )
             else:
-                tokeniser = AutoTokenizer.from_pretrained('EvaByte/EvaByte', **kwargs)
+                tokeniser = AutoTokenizer.from_pretrained("EvaByte/EvaByte", **kwargs)
         tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
         vocabs = None
 
@@ -379,7 +385,6 @@ if __name__ == "__main__":
             )
             ds = iter(dl.dataset)
 
-
             for example in ds:
                 prompt = example["messages"][0][0]
                 # We only add the first turn
@@ -389,7 +394,9 @@ if __name__ == "__main__":
 
             # The above padded dataset contains approx 9k examples
             random_state = np.random.RandomState(args.random_seed)
-            idxs = random_state.choice(len(prompts), args.subsample_prompts, replace=False)
+            idxs = random_state.choice(
+                len(prompts), args.subsample_prompts, replace=False
+            )
             prompts = [prompts[idx] for idx in idxs]
             assert len(prompts) == args.subsample_prompts
 
@@ -424,7 +431,12 @@ if __name__ == "__main__":
     # The number of generated token at each LLM generation step
     # e.g., it is a list of ones in the case of a STP model or,
     # in the case of speculative decoding, it is a list of numbers of the form #_of_accepted_tokens + 1
-    total_elapsed_times, total_num_tokens, total_num_accepted_tokens, prefill_times = [], [], [], []
+    total_elapsed_times, total_num_tokens, total_num_accepted_tokens, prefill_times = (
+        [],
+        [],
+        [],
+        [],
+    )
 
     for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1, total=len(prompts)):
         result = generate(
@@ -434,12 +446,12 @@ if __name__ == "__main__":
             draft_top_p=args.draft_top_p,
             target_top_p=args.target_top_p,
             warmup=i == 0,
-            stop_on_eos=not args.no_stop_on_eos
+            stop_on_eos=not args.no_stop_on_eos,
         )
-        total_elapsed_times.extend(result['time_per_call'])
-        total_num_tokens.extend(result['num_generated_tokens'])
-        total_num_accepted_tokens.extend(result['num_accepted_tokens'])
-        prefill_times.append(result['prefill_time'])
+        total_elapsed_times.extend(result["time_per_call"])
+        total_num_tokens.extend(result["num_generated_tokens"])
+        total_num_accepted_tokens.extend(result["num_accepted_tokens"])
+        prefill_times.append(result["prefill_time"])
 
     # Compute the TPS as the total number of generated tokens (across all prompts) by the total elapsed time
     total_elapsed_time = sum(total_elapsed_times)

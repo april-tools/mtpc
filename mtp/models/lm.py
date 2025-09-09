@@ -186,7 +186,6 @@ class LM(nn.Module):
         # Create merged model from the LoRA version (LoRA weights baked in)
         from copy import deepcopy
         self._lm_merged = deepcopy(self._lm).merge_and_unload()
-        self._lm_merged.compile()
 
         # Keep track of model without adapters
         self._lm_base = deepcopy(self._lm)

@@ -5,7 +5,7 @@ mkdir -p $MTP_ROOT/outputs/results
 device=cuda
 num_tokens=2048
 default="$MTP_ROOT/outputs/models/"
-subsample_prompts=250
+subsample_prompts=100
 prompt_source="tulu-valid"
 filetag="${1:-unspecified}"
 seed="${2:-42}"
@@ -16,16 +16,20 @@ export GPU=1
 args=( --device $device --mode mtp --num-tokens $num_tokens --random-seed $seed )
 gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
 
+# For the models below we do not stop generating on EOS
+# as we just want to check how much time it takes to run them on the
+# *same* amount of tokens. This is important as some of the models
+# are randomly initialised and have no reasonable EOS completion.
+
 python -m mtp.generate \
   --device $device --mode stp --num-tokens $num_tokens --random-seed $seed \
   ${gen_args[@]} \
   lm=evabyte lm.model.encoder_only=False data.vocab_size=320 \
   --use-cache \
+  --no-stop-on-eos \
   | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
 
 
-# For the models below we do not stop generating on EOS
-# because the models are not trained and may generate it inadvertently
 adaptor=none
 
 for circuit in fully_factorized cp hmm btree;
@@ -52,6 +56,7 @@ do
   done
 done
 
+
 adaptor=lora-last-16
 
 for circuit in fully_factorized cp hmm btree;
@@ -64,8 +69,6 @@ do
       n_components="32"
     fi
 
-    args=( --device $device --mode mtp --num-tokens $num_tokens --random-seed $seed )
-    gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
     mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=$adaptor data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )
 
     for n_component in $n_components;

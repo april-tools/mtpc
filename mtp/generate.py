@@ -326,8 +326,6 @@ if __name__ == "__main__":
     model, cfg = load_model_with_overrides(args.checkpoint, args.overrides)
 
     model.to(args.device)
-    if args.compile:
-        model = torch.compile(model)
     model.eval()
 
     if args.dequantize:
@@ -335,6 +333,10 @@ if __name__ == "__main__":
 
     if model.lm.has_adapter:
         model.lm.enable_dual_model_inference()
+
+    if args.compile:
+        # Enable verbose logging
+        model = torch.compile(model)
 
     # Load the tokeniser once, if needed
     # Otherwise, load the vocabulary (shakespeare models)
@@ -441,7 +443,8 @@ if __name__ == "__main__":
 
     # Compute the TPS as the total number of generated tokens (across all prompts) by the total elapsed time
     total_elapsed_time = sum(total_elapsed_times)
-    tps = sum(total_num_tokens) / (total_elapsed_time - sum(prefill_times))
+    total_time_prefill = sum(prefill_times)
+    tps = sum(total_num_tokens) / (total_elapsed_time - total_time_prefill)
     tps_with_prefill = sum(total_num_tokens) / total_elapsed_time
     avg_time_per_call = np.mean(total_elapsed_times)
 

@@ -5,7 +5,7 @@ mkdir -p $MTP_ROOT/outputs/results
 device=cuda
 num_tokens=2048
 default="$MTP_ROOT/outputs/models/"
-subsample_prompts=100
+subsample_prompts=20
 prompt_source="tulu-valid"
 filetag="${1:-unspecified}"
 seed="${2:-42}"
@@ -15,6 +15,7 @@ export GPU=1
 
 args=( --device $device --mode mtp --num-tokens $num_tokens --random-seed $seed )
 gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
+
 
 # For the models below we do not stop generating on EOS
 # as we just want to check how much time it takes to run them on the

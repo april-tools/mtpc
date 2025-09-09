@@ -443,8 +443,8 @@ if __name__ == "__main__":
 
     # Compute the TPS as the total number of generated tokens (across all prompts) by the total elapsed time
     total_elapsed_time = sum(total_elapsed_times)
-    total_time_prefill = sum(prefill_times)
-    tps = sum(total_num_tokens) / (total_elapsed_time - total_time_prefill)
+    total_prefill_time = sum(prefill_times)
+    tps = sum(total_num_tokens) / (total_elapsed_time - total_prefill_time)
     tps_with_prefill = sum(total_num_tokens) / total_elapsed_time
     avg_time_per_call = np.mean(total_elapsed_times)
 
@@ -488,6 +488,7 @@ if __name__ == "__main__":
     stats["device"] = args.device
     stats["batch_size"] = BATCH_SIZE
     stats["elapsed_time"] = total_elapsed_time
+    stats["elapsed_time_without_prefill"] = total_elapsed_time - total_prefill_time
     stats["tokens_per_second"] = tps
     stats["tokens_per_second_with_prefill"] = tps_with_prefill
     if args.checkpoint is None:

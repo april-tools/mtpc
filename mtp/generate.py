@@ -91,7 +91,8 @@ def generate(
     print_generation: bool = False,
     draft_top_p=1.0,
     target_top_p=1.0,
-    warmup: bool = False
+    warmup: bool = False,
+    stop_on_eos=True
 ):
     # Init model in case loading takes additional time - do not use this output
     if warmup:
@@ -171,7 +172,7 @@ def generate(
 
             time_per_call.append(t.elapsed_time)
             pbar.update(tokens.shape[1])
-            if tokeniser is not None:
+            if tokeniser is not None and stop_on_eos:
                 if torch.any(tokens == tokeniser.eos_token_id):
                     break
 
@@ -284,6 +285,13 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Whether to compile the model",
+    )
+    parser.add_argument(
+        "--no-stop-on-eos",
+        default=False,
+        action="store_true",
+        help="Do not stop when EOS is generated. We use this for measuring throughput "
+        "of models that are noisy (e.g. not trained)",
     )
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
@@ -412,7 +420,8 @@ if __name__ == "__main__":
             print_generation=args.print,
             draft_top_p=args.draft_top_p,
             target_top_p=args.target_top_p,
-            warmup=i == 0
+            warmup=i == 0,
+            stop_on_eos=not args.no_stop_on_eos
         )
         total_elapsed_times.extend(elapsed_times)
         total_num_tokens.extend(num_tokens)

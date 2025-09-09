@@ -13,6 +13,44 @@ seed="${2:-42}"
 export GPUS=1
 export GPU=1
 
+args=( --device $device --mode mtp --num-tokens $num_tokens --random-seed $seed )
+gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
+
+python -m mtp.generate \
+  --device $device --mode stp --num-tokens $num_tokens --random-seed $seed \
+  ${gen_args[@]} \
+  lm=evabyte lm.model.encoder_only=False data.vocab_size=320 \
+  --use-cache \
+  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
+
+
+# For the models below we do not stop generating on EOS
+# because the models are not trained and may generate it inadvertently
+adaptor=none
+
+for circuit in fully_factorized cp hmm btree;
+do
+  for n_token in 8 16;
+  do
+    if [[ $circuit == "fully_factorized" ]]; then
+      n_components="1"
+    else
+      n_components="32"
+    fi
+
+    mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=$adaptor data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )
+
+    for n_component in $n_components;
+    do
+      circuit_args=( circuit=$circuit circuit.n_token=$n_token circuit.n_component=$n_component )
+      python -m mtp.generate \
+        ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
+        --use-cache \
+		--no-stop-on-eos \
+        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
+    done
+  done
+done
 
 adaptor=lora-last-16
 
@@ -36,33 +74,7 @@ do
       python -m mtp.generate \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
         --use-cache \
-        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
-    done
-  done
-done
-
-adaptor=none
-
-for circuit in fully_factorized cp hmm btree;
-do
-  for n_token in 8 16;
-  do
-    if [[ $circuit == "fully_factorized" ]]; then
-      n_components="1"
-    else
-      n_components="32"
-    fi
-
-    args=( --device $device --mode mtp --num-tokens $num_tokens --random-seed $seed )
-    gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
-    mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=$adaptor data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )
-
-    for n_component in $n_components;
-    do
-      circuit_args=( circuit=$circuit circuit.n_token=$n_token circuit.n_component=$n_component )
-      python -m mtp.generate \
-        ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
-        --use-cache \
+		--no-stop-on-eos \
         | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
     done
   done

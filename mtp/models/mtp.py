@@ -5,6 +5,7 @@ from torch import Tensor, LongTensor
 
 from transformers.cache_utils import Cache
 from mtp.models.evabyte.multibyte_decoding_evabyte import multi_byte_pred_prepare_attn_mask
+from mtp.utils.profile import time_block
 from mtp.utils.sampling import truncate_logprobs_top_p
 from mtp.utils.packing import packed_targets_to_target_windows
 from mtp.models.evabyte.training_utils import prepare_evabyte_mask_and_position
@@ -409,30 +410,33 @@ class MultiTokenLM(torch.nn.Module):
         assert attention_mask is None
         assert position_ids is None
 
+        prefill_time = 0
         if use_cache:
             if past_key_values is None:
-                # LL: prepare Evabyte KV cache for multi-token prediction
-                # LL: the below code is required for the first iteration, i.e., here's why check past_key_values is None here
-                past_key_values = EvaStaticCacheForTriton(
-                    inputs.shape[0],
-                    self.lm.config.num_attention_heads,
-                    self.lm.config.window_size + self.circuit.n_token,
-                    self.lm.config.hidden_size // self.lm.config.num_attention_heads,
-                    self.lm.config.num_hidden_layers,
-                    torch.bfloat16,
-                    inputs.device,
-                )
-                position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
-                outputs = self.lm.encoder(
-                    inputs,
-                    attention_mask=None,
-                    use_cache=True,
-                    past_key_values=past_key_values,
-                    position_ids=position_ids,
-                    multibyte_decoding=False
-                )
-                past_key_values = outputs['past_key_values']
-                past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(past_key_values)
+                with time_block(inputs.device) as t:
+                    # LL: prepare Evabyte KV cache for multi-token prediction
+                    # LL: the below code is required for the first iteration, i.e., here's why check past_key_values is None here
+                    past_key_values = EvaStaticCacheForTriton(
+                        inputs.shape[0],
+                        self.lm.config.num_attention_heads,
+                        self.lm.config.window_size + self.circuit.n_token,
+                        self.lm.config.hidden_size // self.lm.config.num_attention_heads,
+                        self.lm.config.num_hidden_layers,
+                        torch.bfloat16,
+                        inputs.device,
+                    )
+                    position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
+                    outputs = self.lm.encoder(
+                        inputs,
+                        attention_mask=None,
+                        use_cache=True,
+                        past_key_values=past_key_values,
+                        position_ids=position_ids,
+                        multibyte_decoding=False
+                    )
+                    past_key_values = outputs['past_key_values']
+                    past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(past_key_values)
+                prefill_time = t.elapsed_time
             else:
                 # LL: below I am reusing the code for multi token generation in Evabyte
                 # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
@@ -492,7 +496,8 @@ class MultiTokenLM(torch.nn.Module):
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,
-            head_past_key_values=head_past_key_values
+            head_past_key_values=head_past_key_values,
+            prefill_time=prefill_time
         )
 
     @torch.no_grad()
@@ -722,35 +727,39 @@ class MultiTokenLM(torch.nn.Module):
         if argmax:
             assert draft_top_p == 1. and target_top_p == 1.
 
+        prefill_time = 0
         # Compute the embeddings
         if use_cache:
             if draft_past_key_values is None:
-                # LL: prepare Evabyte KV cache for multi-token prediction
-                # LL: the below code is required for the first iteration, i.e., here's why check draft_past_key_values is None here
-                draft_past_key_values = EvaStaticCacheForTriton(
-                    inputs.shape[0],
-                    self.lm.config.num_attention_heads,
-                    self.lm.config.window_size + self.circuit.n_token,
-                    self.lm.config.hidden_size // self.lm.config.num_attention_heads,
-                    self.lm.config.num_hidden_layers,
-                    torch.bfloat16,
-                    inputs.device,
-                )
-                position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
-                outputs = self.lm.encoder(
-                    inputs,
-                    attention_mask=None,
-                    use_cache=True,
-                    past_key_values=draft_past_key_values,
-                    position_ids=position_ids,
-                    multibyte_decoding=False
-                )
-                draft_past_key_values = outputs['past_key_values']
-                draft_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(draft_past_key_values)
-                verifier_past_key_values = draft_past_key_values
+                with time_block(inputs.device) as t:
+                    # LL: prepare Evabyte KV cache for multi-token prediction
+                    # LL: the below code is required for the first iteration, i.e., here's why check draft_past_key_values is None here
+                    draft_past_key_values = EvaStaticCacheForTriton(
+                        inputs.shape[0],
+                        self.lm.config.num_attention_heads,
+                        self.lm.config.window_size + self.circuit.n_token,
+                        self.lm.config.hidden_size // self.lm.config.num_attention_heads,
+                        self.lm.config.num_hidden_layers,
+                        torch.bfloat16,
+                        inputs.device,
+                    )
+                    position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
+                    outputs = self.lm.encoder(
+                        inputs,
+                        attention_mask=None,
+                        use_cache=True,
+                        past_key_values=draft_past_key_values,
+                        position_ids=position_ids,
+                        multibyte_decoding=False
+                    )
+                    draft_past_key_values = outputs['past_key_values']
+                    draft_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(draft_past_key_values)
+                    verifier_past_key_values = draft_past_key_values
+                prefill_time = t.elapsed_time
         else:
-            if draft_past_key_values is None:
+            if last_hidden_state is None:
                 outputs = self.lm.encoder(input_ids=inputs, use_cache=False)
+
         # Parameterize the circuit
         if last_hidden_state is None:
             xx = outputs['last_hidden_state']
@@ -844,7 +853,8 @@ class MultiTokenLM(torch.nn.Module):
             verifier_past_key_values=verifier_past_key_values,
             head_past_key_values=head_past_key_values,
             past_num_tokens=num_generated_tokens,
-            last_hidden_state=last_hidden_state
+            last_hidden_state=last_hidden_state,
+            prefill_time=prefill_time
         )
 
     @torch.no_grad()
@@ -872,51 +882,54 @@ class MultiTokenLM(torch.nn.Module):
         if argmax:
             assert draft_top_p == 1. and target_top_p == 1.
 
+        prefill_time = 0
         # Compute the embeddings
         if use_cache:
             if draft_past_key_values is None:
-                # LL: prepare Evabyte KV cache for multi-token prediction
-                # LL: the below code is required for the first iteration, i.e., here's why check draft_past_key_values is None here
-                draft_past_key_values = EvaStaticCacheForTriton(
-                    inputs.shape[0],
-                    self.lm.config.num_attention_heads,
-                    self.lm.config.window_size + self.circuit.n_token,
-                    self.lm.config.hidden_size // self.lm.config.num_attention_heads,
-                    self.lm.config.num_hidden_layers,
-                    torch.bfloat16,
-                    inputs.device,
-                )
-                verifier_past_key_values = EvaStaticCacheForTriton(
-                    inputs.shape[0],
-                    self.lm.config.num_attention_heads,
-                    self.lm.config.window_size + self.circuit.n_token,
-                    self.lm.config.hidden_size // self.lm.config.num_attention_heads,
-                    self.lm.config.num_hidden_layers,
-                    torch.bfloat16,
-                    inputs.device,
-                )
-                position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
-                outputs = self.lm.encoder(
-                    inputs,
-                    attention_mask=None,
-                    use_cache=True,
-                    past_key_values=draft_past_key_values,
-                    position_ids=position_ids,
-                    multibyte_decoding=False
-                )
-                draft_past_key_values = outputs['past_key_values']
-                with self.lm.disable_adapter_if_any():
-                    verifier_outputs = self.lm.encoder(
-                        inputs[:, :-1],
+                with time_block(inputs.device) as t:
+                    # LL: prepare Evabyte KV cache for multi-token prediction
+                    # LL: the below code is required for the first iteration, i.e., here's why check draft_past_key_values is None here
+                    draft_past_key_values = EvaStaticCacheForTriton(
+                        inputs.shape[0],
+                        self.lm.config.num_attention_heads,
+                        self.lm.config.window_size + self.circuit.n_token,
+                        self.lm.config.hidden_size // self.lm.config.num_attention_heads,
+                        self.lm.config.num_hidden_layers,
+                        torch.bfloat16,
+                        inputs.device,
+                    )
+                    verifier_past_key_values = EvaStaticCacheForTriton(
+                        inputs.shape[0],
+                        self.lm.config.num_attention_heads,
+                        self.lm.config.window_size + self.circuit.n_token,
+                        self.lm.config.hidden_size // self.lm.config.num_attention_heads,
+                        self.lm.config.num_hidden_layers,
+                        torch.bfloat16,
+                        inputs.device,
+                    )
+                    position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
+                    outputs = self.lm.encoder(
+                        inputs,
                         attention_mask=None,
                         use_cache=True,
-                        past_key_values=verifier_past_key_values,
-                        position_ids=position_ids[:, :-1],
+                        past_key_values=draft_past_key_values,
+                        position_ids=position_ids,
                         multibyte_decoding=False
                     )
-                    verifier_past_key_values = verifier_outputs['past_key_values']
-                draft_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(draft_past_key_values)
-                verifier_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(verifier_past_key_values)
+                    draft_past_key_values = outputs['past_key_values']
+                    with self.lm.disable_adapter_if_any():
+                        verifier_outputs = self.lm.encoder(
+                            inputs[:, :-1],
+                            attention_mask=None,
+                            use_cache=True,
+                            past_key_values=verifier_past_key_values,
+                            position_ids=position_ids[:, :-1],
+                            multibyte_decoding=False
+                        )
+                        verifier_past_key_values = verifier_outputs['past_key_values']
+                    draft_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(draft_past_key_values)
+                    verifier_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(verifier_past_key_values)
+                prefill_time = t.elapsed_time
             else:
                 # LL: below I am reusing the code for multi token generation in Evabyte
                 # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
@@ -1019,5 +1032,6 @@ class MultiTokenLM(torch.nn.Module):
             verifier_past_key_values=verifier_past_key_values,
             head_past_key_values=head_past_key_values,
             past_num_tokens=num_generated_tokens,
-            last_hidden_state=None
+            last_hidden_state=None,
+            prefill_time=prefill_time
         )

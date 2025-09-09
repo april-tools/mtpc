@@ -107,6 +107,7 @@ def generate(
     past_num_tokens = None
     last_hidden_state = None
     acc_tokens = None
+    prefill_time = 0
 
     with tqdm.tqdm(total=args.num_tokens, disable=disable_progress_bar) as pbar, ctx:
         # Keep track of total number of tokens generated
@@ -165,6 +166,12 @@ def generate(
                     )
                     tokens = outputs["tokens"]
                     past_key_values = outputs["past_key_values"]
+
+                # Handle prefill time
+                if outputs['prefill_time'] != 0:
+                    assert prefill_time == 0, 'Prefill unexpectedly non-zero for more than one forward pass'
+                    prefill_time = outputs['prefill_time']
+
                 # Stop if we generate the EOS token
                 x = torch.cat([x, tokens], dim=1)
                 num_generated_tokens.append(tokens.shape[1])
@@ -179,7 +186,11 @@ def generate(
     if print_generation:
         print("\nGeneration:\n", decode(x), "\n\n")
 
-    return time_per_call, num_generated_tokens, num_accepted_tokens
+    result = {'time_per_call': time_per_call,
+              'num_generated_tokens': num_generated_tokens,
+              'num_accepted_tokens': num_accepted_tokens,
+              'prefill_time': prefill_time}
+    return result
 
 
 if __name__ == "__main__":
@@ -411,10 +422,10 @@ if __name__ == "__main__":
     # The number of generated token at each LLM generation step
     # e.g., it is a list of ones in the case of a STP model or,
     # in the case of speculative decoding, it is a list of numbers of the form #_of_accepted_tokens + 1
-    total_elapsed_times, total_num_tokens, total_num_accepted_tokens = [], [], []
+    total_elapsed_times, total_num_tokens, total_num_accepted_tokens, prefill_times = [], [], [], []
 
     for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1, total=len(prompts)):
-        elapsed_times, num_tokens, num_acc_tokens = generate(
+        result = generate(
             x,
             disable_progress_bar=len(prompts) > 1,
             print_generation=args.print,
@@ -423,13 +434,15 @@ if __name__ == "__main__":
             warmup=i == 0,
             stop_on_eos=not args.no_stop_on_eos
         )
-        total_elapsed_times.extend(elapsed_times)
-        total_num_tokens.extend(num_tokens)
-        total_num_accepted_tokens.extend(num_acc_tokens)
+        total_elapsed_times.extend(result['time_per_call'])
+        total_num_tokens.extend(result['num_generated_tokens'])
+        total_num_accepted_tokens.extend(result['num_accepted_tokens'])
+        prefill_times.append(result['prefill_time'])
 
     # Compute the TPS as the total number of generated tokens (across all prompts) by the total elapsed time
     total_elapsed_time = sum(total_elapsed_times)
-    tps = sum(total_num_tokens) / total_elapsed_time
+    tps = sum(total_num_tokens) / (total_elapsed_time - sum(prefill_times))
+    tps_with_prefill = sum(total_num_tokens) / total_elapsed_time
     avg_time_per_call = np.mean(total_elapsed_times)
 
     n_token = 1
@@ -473,6 +486,7 @@ if __name__ == "__main__":
     stats["batch_size"] = BATCH_SIZE
     stats["elapsed_time"] = total_elapsed_time
     stats["tokens_per_second"] = tps
+    stats["tokens_per_second_with_prefill"] = tps_with_prefill
     if args.checkpoint is None:
         stats["checkpoint"] = f"{cfg.model.name}-{cfg.lm.name}@0"
     else:

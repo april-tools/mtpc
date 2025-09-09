@@ -13,6 +13,10 @@ class TimerResult:
 def time_block(device):
 
     result = TimerResult()
+
+    if isinstance(device, torch.device):
+        device = device.type
+
     if device == 'cpu':
         start_time = time.perf_counter()
     elif device == 'cuda':
@@ -21,7 +25,7 @@ def time_block(device):
         end = torch.cuda.Event(enable_timing=True)
         start.record(torch.cuda.current_stream('cuda'))
     else:
-        raise ValueError('Unknown device  %s' % device)
+        raise ValueError('Unknown device  %s' % type(device))
     try:
         yield result
     finally:

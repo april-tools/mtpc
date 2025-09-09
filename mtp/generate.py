@@ -8,12 +8,14 @@ import argparse
 import datetime
 import numpy as np
 
+from transformers import AutoTokenizer
+from itertools import chain
+from torch import autocast
+
+from mtp.utils.timestamp import unique_timestamp
 from mtp.utils.checkpoint import load_model_with_overrides
 from mtp.utils.profile import time_block
 from mtp.data import DistributedDataLoader
-
-from transformers import AutoTokenizer
-from torch import autocast
 
 from .train import set_deterministic
 
@@ -101,7 +103,12 @@ def generate(
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
-    num_generated_tokens, num_accepted_tokens, time_per_call = [], [], []
+    generated_tokens, num_generated_tokens, num_accepted_tokens, time_per_call = (
+        [],
+        [],
+        [],
+        [],
+    )
     past_key_values, head_past_key_values = None, None
     verifier_past_key_values = None
     past_num_tokens = None
@@ -176,6 +183,7 @@ def generate(
 
                 # Stop if we generate the EOS token
                 x = torch.cat([x, tokens], dim=1)
+                generated_tokens.append(tokens)
                 num_generated_tokens.append(tokens.shape[1])
                 num_accepted_tokens.append(acc_tokens)
 
@@ -184,12 +192,14 @@ def generate(
             if tokeniser is not None and stop_on_eos:
                 if torch.any(tokens == tokeniser.eos_token_id):
                     break
+            if print_generation:
+                print(decode(tokens), end="")
 
-    if print_generation:
-        print("\nGeneration:\n", decode(x), "\n\n")
+    generated_tokens = [decode(t) for t in generated_tokens]
 
     result = {
         "time_per_call": time_per_call,
+        "generated_tokens": generated_tokens,
         "num_generated_tokens": num_generated_tokens,
         "num_accepted_tokens": num_accepted_tokens,
         "prefill_time": prefill_time,
@@ -311,6 +321,8 @@ if __name__ == "__main__":
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
 
+    assert "MTP_ROOT" in os.environ
+
     exp_start = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
 
     set_deterministic(args.random_seed)
@@ -374,7 +386,7 @@ if __name__ == "__main__":
             dl = DistributedDataLoader.resolve(
                 "agrv/tulu-v3-sft-evabyte-padded-seq-len-8192",
                 "EvaByte/EvaByte",
-                1,
+                None,  # Do not batch
                 8192,
                 0,
                 1,
@@ -386,11 +398,17 @@ if __name__ == "__main__":
             ds = iter(dl.dataset)
 
             for example in ds:
-                prompt = example["messages"][0][0]
+                prompt = example["messages"][0]
                 # We only add the first turn
                 # We also ignore prompts that start with a system prompt (rare)
                 if prompt["role"] == "user":
-                    prompts.append(prompt["content"])
+                    prompts.append(
+                        {
+                            "text": prompt["content"],
+                            "id": example["id"],
+                            "source": example["source"],
+                        }
+                    )
 
             # The above padded dataset contains approx 9k examples
             random_state = np.random.RandomState(args.random_seed)
@@ -413,11 +431,11 @@ if __name__ == "__main__":
             # Make sure same seed => same prompts on which we compute the throughput
             random_state = np.random.RandomState(args.random_seed)
             indices = random_state.permutation(len(prompts))[: args.subsample_prompts]
-            prompts = [prompts[i] for i in indices]
+            prompts = [{'text': prompts[i]} for i in indices]
         else:
             raise ValueError(f"Unknown source {args.prompt_source}")
     else:
-        prompts = [args.prompt]
+        prompts = [{'text': args.prompt, "source": "cli"}]
 
     prompt_source = "Terminal" if args.prompt is not None else args.prompt_source
 
@@ -425,40 +443,52 @@ if __name__ == "__main__":
     # Encode the prompts either for completion or chat (depending on args.task)
     xs = []
     for prompt in prompts:
-        x = encode(prompt, args.device, args.task)
+        x = encode(prompt["text"], args.device, args.task)
         xs.append(x)
 
     # The number of generated token at each LLM generation step
     # e.g., it is a list of ones in the case of a STP model or,
     # in the case of speculative decoding, it is a list of numbers of the form #_of_accepted_tokens + 1
-    total_elapsed_times, total_num_tokens, total_num_accepted_tokens, prefill_times = (
-        [],
-        [],
-        [],
-        [],
-    )
+    (
+        all_elapsed_times,
+        all_generated_tokens,
+        all_num_generated_tokens,
+        all_num_accepted_tokens,
+        prefill_times,
+    ) = ([], [], [], [], [])
 
     for i, x in tqdm.tqdm(enumerate(xs), disable=len(prompts) == 1, total=len(prompts)):
+        if args.print:
+            print(prompts[i])
         result = generate(
             x,
-            disable_progress_bar=len(prompts) > 1,
+            disable_progress_bar=True,
             print_generation=args.print,
             draft_top_p=args.draft_top_p,
             target_top_p=args.target_top_p,
             warmup=i == 0,
             stop_on_eos=not args.no_stop_on_eos,
         )
-        total_elapsed_times.extend(result["time_per_call"])
-        total_num_tokens.extend(result["num_generated_tokens"])
-        total_num_accepted_tokens.extend(result["num_accepted_tokens"])
+        all_elapsed_times.append(result["time_per_call"])
+        all_generated_tokens.append(result["generated_tokens"])
+        all_num_generated_tokens.append(result["num_generated_tokens"])
+        all_num_accepted_tokens.append(result["num_accepted_tokens"])
         prefill_times.append(result["prefill_time"])
+        if args.print:
+            print("\n")
 
     # Compute the TPS as the total number of generated tokens (across all prompts) by the total elapsed time
-    total_elapsed_time = sum(total_elapsed_times)
+    collapsed_elapsed_times = list(chain.from_iterable(all_elapsed_times))
+    collapsed_num_generated_tokens = list(chain.from_iterable(all_num_generated_tokens))
+    collapsed_num_accepted_tokens = list(chain.from_iterable(all_num_accepted_tokens))
+
+    total_elapsed_time = sum(collapsed_elapsed_times)
+    total_num_generated_tokens = sum(collapsed_num_generated_tokens)
     total_prefill_time = sum(prefill_times)
-    tps = sum(total_num_tokens) / (total_elapsed_time - total_prefill_time)
-    tps_with_prefill = sum(total_num_tokens) / total_elapsed_time
-    avg_time_per_call = np.mean(total_elapsed_times)
+
+    tps = total_num_generated_tokens / (total_elapsed_time - total_prefill_time)
+    tps_with_prefill = total_num_generated_tokens / total_elapsed_time
+    avg_time_per_call = np.mean(collapsed_elapsed_times)
 
     n_token = 1
     n_component = 1
@@ -467,7 +497,32 @@ if __name__ == "__main__":
         n_token = model.circuit.n_token
         n_component = model.circuit.n_component
 
+    my_uuid = unique_timestamp()
+
+    try:
+        folder_path = os.path.join(
+            os.environ["MTP_ROOT"], "outputs", "results", "generation_output"
+        )
+        os.makedirs(folder_path, exist_ok=True)
+        file_path = os.path.join(folder_path, "%s.jsonl" % my_uuid)
+        log_entries = []
+        for i in range(len(prompts)):
+            log = dict()
+            log["generated_tokens"] = all_generated_tokens[i]
+            log["num_generated_tokens"] = all_num_generated_tokens[i]
+            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
+            log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
+            log["prefill_time"] = round(prefill_times[i], 6)
+            log["prompt"] = prompts[i]
+            log_entries.append(log)
+        log = json.dumps(log_entries)
+        with open(file_path, "w") as f:
+            f.write(log)
+    except Exception as e:
+        print("Error saving additional info: %s" % e)
+
     stats = dict()
+    stats["uuid"] = my_uuid
     stats["exp_start"] = exp_start
     stats["exp_end"] = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
     stats["exp_host"] = socket.gethostname()
@@ -488,17 +543,18 @@ if __name__ == "__main__":
     if args.speculative:
         num_token_idxs = n_token + 1
         uniq_accepted_toks, hist_accepted_toks = np.unique(
-            total_num_accepted_tokens, return_counts=True
+            collapsed_num_accepted_tokens, return_counts=True
         )
         full_hist_accepted_toks = np.zeros(num_token_idxs, dtype=np.int32)
         full_hist_accepted_toks[uniq_accepted_toks] = hist_accepted_toks
-        stats["avg_accepted_tokens"] = np.mean(total_num_accepted_tokens)
+        stats["avg_accepted_tokens"] = np.mean(collapsed_num_accepted_tokens)
         stats["hist_accepted_tokens"] = [
             np.arange(num_token_idxs).tolist(),
             full_hist_accepted_toks.tolist(),
         ]
     stats["device"] = args.device
     stats["batch_size"] = BATCH_SIZE
+    stats["num_generated_tokens"] = total_num_generated_tokens
     stats["elapsed_time"] = total_elapsed_time
     stats["elapsed_time_without_prefill"] = total_elapsed_time - total_prefill_time
     stats["tokens_per_second"] = tps

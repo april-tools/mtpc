@@ -555,6 +555,7 @@ if __name__ == "__main__":
             log["generated_tokens"] = all_generated_tokens[i]
             log["num_generated_tokens"] = all_num_generated_tokens[i]
             log["num_accepted_tokens"] = all_num_accepted_tokens[i]
+            log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i])
             log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
             log["prefill_time"] = round(prefill_times[i], 6)
             log["prompt"] = prompts[i]

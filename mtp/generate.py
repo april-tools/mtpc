@@ -12,6 +12,8 @@ from transformers import AutoTokenizer
 from itertools import chain
 from torch import autocast
 from langdetect import detect
+from langdetect.detector_factory import DetectorFactory
+
 
 from mtp.utils.timestamp import unique_timestamp
 from mtp.utils.checkpoint import load_model_with_overrides
@@ -22,6 +24,9 @@ from .train import set_deterministic
 
 
 BATCH_SIZE = 1
+
+# Set seed for deterministic results
+DetectorFactory.seed = 0
 
 
 def get_huggingface_model(cfg):

@@ -431,11 +431,11 @@ if __name__ == "__main__":
             # Make sure same seed => same prompts on which we compute the throughput
             random_state = np.random.RandomState(args.random_seed)
             indices = random_state.permutation(len(prompts))[: args.subsample_prompts]
-            prompts = [{'text': prompts[i]} for i in indices]
+            prompts = [{"text": prompts[i]} for i in indices]
         else:
             raise ValueError(f"Unknown source {args.prompt_source}")
     else:
-        prompts = [{'text': args.prompt, "source": "cli"}]
+        prompts = [{"text": args.prompt, "source": "cli"}]
 
     prompt_source = "Terminal" if args.prompt is not None else args.prompt_source
 
@@ -514,10 +514,9 @@ if __name__ == "__main__":
             log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
             log["prefill_time"] = round(prefill_times[i], 6)
             log["prompt"] = prompts[i]
-            log_entries.append(log)
-        log = json.dumps(log_entries)
+            log_entries.append("%s\n" % json.dumps(log))
         with open(file_path, "w") as f:
-            f.write(log)
+            f.writelines(log_entries)
     except Exception as e:
         print("Error saving additional info: %s" % e)
 

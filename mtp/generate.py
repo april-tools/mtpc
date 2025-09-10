@@ -439,8 +439,17 @@ if __name__ == "__main__":
             print("Filtered out %d prompts where first prompt was not user" % non_user)
             print("Filtered out %d prompts that were non-English" % diff_lang)
             print("Filtered out %d prompts that were non-ascii" % non_ascii)
+            print("We now subsample from the %d remaining prompts" % len(prompts))
 
-            # The above padded dataset contains approx 9k examples
+            # The above padded dataset contains approx 7k examples
+            # NOTE that for 3 random seeds there will be some overlap
+            # in the selected prompts, but it is negligible
+            # In [10]: items = np.arange(7000)
+            # In [11]: aa = np.random.choice(items, 100)
+            # In [12]: bb = np.random.choice(items, 100)
+            # In [13]: cc = np.random.choice(items, 100)
+            # In [14]: np.unique(np.hstack([aa, bb, cc])).shape
+            # Out[14]: (296,)   # ideally would be 300
             random_state = np.random.RandomState(args.random_seed)
             idxs = random_state.choice(
                 len(prompts), args.subsample_prompts, replace=False

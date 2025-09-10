@@ -5,23 +5,29 @@ import matplotlib
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 from itertools import groupby
 from mtp.plots.utils import setup_tueplots
 
 
-def get_label(stats):
-    n = stats[-1]['ntoken']
-    r = stats[-1]['ncomponent']
-    circuit = stats[-1]['circuit'].replace('_', '-').upper()
-    return f"{circuit} r={r:<2} n={n:<2}"
+def get_label(row):
+    n = row['ntoken']
+    r = row['ncomponent']
+    circuit = row['circuit'].replace('_', '-').upper()
+    circuit = circuit.replace('FULLY-FACTORIZED', 'FF')
+    return f"{circuit:<3} r={r:<2} n={n:<2}"
 
 
 def get_model_type(model):
+    if '-ff-' in model:
+        return 'ff'
     if '-cp-' in model:
         return 'cp'
     if '-hmm-' in model:
         return 'hmm'
+    if '-btree-' in model:
+        return 'btree'
     else:
         return 'unknown'
 
@@ -96,7 +102,7 @@ if __name__ == '__main__':
             avg_accepted_tokens = tuple(row['avg_accepted_tokens'] for row in stats)
             steps = tuple(row['step'] for row in stats)
 
-            label = get_label(stats)
+            label = get_label(stats[-1])
 
             mean_scatter = ax.scatter(unique_steps, means, label=label, s=40, alpha=.9)
             color = mean_scatter.get_facecolor()
@@ -121,7 +127,7 @@ if __name__ == '__main__':
             for a, j in enumerate(token_range):
                 counts = tuple(row['hist_accepted_tokens'][1][j] for row in stats)
                 steps = tuple(row['step'] for row in stats)
-                axes[a].plot(steps, counts, '-o', label=get_label(stats))
+                axes[a].plot(steps, counts, '-o', label=get_label(stats[-1]))
 
         for a, j in enumerate(token_range):
             axes[a].set_title('# times %d token(s) generated' % (j + 1))
@@ -145,3 +151,18 @@ if __name__ == '__main__':
     else:
         plt.tight_layout()
         plt.show()
+
+    df = pd.DataFrame(rows)
+    df['label'] = df.apply(get_label, axis=1)
+    agg_dfs = []
+    for ntoken in args.ntokens:
+        agg = df[df['ntoken'] == ntoken].groupby(['label']).agg({
+        'avg_accepted_tokens': ['mean', 'std'],
+        })
+        print(agg)
+        baseline = agg.loc[('FF  r=1  n=%s' % str(ntoken).ljust(2)), ('avg_accepted_tokens', 'mean')]
+        # Normalize
+        agg[('throughput', 'speed-up over CP r=1')] = agg[('avg_accepted_tokens', 'mean')] / baseline
+        agg_dfs.append(agg)
+    results = pd.concat(dict(zip(args.ntokens, agg_dfs)), names=['ntoken', 'model'])
+    print(results.to_latex(float_format="%.2f", multirow=False, label='tab:avg_accepted_tokens'))

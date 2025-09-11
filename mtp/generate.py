@@ -106,12 +106,14 @@ def logits_disable_eos(logits, tokeniser):
             logits.shape[-1] == len(tokeniser.get_vocab())
         ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
         logits[..., tokeniser.eos_token_id] = -torch.inf
+        logits[..., tokeniser.sep_token_id] = -torch.inf
     elif isinstance(logits, Iterable):
         for entry in logits:
             assert (
                 entry.shape[-1] == len(tokeniser.get_vocab())
             ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
             entry[..., tokeniser.eos_token_id] = -torch.inf
+            entry[..., tokeniser.sep_token_id] = -torch.inf
     else:
         raise ValueError("Could not process logits, expected Tensor or list of Tensors")
     return logits
@@ -229,7 +231,7 @@ def generate(
             time_per_call.append(t.elapsed_time)
             pbar.update(tokens.shape[1])
             if print_generation:
-                print(decode(tokens), end="")
+                print(decode(tokens), end="", flush=True)
             if tokeniser is not None:
                 if torch.any(tokens == tokeniser.eos_token_id):
                     break

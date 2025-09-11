@@ -1,9 +1,10 @@
 import torch
 import torch.nn.functional as F
 
+from typing import Callable
 from torch import Tensor, LongTensor
-
 from transformers.cache_utils import Cache
+
 from mtp.models.evabyte.multibyte_decoding_evabyte import multi_byte_pred_prepare_attn_mask
 from mtp.utils.profile import time_block
 from mtp.utils.sampling import truncate_logprobs_top_p
@@ -307,6 +308,7 @@ class MultiTokenLM(torch.nn.Module):
         position_ids: Tensor = None,
         generate: bool = False,
         top_p: float = 1.,
+        logit_processor: Callable = None,
     ) -> Cache:
         if top_p != 1.:
             assert generate is True
@@ -322,7 +324,11 @@ class MultiTokenLM(torch.nn.Module):
         )
 
         # Set the parameters to the circuit
-        self.circuit.parameterize({'categorical': outputs['categorical'], 'sum': outputs['sum']}, top_p=top_p)
+        if logit_processor is not None:
+            categoricals = logit_processor(outputs['categorical'])
+        else:
+            categoricals = outputs['categorical']
+        self.circuit.parameterize({'categorical': categoricals, 'sum': outputs['sum']}, top_p=top_p)
         return outputs['past_key_values']
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
@@ -406,6 +412,7 @@ class MultiTokenLM(torch.nn.Module):
         head_past_key_values: Cache = None,
         position_ids: Tensor = None,
         draft_top_p: float = 1.,
+        logit_processor: Callable = None,
     ) -> dict:
         assert attention_mask is None
         assert position_ids is None
@@ -472,6 +479,7 @@ class MultiTokenLM(torch.nn.Module):
             position_ids=position_ids,
             generate=True,
             top_p=draft_top_p,
+            logit_processor=logit_processor,
         )
 
         # Update caches for the next iteration
@@ -492,7 +500,7 @@ class MultiTokenLM(torch.nn.Module):
             else:
                 tokens = torch.multinomial(next_token_probs, num_samples=1)
         else:
-            assert False
+            raise ValueError("Mode must be 'stp' or 'mtp'")
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,
@@ -653,6 +661,7 @@ class MultiTokenLM(torch.nn.Module):
         last_hidden_state: Tensor = None,
         draft_top_p: float = 1.,
         target_top_p: float = 1.,
+        logit_processor: Callable = None,
     ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
@@ -671,6 +680,7 @@ class MultiTokenLM(torch.nn.Module):
                     last_hidden_state=last_hidden_state,
                     draft_top_p=draft_top_p,
                     target_top_p=target_top_p,
+                    logit_processor=logit_processor,
                     argmax=False)
 
 
@@ -686,6 +696,7 @@ class MultiTokenLM(torch.nn.Module):
         position_ids: Tensor = None,
         past_num_tokens: int = None,
         last_hidden_state: Tensor = None,
+        logit_processor: Callable = None,
     ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
@@ -704,6 +715,7 @@ class MultiTokenLM(torch.nn.Module):
                     last_hidden_state=last_hidden_state,
                     draft_top_p=1.,
                     target_top_p=1.,
+                    logit_processor=logit_processor,
                     argmax=True)
 
 
@@ -722,6 +734,7 @@ class MultiTokenLM(torch.nn.Module):
         draft_top_p: float = 1.,
         target_top_p: float = 1.,
         argmax: bool = False,
+        logit_processor: Callable = None,
     ) -> dict:
 
         if argmax:
@@ -772,7 +785,8 @@ class MultiTokenLM(torch.nn.Module):
             past_key_values=head_past_key_values,
             position_ids=position_ids,
             generate=True,
-            top_p=draft_top_p
+            top_p=draft_top_p,
+            logit_processor=logit_processor,
         )
 
         # Update caches for the next iteration
@@ -817,6 +831,8 @@ class MultiTokenLM(torch.nn.Module):
             zz = zz[:, -tokens.shape[1] - 1:]
             # logits: (B, H + 1, V)
             logits = self.lm.head_logits(zz)
+            if logit_processor is not None:
+                logits = logit_processor(logits)
 
             # Reject tokens, return accepted plus the one obtained from logits
             if argmax:
@@ -868,10 +884,11 @@ class MultiTokenLM(torch.nn.Module):
         head_past_key_values: Cache = None,
         position_ids: Tensor = None,
         past_num_tokens: int = None,
-        last_hidden_state = None,
+        last_hidden_state: Tensor = None,
         draft_top_p: float = 1.,
         target_top_p: float = 1.,
-        argmax: bool = False
+        argmax: bool = False,
+        logit_processor: Callable = None,
     ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
@@ -956,7 +973,8 @@ class MultiTokenLM(torch.nn.Module):
             past_key_values=head_past_key_values,
             position_ids=position_ids,
             generate=True,
-            top_p=draft_top_p
+            top_p=draft_top_p,
+            logit_processor=logit_processor,
         )
 
         # Update caches for the next iteration
@@ -1000,6 +1018,8 @@ class MultiTokenLM(torch.nn.Module):
             zz = zz[:, -tokens.shape[1] - 1:]
             # logits: (B, H + 1, V)
             logits = self.lm.head_logits(zz)
+            if logit_processor is not None:
+                logits = logit_processor(logits)
 
         # Reject tokens, return accepted plus the one obtained from logits
         if argmax:

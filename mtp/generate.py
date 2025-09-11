@@ -8,9 +8,10 @@ import argparse
 import datetime
 import numpy as np
 
-from transformers import AutoTokenizer
+from typing import Iterable
 from itertools import chain
 from torch import autocast
+from transformers import AutoTokenizer
 from langdetect import detect
 from langdetect.detector_factory import DetectorFactory
 
@@ -46,7 +47,7 @@ def load_vocabs(path):
 
 def is_english(text):
     try:
-        return detect(text) == 'en'
+        return detect(text) == "en"
     except Exception:
         return False  # Handle detection errors
 
@@ -99,6 +100,23 @@ def decode(xx):
     return text
 
 
+def logits_disable_eos(logits, tokeniser):
+    if isinstance(logits, torch.Tensor):
+        assert (
+            logits.shape[-1] == len(tokeniser.get_vocab())
+        ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
+        logits[..., tokeniser.eos_token_id] = -torch.inf
+    elif isinstance(logits, Iterable):
+        for entry in logits:
+            assert (
+                entry.shape[-1] == len(tokeniser.get_vocab())
+            ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
+            entry[..., tokeniser.eos_token_id] = -torch.inf
+    else:
+        raise ValueError("Could not process logits, expected Tensor or list of Tensors")
+    return logits
+
+
 def generate(
     x: torch.Tensor,
     disable_progress_bar: bool = True,
@@ -106,7 +124,7 @@ def generate(
     draft_top_p=1.0,
     target_top_p=1.0,
     warmup: bool = False,
-    stop_on_eos=True,
+    disable_eos=False,
 ):
     # Init model in case loading takes additional time - do not use this output
     if warmup:
@@ -128,6 +146,11 @@ def generate(
     acc_tokens = None
     prefill_time = 0
 
+    if disable_eos:
+        logit_processor = lambda x: logits_disable_eos(x, tokeniser)
+    else:
+        logit_processor = None
+
     with tqdm.tqdm(total=args.num_tokens, disable=disable_progress_bar) as pbar, ctx:
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
@@ -142,6 +165,7 @@ def generate(
                             head_past_key_values=head_past_key_values,
                             past_num_tokens=past_num_tokens,
                             last_hidden_state=last_hidden_state,
+                            logit_processor=logit_processor,
                         )
                     else:
                         outputs = model.self_speculative_generate(
@@ -154,6 +178,7 @@ def generate(
                             last_hidden_state=last_hidden_state,
                             draft_top_p=draft_top_p,
                             target_top_p=target_top_p,
+                            logit_processor=logit_processor,
                         )
                     tokens = outputs["tokens"]
                     acc_tokens = outputs["num_accepted_tokens"]
@@ -171,6 +196,7 @@ def generate(
                         past_key_values=past_key_values,
                         head_past_key_values=head_past_key_values,
                         draft_top_p=draft_top_p,
+                        logit_processor=logit_processor,
                     )
                     tokens = outputs["tokens"]
                     past_key_values = outputs["past_key_values"]
@@ -182,6 +208,7 @@ def generate(
                         mode="stp",
                         use_cache=args.use_cache,
                         past_key_values=past_key_values,
+                        logit_processor=logit_processor,
                     )
                     tokens = outputs["tokens"]
                     past_key_values = outputs["past_key_values"]
@@ -201,11 +228,11 @@ def generate(
 
             time_per_call.append(t.elapsed_time)
             pbar.update(tokens.shape[1])
-            if tokeniser is not None and stop_on_eos:
-                if torch.any(tokens == tokeniser.eos_token_id):
-                    break
             if print_generation:
                 print(decode(tokens), end="")
+            if tokeniser is not None:
+                if torch.any(tokens == tokeniser.eos_token_id):
+                    break
 
     generated_tokens = [decode(t) for t in generated_tokens]
 
@@ -324,11 +351,11 @@ if __name__ == "__main__":
         help="Whether to compile the model",
     )
     parser.add_argument(
-        "--no-stop-on-eos",
+        "--disable-eos",
         default=False,
         action="store_true",
-        help="Do not stop when EOS is generated. We use this for measuring throughput "
-        "of models that are noisy (e.g. not trained)",
+        help="Disable predicting eos so that we can guarantee that num-tokens "
+        "tokens are generated per prompt.",
     )
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
@@ -498,7 +525,7 @@ if __name__ == "__main__":
             draft_top_p=args.draft_top_p,
             target_top_p=args.target_top_p,
             warmup=i == 0,
-            stop_on_eos=not args.no_stop_on_eos,
+            disable_eos=args.disable_eos,
         )
         all_elapsed_times.append(result["time_per_call"])
         all_generated_tokens.append(result["generated_tokens"])

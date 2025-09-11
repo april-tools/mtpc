@@ -3,7 +3,7 @@
 mkdir -p $MTP_ROOT/outputs/results
 
 device=cuda
-num_tokens=2048
+num_tokens=1024
 default="$MTP_ROOT/outputs/models/"
 subsample_prompts=20
 prompt_source="tulu-valid"

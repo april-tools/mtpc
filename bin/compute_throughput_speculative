@@ -28,5 +28,6 @@ do
     --num-tokens $num_tokens \
     --task chat \
     --checkpoint $file \
+    --disable-eos \
     | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
 done

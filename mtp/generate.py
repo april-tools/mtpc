@@ -236,6 +236,19 @@ def generate(
                 if torch.any(tokens == tokeniser.eos_token_id):
                     break
 
+    # We may have overshot num tokens - clean up the last entry and stats
+    if torch.any(tokens == tokeniser.eos_token_id):
+        eos_idx = torch.where(tokens == tokeniser.eos_token_id)[1][0]
+        tokens = tokens[..., :eos_idx + 1]
+    else:
+        # We stopped because we generated enough tokens
+        diff = args.num_tokens - sum(num_generated_tokens[:-1])
+        tokens = tokens[..., :diff]
+
+    generated_tokens[-1] = tokens
+    num_generated_tokens[-1] = tokens.shape[1]
+    num_accepted_tokens[-1] = tokens.shape[1]
+
     generated_tokens = [decode(t) for t in generated_tokens]
 
     result = {

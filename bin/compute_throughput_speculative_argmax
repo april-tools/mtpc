@@ -2,7 +2,8 @@
 
 mkdir -p $MTP_ROOT/outputs/results
 
-num_tokens=2048
+device=cuda
+num_tokens=1024
 default="$MTP_ROOT/outputs/models/"
 subsample_prompts=250
 prompt_source="tulu-valid"
@@ -15,21 +16,19 @@ export GPU=1
 
 for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
 do
-  if [[ $file =~ (@0\.pt|00\.pt)$ ]]; then
-    echo -e "Processing $file..."
-    python -m mtp.generate \
-      --device cuda \
-      --mode mtp \
-      --use-cache \
-      --speculative \
-      --random-seed $seed \
-      --subsample-prompts $subsample_prompts \
-      --prompt-source $prompt_source \
-      --num-tokens $num_tokens \
-      --argmax \
-      --task chat \
-      --checkpoint $file \
-      | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
-  fi
+  echo -e "Processing $file..."
+  python -m mtp.generate \
+    --device $device \
+    --mode mtp \
+    --use-cache \
+    --speculative \
+    --random-seed $seed \
+    --subsample-prompts $subsample_prompts \
+    --prompt-source $prompt_source \
+    --num-tokens $num_tokens \
+    --argmax \
+    --task chat \
+    --checkpoint $file \
+    | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
 done
 

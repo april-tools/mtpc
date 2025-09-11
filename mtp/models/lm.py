@@ -10,6 +10,7 @@ from transformers import AutoModelForCausalLM
 # from transformers import BitsAndBytesConfig
 from transformers.cache_utils import Cache
 
+from mtp.utils.profile import time_block
 from mtp.utils.distributed import get_local_device
 from mtp.utils.checkpoint import Checkpoint
 from mtp.models.loss import IGNORE_TOKEN_ID
@@ -94,6 +95,9 @@ class LM(nn.Module):
         if self.encoder_only:
             setattr(self.lm_model, self.ref_head, None)
 
+        self._lm_base = None
+        self._dual_model_enabled = False
+
     def _load_lm(self):
         lm = None
         if self.from_checkpoint is not None:
@@ -154,7 +158,7 @@ class LM(nn.Module):
 
     @property
     def lm_model(self):
-        if self.has_adapter:
+        if isinstance(self._lm, PeftModel):
             return self._lm.base_model.model
         return self._lm
 
@@ -166,23 +170,58 @@ class LM(nn.Module):
     def head(self):
         return getattr(self.lm_model, self.ref_head)
 
+    def enable_dual_model_inference(self):
+        """
+        Enable dual model mode for faster inference. This creates a merged copy
+        of the LoRA model (with LoRA weights baked in) as the default, and recreates
+        the base model for disable_adapter contexts. Should only be called during
+        inference due to memory overhead.
+        """
+        if not self.has_adapter:
+            raise ValueError('No LoRA present, cannot enable dual model inference.')
+
+        if self._dual_model_enabled:
+            return  # Already enabled
+
+        # Create merged model from the LoRA version (LoRA weights baked in)
+        from copy import deepcopy
+        self._lm_merged = deepcopy(self._lm).merge_and_unload()
+
+        # Keep track of model without adapters
+        self._lm_base = deepcopy(self._lm)
+
+        # Switch default to merged model (fast path with LoRA baked in)
+        self._lm = self._lm_merged
+        self._dual_model_enabled = True
+
     @property
     def has_adapter(self) -> bool:
-        return isinstance(self._lm, PeftModel)
+        return isinstance(self._lm, PeftModel) or self._dual_model_enabled
 
     @contextmanager
     def disable_adapter(self):
         assert self.has_adapter
-        # Forward the disable adapter context manager of the Peft-managed LM
-        with self._lm.disable_adapter():
-            yield
+
+        original_lm = self._lm
+
+        try:
+            # Switch to base model (no LoRA) for disabled adapter context
+            if self._dual_model_enabled:
+                assert self._lm_base is not None
+                self._lm = self._lm_base
+            # Forward the disable adapter context manager of the Peft-managed LM
+            with self._lm.disable_adapter():
+                yield
+        finally:
+            # Restore original _lm reference
+            self._lm = original_lm
 
     @contextmanager
     def disable_adapter_if_any(self):
         if self.has_adapter:
             # Forward the disable adapter context manager of the Peft-managed LM,
             # only if the lm is Peft-managed
-            with self._lm.disable_adapter():
+            with self.disable_adapter():
                 yield
         else:
             yield
@@ -240,7 +279,7 @@ class LM(nn.Module):
             assert logits.shape == (logits.shape[0], logits.shape[1], num_pred_heads * vocab_size)
             logits = logits.view(logits.shape[0], logits.shape[1], num_pred_heads, vocab_size)
             logits = logits[:, :, 0]  # (B, S, V)
-    
+
         # Cast to float32
         return logits.float()
 
@@ -258,29 +297,36 @@ class LM(nn.Module):
         self.eval()
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
+        prefill_time = 0
+        first_run = (past_key_values is None)
         if use_cache:
-            # We only pass in the unseen inputs, because we are using cache
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            if position_ids is None:
-                if attention_mask is not None:
-                    # This is the default position_ids initialization from HF's generate()
-                    # in the case we are given an attention mask
-                    position_ids = attention_mask.long().cumsum(-1) - 1
-                    position_ids.masked_fill_(attention_mask == 0, 1)
-                else:
-                    position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=int)
-                    position_ids = position_ids.unsqueeze(dim=0).expand(inputs.shape[0], -1)
-            # Evaluate the encoder
-            outputs = self.encoder(
-                input_ids=inputs[:, past_seen_tokens:],
-                use_cache=use_cache,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-                position_ids=position_ids
-            )
-            # token embeddings of shape (b, t, n_embd)
-            xx = outputs["last_hidden_state"]
-            past_key_values = outputs["past_key_values"]
+            with time_block(inputs.device) as t:
+                # We only pass in the unseen inputs, because we are using cache
+                past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+                if position_ids is None:
+                    if attention_mask is not None:
+                        # This is the default position_ids initialization from HF's generate()
+                        # in the case we are given an attention mask
+                        position_ids = attention_mask.long().cumsum(-1) - 1
+                        position_ids.masked_fill_(attention_mask == 0, 1)
+                    else:
+                        position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=int)
+                        position_ids = position_ids.unsqueeze(dim=0).expand(inputs.shape[0], -1)
+                # Evaluate the encoder
+                outputs = self.encoder(
+                    input_ids=inputs[:, past_seen_tokens:],
+                    use_cache=use_cache,
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    position_ids=position_ids
+                )
+                # token embeddings of shape (b, t, n_embd)
+                xx = outputs["last_hidden_state"]
+                past_key_values = outputs["past_key_values"]
+            # This is only actually the prefill time during the first call when
+            # past_key_values is None. Wrote it this way to avoid an extra if.
+            if first_run:
+                prefill_time = t.elapsed_time
         else:
             xx = self.encoder(inputs)["last_hidden_state"]
 
@@ -290,4 +336,6 @@ class LM(nn.Module):
         else:
             probs = torch.softmax(logits, dim=2)
             tokens = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
-        return dict(tokens=tokens, past_key_values=past_key_values)
+        return dict(tokens=tokens,
+                    past_key_values=past_key_values,
+                    prefill_time=prefill_time)

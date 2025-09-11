@@ -14,7 +14,6 @@ from torch import autocast
 from langdetect import detect
 from langdetect.detector_factory import DetectorFactory
 
-
 from mtp.utils.timestamp import unique_timestamp
 from mtp.utils.checkpoint import load_model_with_overrides
 from mtp.utils.profile import time_block
@@ -50,14 +49,6 @@ def is_english(text):
         return detect(text) == 'en'
     except Exception:
         return False  # Handle detection errors
-
-
-def is_ascii_only(text):
-    try:
-        text.encode('ascii')
-        return True
-    except UnicodeEncodeError:
-        return False
 
 
 def encode(text, device, task):
@@ -418,7 +409,7 @@ if __name__ == "__main__":
             )
             ds = iter(dl.dataset)
 
-            total_prompts, non_user, diff_lang, non_ascii = 0, 0, 0, 0
+            total_prompts, non_user, diff_lang = 0, 0, 0
             for example in ds:
                 total_prompts += 1
                 prompt = example["messages"][0]
@@ -430,9 +421,6 @@ if __name__ == "__main__":
                 if not is_english(prompt["content"]):
                     diff_lang += 1
                     continue
-                if not is_ascii_only(prompt["content"]):
-                    non_ascii += 1
-                    continue
                 prompts.append(
                     {
                         "text": prompt["content"],
@@ -443,7 +431,6 @@ if __name__ == "__main__":
             print("Loaded %d prompts" % total_prompts)
             print("Filtered out %d prompts where first prompt was not user" % non_user)
             print("Filtered out %d prompts that were non-English" % diff_lang)
-            print("Filtered out %d prompts that were non-ascii" % non_ascii)
             print("We now subsample from the %d remaining prompts" % len(prompts))
 
             # The above padded dataset contains approx 7k examples

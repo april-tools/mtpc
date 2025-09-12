@@ -4,6 +4,7 @@ import tqdm
 import torch
 import pickle
 import socket
+import cpuinfo
 import argparse
 import datetime
 import numpy as np
@@ -627,6 +628,8 @@ if __name__ == "__main__":
             full_hist_accepted_toks.tolist(),
         ]
     stats["device"] = args.device
+    stats["cpu"] = cpuinfo.get_cpu_info()["brand_raw"]
+    stats["gpu"] = torch.cuda.get_device_name(torch.cuda.current_device())
     stats["batch_size"] = BATCH_SIZE
     stats["num_generated_tokens"] = total_num_generated_tokens
     stats["elapsed_time"] = total_elapsed_time

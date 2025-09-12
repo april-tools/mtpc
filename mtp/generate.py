@@ -4,13 +4,15 @@ import tqdm
 import torch
 import pickle
 import socket
+import cpuinfo
 import argparse
 import datetime
 import numpy as np
 
-from transformers import AutoTokenizer
+from typing import Iterable
 from itertools import chain
 from torch import autocast
+from transformers import AutoTokenizer
 from langdetect import detect
 from langdetect.detector_factory import DetectorFactory
 
@@ -46,7 +48,7 @@ def load_vocabs(path):
 
 def is_english(text):
     try:
-        return detect(text) == 'en'
+        return detect(text) == "en"
     except Exception:
         return False  # Handle detection errors
 
@@ -99,6 +101,25 @@ def decode(xx):
     return text
 
 
+def logits_disable_eos(logits, tokeniser):
+    if isinstance(logits, torch.Tensor):
+        assert logits.shape[-1] == len(
+            tokeniser.get_vocab()
+        ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
+        logits[..., tokeniser.eos_token_id] = -torch.inf
+        logits[..., tokeniser.sep_token_id] = -torch.inf
+    elif isinstance(logits, Iterable):
+        for entry in logits:
+            assert entry.shape[-1] == len(
+                tokeniser.get_vocab()
+            ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
+            entry[..., tokeniser.eos_token_id] = -torch.inf
+            entry[..., tokeniser.sep_token_id] = -torch.inf
+    else:
+        raise ValueError("Could not process logits, expected Tensor or list of Tensors")
+    return logits
+
+
 def generate(
     x: torch.Tensor,
     disable_progress_bar: bool = True,
@@ -106,7 +127,7 @@ def generate(
     draft_top_p=1.0,
     target_top_p=1.0,
     warmup: bool = False,
-    stop_on_eos=True,
+    disable_eos=False,
 ):
     # Init model in case loading takes additional time - do not use this output
     if warmup:
@@ -128,6 +149,11 @@ def generate(
     acc_tokens = None
     prefill_time = 0
 
+    if disable_eos:
+        logit_processor = lambda x: logits_disable_eos(x, tokeniser)
+    else:
+        logit_processor = None
+
     with tqdm.tqdm(total=args.num_tokens, disable=disable_progress_bar) as pbar, ctx:
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
@@ -142,6 +168,7 @@ def generate(
                             head_past_key_values=head_past_key_values,
                             past_num_tokens=past_num_tokens,
                             last_hidden_state=last_hidden_state,
+                            logit_processor=logit_processor,
                         )
                     else:
                         outputs = model.self_speculative_generate(
@@ -154,6 +181,7 @@ def generate(
                             last_hidden_state=last_hidden_state,
                             draft_top_p=draft_top_p,
                             target_top_p=target_top_p,
+                            logit_processor=logit_processor,
                         )
                     tokens = outputs["tokens"]
                     acc_tokens = outputs["num_accepted_tokens"]
@@ -171,6 +199,7 @@ def generate(
                         past_key_values=past_key_values,
                         head_past_key_values=head_past_key_values,
                         draft_top_p=draft_top_p,
+                        logit_processor=logit_processor,
                     )
                     tokens = outputs["tokens"]
                     past_key_values = outputs["past_key_values"]
@@ -182,6 +211,7 @@ def generate(
                         mode="stp",
                         use_cache=args.use_cache,
                         past_key_values=past_key_values,
+                        logit_processor=logit_processor,
                     )
                     tokens = outputs["tokens"]
                     past_key_values = outputs["past_key_values"]
@@ -201,11 +231,24 @@ def generate(
 
             time_per_call.append(t.elapsed_time)
             pbar.update(tokens.shape[1])
-            if tokeniser is not None and stop_on_eos:
+            if print_generation:
+                print(decode(tokens), end="", flush=True)
+            if tokeniser is not None:
                 if torch.any(tokens == tokeniser.eos_token_id):
                     break
-            if print_generation:
-                print(decode(tokens), end="")
+
+    # We may have overshot num tokens - clean up the last entry and stats
+    if torch.any(tokens == tokeniser.eos_token_id):
+        eos_idx = torch.where(tokens == tokeniser.eos_token_id)[1][0]
+        tokens = tokens[..., : eos_idx + 1]
+    else:
+        # We stopped because we generated enough tokens
+        diff = args.num_tokens - sum(num_generated_tokens[:-1])
+        tokens = tokens[..., :diff]
+
+    generated_tokens[-1] = tokens
+    num_generated_tokens[-1] = tokens.shape[1]
+    num_accepted_tokens[-1] = tokens.shape[1]
 
     generated_tokens = [decode(t) for t in generated_tokens]
 
@@ -217,6 +260,25 @@ def generate(
         "prefill_time": prefill_time,
     }
     return result
+
+
+def sample_prompts(prompts, num_prompts, dataset_index):
+    assert num_prompts <= len(prompts)
+    # The dataset_index is used to choose a contiguous sample
+    num_disjoint_subsets = len(prompts) // num_prompts
+    if not (0 <= dataset_index <= (num_disjoint_subsets - 1)):
+        raise ValueError("Dataset index out of bounds")
+
+    # Shuffle with the same random seed
+    # so each dataset_index gives us a disjoint set of prompts
+    random_state = np.random.RandomState(42)
+    idxs = random_state.permutation(len(prompts))
+
+    start = dataset_index * num_prompts
+    end = (dataset_index + 1) * num_prompts
+    idxs = idxs[start:end]
+    sample = [prompts[i] for i in idxs]
+    return sample
 
 
 if __name__ == "__main__":
@@ -275,6 +337,15 @@ if __name__ == "__main__":
         help="The random seed to use for sampling.",
     )
     parser.add_argument(
+        "--prompt-subset-index",
+        default=0,
+        type=int,
+        help="To avoid choosing the same prompts in different runs, "
+        "we shuffle the prompts with a fixed random seed and choose "
+        "a window of num-samples contiguous prompts. --prompt-subset "
+        " is the index of the window we choose.",
+    )
+    parser.add_argument(
         "--mode",
         required=True,
         choices=["stp", "mtp"],
@@ -324,11 +395,17 @@ if __name__ == "__main__":
         help="Whether to compile the model",
     )
     parser.add_argument(
-        "--no-stop-on-eos",
+        "--run-id",
+        type=str,
+        default="unspecified-run",
+        help="The id of the run - used for output folder names.",
+    )
+    parser.add_argument(
+        "--disable-eos",
         default=False,
         action="store_true",
-        help="Do not stop when EOS is generated. We use this for measuring throughput "
-        "of models that are noisy (e.g. not trained)",
+        help="Disable predicting eos so that we can guarantee that num-tokens "
+        "tokens are generated per prompt.",
     )
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
@@ -433,20 +510,9 @@ if __name__ == "__main__":
             print("Filtered out %d prompts that were non-English" % diff_lang)
             print("We now subsample from the %d remaining prompts" % len(prompts))
 
-            # The above padded dataset contains approx 7k examples
-            # NOTE that for 3 random seeds there will be some overlap
-            # in the selected prompts, but it is negligible
-            # In [10]: items = np.arange(7000)
-            # In [11]: aa = np.random.choice(items, 100)
-            # In [12]: bb = np.random.choice(items, 100)
-            # In [13]: cc = np.random.choice(items, 100)
-            # In [14]: np.unique(np.hstack([aa, bb, cc])).shape
-            # Out[14]: (296,)   # ideally would be 300
-            random_state = np.random.RandomState(args.random_seed)
-            idxs = random_state.choice(
-                len(prompts), args.subsample_prompts, replace=False
+            prompts = sample_prompts(
+                prompts, args.subsample_prompts, args.prompt_subset_index
             )
-            prompts = [prompts[idx] for idx in idxs]
             assert len(prompts) == args.subsample_prompts
 
         elif args.prompt_source == "spec-bench":
@@ -458,11 +524,11 @@ if __name__ == "__main__":
                 for line in f:
                     row = json.loads(line)
                     # Only append first turn
-                    prompts.append(row["turns"][0])
-            # Make sure same seed => same prompts on which we compute the throughput
-            random_state = np.random.RandomState(args.random_seed)
-            indices = random_state.permutation(len(prompts))[: args.subsample_prompts]
-            prompts = [{"text": prompts[i]} for i in indices]
+                    prompts.append({"text": row["turns"][0]})
+
+            prompts = sample_prompts(
+                prompts, args.subsample_prompts, args.prompt_subset_index
+            )
         else:
             raise ValueError(f"Unknown source {args.prompt_source}")
     else:
@@ -498,7 +564,7 @@ if __name__ == "__main__":
             draft_top_p=args.draft_top_p,
             target_top_p=args.target_top_p,
             warmup=i == 0,
-            stop_on_eos=not args.no_stop_on_eos,
+            disable_eos=args.disable_eos,
         )
         all_elapsed_times.append(result["time_per_call"])
         all_generated_tokens.append(result["generated_tokens"])
@@ -529,28 +595,6 @@ if __name__ == "__main__":
         n_component = model.circuit.n_component
 
     my_uuid = unique_timestamp()
-
-    try:
-        folder_path = os.path.join(
-            os.environ["MTP_ROOT"], "outputs", "results", "generation_output"
-        )
-        os.makedirs(folder_path, exist_ok=True)
-        file_path = os.path.join(folder_path, "%s.jsonl" % my_uuid)
-        log_entries = []
-        for i in range(len(prompts)):
-            log = dict()
-            log["generated_tokens"] = all_generated_tokens[i]
-            log["num_generated_tokens"] = all_num_generated_tokens[i]
-            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
-            log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i])
-            log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
-            log["prefill_time"] = round(prefill_times[i], 6)
-            log["prompt"] = prompts[i]
-            log_entries.append("%s\n" % json.dumps(log))
-        with open(file_path, "w") as f:
-            f.writelines(log_entries)
-    except Exception as e:
-        print("Error saving additional info: %s" % e)
 
     stats = dict()
     stats["uuid"] = my_uuid
@@ -584,6 +628,8 @@ if __name__ == "__main__":
             full_hist_accepted_toks.tolist(),
         ]
     stats["device"] = args.device
+    stats["cpu"] = cpuinfo.get_cpu_info()["brand_raw"]
+    stats["gpu"] = torch.cuda.get_device_name(torch.cuda.current_device())
     stats["batch_size"] = BATCH_SIZE
     stats["num_generated_tokens"] = total_num_generated_tokens
     stats["elapsed_time"] = total_elapsed_time
@@ -595,6 +641,8 @@ if __name__ == "__main__":
     else:
         stats["checkpoint"] = f"{cfg.expname}@{cfg.global_step}"
     stats["mode"] = args.mode
+    stats["disable_eos"] = args.disable_eos
+    stats["run_id"] = args.run_id
     # Below attributes only exist for MTP
     if "stp" not in stats["model"]:
         stats["circuit"] = cfg.circuit.name
@@ -608,5 +656,38 @@ if __name__ == "__main__":
         stats["transformer_n_layer"] = cfg.mt_head.hyperparameters.transformer_n_layer
 
     result = json.dumps(stats)
+
+    # We also write a more detailed jsonl file with the experimental results
+    # the first line contains the general info
+    # and the remaining lines include an entry per prompt
+    try:
+        folder_path = os.path.join(
+            os.environ["MTP_ROOT"],
+            "outputs",
+            "results",
+            "generation_output",
+            f"{args.run_id}",
+        )
+        os.makedirs(folder_path, exist_ok=True)
+        file_path = os.path.join(folder_path, "%s-prompts.jsonl" % my_uuid)
+        log_entries = []
+        for i in range(len(prompts)):
+            log = dict()
+            log["total_generated_tokens"] = sum(all_num_generated_tokens[i])
+            log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i])
+            log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
+            log["prefill_time"] = round(prefill_times[i], 6)
+            log["prompt"] = prompts[i]
+            log["num_generated_tokens"] = all_num_generated_tokens[i]
+            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
+            log["generated_tokens"] = all_generated_tokens[i]
+            log_entries.append("%s\n" % json.dumps(log))
+        with open(file_path, "w") as f:
+            f.writelines(log_entries)
+        summary_path = os.path.join(folder_path, "%s-summary.jsonl" % my_uuid)
+        with open(summary_path, "w") as f:
+            f.write("%s\n" % result)
+    except Exception as e:
+        print("Error saving additional info: %s" % e)
 
     print(result)

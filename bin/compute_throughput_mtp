@@ -27,7 +27,7 @@ python -m mtp.generate \
   ${gen_args[@]} \
   lm=evabyte lm.model.encoder_only=False data.vocab_size=320 \
   --use-cache \
-  --no-stop-on-eos \
+  --disable-eos \
   | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
 
 
@@ -51,7 +51,7 @@ do
       python -m mtp.generate \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
         --use-cache \
-		--no-stop-on-eos \
+        --disable-eos \
         | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
     done
   done
@@ -78,7 +78,7 @@ do
       python -m mtp.generate \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
         --use-cache \
-		--no-stop-on-eos \
+        --disable-eos \
         | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
     done
   done

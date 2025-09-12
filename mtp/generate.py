@@ -102,15 +102,15 @@ def decode(xx):
 
 def logits_disable_eos(logits, tokeniser):
     if isinstance(logits, torch.Tensor):
-        assert (
-            logits.shape[-1] == len(tokeniser.get_vocab())
+        assert logits.shape[-1] == len(
+            tokeniser.get_vocab()
         ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
         logits[..., tokeniser.eos_token_id] = -torch.inf
         logits[..., tokeniser.sep_token_id] = -torch.inf
     elif isinstance(logits, Iterable):
         for entry in logits:
-            assert (
-                entry.shape[-1] == len(tokeniser.get_vocab())
+            assert entry.shape[-1] == len(
+                tokeniser.get_vocab()
             ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
             entry[..., tokeniser.eos_token_id] = -torch.inf
             entry[..., tokeniser.sep_token_id] = -torch.inf
@@ -239,7 +239,7 @@ def generate(
     # We may have overshot num tokens - clean up the last entry and stats
     if torch.any(tokens == tokeniser.eos_token_id):
         eos_idx = torch.where(tokens == tokeniser.eos_token_id)[1][0]
-        tokens = tokens[..., :eos_idx + 1]
+        tokens = tokens[..., : eos_idx + 1]
     else:
         # We stopped because we generated enough tokens
         diff = args.num_tokens - sum(num_generated_tokens[:-1])
@@ -364,6 +364,12 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Whether to compile the model",
+    )
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default='unspecified-run',
+        help="The id of the run - used for output folder names.",
     )
     parser.add_argument(
         "--disable-eos",
@@ -572,28 +578,6 @@ if __name__ == "__main__":
 
     my_uuid = unique_timestamp()
 
-    try:
-        folder_path = os.path.join(
-            os.environ["MTP_ROOT"], "outputs", "results", "generation_output"
-        )
-        os.makedirs(folder_path, exist_ok=True)
-        file_path = os.path.join(folder_path, "%s.jsonl" % my_uuid)
-        log_entries = []
-        for i in range(len(prompts)):
-            log = dict()
-            log["generated_tokens"] = all_generated_tokens[i]
-            log["num_generated_tokens"] = all_num_generated_tokens[i]
-            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
-            log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i])
-            log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
-            log["prefill_time"] = round(prefill_times[i], 6)
-            log["prompt"] = prompts[i]
-            log_entries.append("%s\n" % json.dumps(log))
-        with open(file_path, "w") as f:
-            f.writelines(log_entries)
-    except Exception as e:
-        print("Error saving additional info: %s" % e)
-
     stats = dict()
     stats["uuid"] = my_uuid
     stats["exp_start"] = exp_start
@@ -650,5 +634,37 @@ if __name__ == "__main__":
         stats["transformer_n_layer"] = cfg.mt_head.hyperparameters.transformer_n_layer
 
     result = json.dumps(stats)
+
+    # We also write a more detailed jsonl file with the experimental results
+    # the first line contains the general info
+    # and the remaining lines include an entry per prompt
+    try:
+        folder_path = os.path.join(
+            os.environ["MTP_ROOT"],
+            "outputs",
+            "results",
+            "generation_output",
+            f"{args.run_id}",
+        )
+        os.makedirs(folder_path, exist_ok=True)
+        file_path = os.path.join(folder_path, "%s-prompts.jsonl" % my_uuid)
+        log_entries = []
+        for i in range(len(prompts)):
+            log = dict()
+            log["generated_tokens"] = all_generated_tokens[i]
+            log["num_generated_tokens"] = all_num_generated_tokens[i]
+            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
+            log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i])
+            log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
+            log["prefill_time"] = round(prefill_times[i], 6)
+            log["prompt"] = prompts[i]
+            log_entries.append("%s\n" % json.dumps(log))
+        with open(file_path, "w") as f:
+            f.writelines(log_entries)
+        summary_path = os.path.join(folder_path, "%s-summary.jsonl" % my_uuid)
+        with open(summary_path, "w") as f:
+            f.write("%s\n" % result)
+    except Exception as e:
+        print("Error saving additional info: %s" % e)
 
     print(result)

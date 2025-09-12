@@ -603,6 +603,7 @@ if __name__ == "__main__":
     stats["exp_host"] = socket.gethostname()
     stats["model"] = cfg.model.model._target_
     stats["random_seed"] = args.random_seed
+    stats["prompt_subset_index"] = args.prompt_subset_index
     stats["ntoken"] = n_token
     stats["ncomponent"] = n_component
     stats["task"] = args.task

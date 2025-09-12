@@ -653,13 +653,14 @@ if __name__ == "__main__":
         log_entries = []
         for i in range(len(prompts)):
             log = dict()
-            log["generated_tokens"] = all_generated_tokens[i]
-            log["num_generated_tokens"] = all_num_generated_tokens[i]
-            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
+            log["total_generated_tokens"] = sum(all_num_generated_tokens[i])
             log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i])
             log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
             log["prefill_time"] = round(prefill_times[i], 6)
             log["prompt"] = prompts[i]
+            log["num_generated_tokens"] = all_num_generated_tokens[i]
+            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
+            log["generated_tokens"] = all_generated_tokens[i]
             log_entries.append("%s\n" % json.dumps(log))
         with open(file_path, "w") as f:
             f.writelines(log_entries)

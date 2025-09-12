@@ -621,6 +621,8 @@ if __name__ == "__main__":
     else:
         stats["checkpoint"] = f"{cfg.expname}@{cfg.global_step}"
     stats["mode"] = args.mode
+    stats["disable_eos"] = args.disable_eos
+    stats["run_id"] = args.run_id
     # Below attributes only exist for MTP
     if "stp" not in stats["model"]:
         stats["circuit"] = cfg.circuit.name

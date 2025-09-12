@@ -33,6 +33,5 @@ do
     --task chat \
     --checkpoint $file \
     --run-id $run_id \
-    --disable-eos \
     | tail -n 1 >> "$MTP_ROOT/outputs/results/${run_id}.jsonl"
 done

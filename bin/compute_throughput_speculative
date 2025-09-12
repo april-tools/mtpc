@@ -10,11 +10,14 @@ prompt_source="tulu-valid"
 directory="${1:-$default}"
 filetag="${2:-unspecified}"
 seed="${3:-42}"
+step="${4:-900}"
+
+run_id="throughput-evabyte-sampling-${filetag}-${num_tokens}-${subsample_prompts}"
 
 export GPUS=1
 export GPU=1
 
-for file in $(find "$directory" -type f -name "*.pt" -not -path '*/.*');
+for file in $(find "$directory" -type f -name "model@${step}.pt" -not -path '*/.*');
 do
   echo -e "Processing $file..."
   python -m mtp.generate \
@@ -28,6 +31,7 @@ do
     --num-tokens $num_tokens \
     --task chat \
     --checkpoint $file \
+    --run-id $run_id \
     --disable-eos \
-    | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
+    | tail -n 1 >> "$MTP_ROOT/outputs/results/${run_id}.jsonl"
 done

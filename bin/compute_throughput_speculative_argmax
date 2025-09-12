@@ -9,7 +9,7 @@ subsample_prompts=250
 prompt_source="tulu-valid"
 directory="${1:-$default}"
 filetag="${2:-unspecified}"
-seed="${3:-42}"
+prompt_index="${3:-0}"
 step="${4:-900}"
 
 run_id="throughput-evabyte-argmax-${filetag}-${num_tokens}-${subsample_prompts}"
@@ -25,7 +25,8 @@ do
     --mode mtp \
     --use-cache \
     --speculative \
-    --random-seed $seed \
+    --random-seed 42 \
+    --prompt-subset-index $prompt_index \
     --subsample-prompts $subsample_prompts \
     --prompt-source $prompt_source \
     --num-tokens $num_tokens \

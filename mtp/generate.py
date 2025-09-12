@@ -261,6 +261,25 @@ def generate(
     return result
 
 
+def sample_prompts(prompts, num_prompts, dataset_index):
+    assert num_prompts <= len(prompts)
+    # The dataset_index is used to choose a contiguous sample
+    num_disjoint_subsets = len(prompts) // num_prompts
+    if not (0 <= dataset_index <= (num_disjoint_subsets - 1)):
+        raise ValueError("Dataset index out of bounds")
+
+    # Shuffle with the same random seed
+    # so each dataset_index gives us a disjoint set of prompts
+    random_state = np.random.RandomState(42)
+    idxs = random_state.permutation(len(prompts))
+
+    start = dataset_index * num_prompts
+    end = (dataset_index + 1) * num_prompts
+    idxs = idxs[start:end]
+    sample = [prompts[i] for i in idxs]
+    return sample
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -317,6 +336,15 @@ if __name__ == "__main__":
         help="The random seed to use for sampling.",
     )
     parser.add_argument(
+        "--prompt-subset-index",
+        default=0,
+        type=int,
+        help="To avoid choosing the same prompts in different runs, "
+        "we shuffle the prompts with a fixed random seed and choose "
+        "a window of num-samples contiguous prompts. --prompt-subset "
+        " is the index of the window we choose.",
+    )
+    parser.add_argument(
         "--mode",
         required=True,
         choices=["stp", "mtp"],
@@ -368,7 +396,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--run-id",
         type=str,
-        default='unspecified-run',
+        default="unspecified-run",
         help="The id of the run - used for output folder names.",
     )
     parser.add_argument(
@@ -481,20 +509,9 @@ if __name__ == "__main__":
             print("Filtered out %d prompts that were non-English" % diff_lang)
             print("We now subsample from the %d remaining prompts" % len(prompts))
 
-            # The above padded dataset contains approx 7k examples
-            # NOTE that for 3 random seeds there will be some overlap
-            # in the selected prompts, but it is negligible
-            # In [10]: items = np.arange(7000)
-            # In [11]: aa = np.random.choice(items, 100)
-            # In [12]: bb = np.random.choice(items, 100)
-            # In [13]: cc = np.random.choice(items, 100)
-            # In [14]: np.unique(np.hstack([aa, bb, cc])).shape
-            # Out[14]: (296,)   # ideally would be 300
-            random_state = np.random.RandomState(args.random_seed)
-            idxs = random_state.choice(
-                len(prompts), args.subsample_prompts, replace=False
+            prompts = sample_prompts(
+                prompts, args.subsample_prompts, args.prompt_subset_index
             )
-            prompts = [prompts[idx] for idx in idxs]
             assert len(prompts) == args.subsample_prompts
 
         elif args.prompt_source == "spec-bench":
@@ -506,11 +523,11 @@ if __name__ == "__main__":
                 for line in f:
                     row = json.loads(line)
                     # Only append first turn
-                    prompts.append(row["turns"][0])
-            # Make sure same seed => same prompts on which we compute the throughput
-            random_state = np.random.RandomState(args.random_seed)
-            indices = random_state.permutation(len(prompts))[: args.subsample_prompts]
-            prompts = [{"text": prompts[i]} for i in indices]
+                    prompts.append({"text": row["turns"][0]})
+
+            prompts = sample_prompts(
+                prompts, args.subsample_prompts, args.prompt_subset_index
+            )
         else:
             raise ValueError(f"Unknown source {args.prompt_source}")
     else:

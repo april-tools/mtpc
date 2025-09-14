@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Runs for raw throughput
-$MTP_ROOT/bin/compute_throughput_mtp full-run-100
-
 #                                       model folder        name   part     step
 $MTP_ROOT/bin/compute_throughput_speculative outputs/models/no-lora no-lora 0 900
 $MTP_ROOT/bin/compute_throughput_speculative outputs/models/no-lora no-lora 1 900

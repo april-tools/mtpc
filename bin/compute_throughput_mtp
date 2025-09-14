@@ -5,7 +5,7 @@ mkdir -p $MTP_ROOT/outputs/results
 device=cuda
 num_tokens=1024
 default="$MTP_ROOT/outputs/models/"
-subsample_prompts=20
+subsample_prompts=100
 prompt_source="tulu-valid"
 filetag="${1:-unspecified}"
 seed="${2:-42}"
@@ -13,7 +13,7 @@ seed="${2:-42}"
 export GPUS=1
 export GPU=1
 
-args=( --device $device --mode mtp --num-tokens $num_tokens --random-seed $seed )
+args=( --device $device --num-tokens $num_tokens --random-seed $seed --prompt_subset_index 0 )
 gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
 
 
@@ -23,8 +23,9 @@ gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $p
 # are randomly initialised and have no reasonable EOS completion.
 
 python -m mtp.generate \
-  --device $device --mode stp --num-tokens $num_tokens --random-seed $seed \
+  ${args[@]} \
   ${gen_args[@]} \
+  --mode stp \
   lm=evabyte lm.model.encoder_only=False data.vocab_size=320 \
   --use-cache \
   --disable-eos \
@@ -50,6 +51,7 @@ do
       circuit_args=( circuit=$circuit circuit.n_token=$n_token circuit.n_component=$n_component )
       python -m mtp.generate \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
+        --mode mtp \
         --use-cache \
         --disable-eos \
         | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
@@ -77,6 +79,7 @@ do
       circuit_args=( circuit=$circuit circuit.n_token=$n_token circuit.n_component=$n_component )
       python -m mtp.generate \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
+        --mode mtp \
         --use-cache \
         --disable-eos \
         | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"

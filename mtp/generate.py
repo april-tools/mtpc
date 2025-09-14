@@ -436,7 +436,7 @@ if __name__ == "__main__":
     if args.dequantize:
         model.lm.dequantize()
 
-    if model.lm.has_adapter:
+    if model.lm.has_adapter and args.speculative:
         model.lm.enable_dual_model_inference()
 
     if args.compile:

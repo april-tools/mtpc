@@ -6,6 +6,7 @@ import peft
 from peft import PeftModel
 
 from torch import nn, Tensor
+from typing import Callable
 from transformers import AutoModelForCausalLM
 # from transformers import BitsAndBytesConfig
 from transformers.cache_utils import Cache
@@ -293,6 +294,7 @@ class LM(nn.Module):
         attention_mask: Tensor = None,
         past_key_values: Cache = None,
         position_ids: Tensor = None,
+        logit_processor: Callable = None,
     ) -> dict:
         self.eval()
         if mode != "stp":
@@ -331,6 +333,8 @@ class LM(nn.Module):
             xx = self.encoder(inputs)["last_hidden_state"]
 
         logits = self.head_logits(xx[:, [-1], :])  # note: using list [-1] to preserve the time dim
+        if logit_processor is not None:
+            logits = logit_processor(logits)
         if use_argmax:
             tokens = torch.argmax(logits, dim=2)
         else:

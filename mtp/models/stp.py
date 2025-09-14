@@ -1,6 +1,7 @@
 import torch
 
 from torch import Tensor
+from typing import Callable
 
 from .lm import LM
 
@@ -36,6 +37,7 @@ class SingleTokenLM(torch.nn.Module):
         mode: str = "stp",
         use_cache: bool = False,
         past_key_values: Tensor = None,
+        logit_processor: Callable = None,
     ) -> Tensor:
         return self.lm.generate(
             inputs,

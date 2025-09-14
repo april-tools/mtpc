@@ -248,7 +248,6 @@ def generate(
 
     generated_tokens[-1] = tokens
     num_generated_tokens[-1] = tokens.shape[1]
-    num_accepted_tokens[-1] = tokens.shape[1]
 
     generated_tokens = [decode(t) for t in generated_tokens]
 

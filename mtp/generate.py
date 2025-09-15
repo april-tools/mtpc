@@ -435,8 +435,8 @@ if __name__ == "__main__":
     if args.dequantize:
         model.lm.dequantize()
 
-    if model.lm.has_adapter and args.speculative:
-        model.lm.enable_dual_model_inference()
+    # if model.lm.has_adapter and args.speculative:
+    #     model.lm.enable_dual_model_inference()
 
     if args.compile:
         # Enable verbose logging
@@ -646,6 +646,7 @@ if __name__ == "__main__":
     # Below attributes only exist for MTP
     if "stp" not in stats["model"]:
         stats["circuit"] = cfg.circuit.name
+        stats["adaptor"] = cfg.adaptor.name
         stats["beta"] = cfg.model.model.beta
         stats["gamma"] = cfg.model.model.gamma
         stats["kl_type"] = cfg.model.model.kl_type

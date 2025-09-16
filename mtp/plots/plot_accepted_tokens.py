@@ -1,7 +1,6 @@
 import os
 import json
 import argparse
-import matplotlib
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,15 +13,16 @@ from mtp.plots.utils import setup_tueplots
 def get_label(row):
     n = row["ntoken"]
     r = row["ncomponent"]
-    circuit = row["circuit"].replace("_", "-").upper()
-    circuit = circuit.replace("FULLY-FACTORIZED", "FF")
-    return f"{circuit:<3} r={r:<2} n={n:<2}"
+    circuit = row["circuit"].upper()
+    return f"{circuit:<5} r={r:<4} n={n:<3}"
 
 
-def get_model_type(model):
+def get_model_type(model, ncomponent):
     if "-ff-" in model:
         return "ff"
     if "-cp-" in model:
+        if ncomponent == 1:
+            return "ff"
         return "cp"
     if "-hmm-" in model:
         return "hmm"
@@ -30,6 +30,21 @@ def get_model_type(model):
         return "btree"
     else:
         return "unknown"
+
+
+def order_model(model_name):
+    score = 100
+    if "stp" in model_name.lower():
+        score = 5
+    if "ff" in model_name.lower():
+        score = 4
+    elif "cp" in model_name.lower():
+        score = 3
+    elif "btree" in model_name.lower():
+        score = 2
+    elif "hmm" in model_name.lower():
+        score = 1
+    return score
 
 
 if __name__ == "__main__":
@@ -48,7 +63,7 @@ if __name__ == "__main__":
         choices=("cuda", "cpu"),
         default="cuda",
         type=str,
-        help="Device to plot throughput for.",
+        help="Device to plot acceptance rate for.",
     )
     parser.add_argument(
         "--ntokens",
@@ -61,6 +76,13 @@ if __name__ == "__main__":
         type=int,
         nargs="+",
         help="The number of components for the circuit model",
+    )
+    parser.add_argument(
+        "--circuits",
+        type=str,
+        default=None,
+        nargs="+",
+        help="The type of circuits to include in the analysis",
     )
     parser.add_argument(
         "--decoding",
@@ -99,7 +121,7 @@ if __name__ == "__main__":
             row = json.loads(line)
             row["model"], step = row["checkpoint"].split("@")
             row["step"] = int(step)
-            row["model_type"] = get_model_type(row["model"])
+            row["circuit"] = get_model_type(row["model"], row["ncomponent"])
             if (
                 args.filter_experiments is not None
                 and row["model"] not in args.filter_experiments
@@ -109,6 +131,8 @@ if __name__ == "__main__":
                 continue
             if row["ncomponent"] not in args.ncomponents:
                 continue
+            if args.circuits is not None and row["circuit"] not in args.circuits:
+                continue
             if args.steps is not None:
                 if row["step"] not in args.steps:
                     continue
@@ -116,7 +140,9 @@ if __name__ == "__main__":
                 continue
             rows.append(row)
 
-    rows = tuple(sorted(rows, key=lambda x: (x["model_type"], x["ncomponent"])))
+    rows = tuple(
+        sorted(rows, key=lambda x: (x["ntoken"], x["circuit"], x["ncomponent"]))
+    )
 
     setup_tueplots(1, 1, rel_width=1.0, hw_ratio=0.8)
 
@@ -200,31 +226,40 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.show()
 
-    df = pd.DataFrame(rows)
-    df["label"] = df.apply(get_label, axis=1)
-    agg_dfs = []
-    for ntoken in args.ntokens:
-        agg = (
-            df[df["ntoken"] == ntoken]
-            .groupby(["label"])
-            .agg(
-                {
-                    "avg_accepted_tokens": ["mean", "std"],
-                }
+    # Do not confusingly estimate these comparisons using all steps
+    if args.steps is not None and len(args.steps) == 1:
+        df = pd.DataFrame(rows)
+        df["model"] = df.apply(get_label, axis=1)
+        agg_dfs = []
+        for ntoken in args.ntokens:
+            agg = (
+                df[df["ntoken"] == ntoken]
+                .groupby(["model", "circuit", "ncomponent"])
+                .agg(
+                    {
+                        "avg_accepted_tokens": ["mean", "std"],
+                    }
+                )
+            )
+            agg = agg.sort_values(
+                ["circuit", "ncomponent"],
+                ascending=[False, True],
+                key=lambda x: x.map(order_model) if x.name == "circuit" else x,
+            )
+            agg = agg.droplevel(["circuit", "ncomponent"])
+            # agg = agg.drop(["circuit", "ncomponent"], level=1, axis=1)
+            baseline = agg.loc[
+                ("FF    r=1    n=%s " % str(ntoken).ljust(2)),
+                ("avg_accepted_tokens", "mean"),
+            ]
+            # Normalize
+            agg[("Acceptance Rate", "increase over FF r=1")] = (
+                agg[("avg_accepted_tokens", "mean")] / baseline
+            )
+            agg_dfs.append(agg)
+        results = pd.concat(dict(zip(args.ntokens, agg_dfs)), names=["ntoken", "model"])
+        print(
+            results.to_latex(
+                float_format="%.2f", multirow=False, label="tab:avg_accepted_tokens"
             )
         )
-        print(agg)
-        baseline = agg.loc[
-            ("FF  r=1  n=%s" % str(ntoken).ljust(2)), ("avg_accepted_tokens", "mean")
-        ]
-        # Normalize
-        agg[("throughput", "speed-up over CP r=1")] = (
-            agg[("avg_accepted_tokens", "mean")] / baseline
-        )
-        agg_dfs.append(agg)
-    results = pd.concat(dict(zip(args.ntokens, agg_dfs)), names=["ntoken", "model"])
-    print(
-        results.to_latex(
-            float_format="%.2f", multirow=False, label="tab:avg_accepted_tokens"
-        )
-    )

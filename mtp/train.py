@@ -6,6 +6,7 @@ import torch
 import torch.distributed as dist
 
 from tqdm import tqdm
+from copy import deepcopy
 from torch import autocast
 from omegaconf import DictConfig, OmegaConf, open_dict
 from collections import defaultdict
@@ -153,6 +154,20 @@ def main(cfg: DictConfig):
         # https://pytorch.org/get-started/pytorch-2.0/#serialization
         model = hydra.utils.instantiate(cfg.model).model
         logger("Setting up model... compile=%r..." % cfg.compile)
+
+        # ===================== CHECK FOR MODEL OVERRIDES ====================
+        # Continue training using a pretrained MTP head
+        # * Load the pretrained model on CPU
+        # * Keep only the MTP head
+        # * Replace the MTP head of the current model with the loaded one
+        if cfg.load_mtp_head_from_model is not None:
+            mtp_checkpoint = Checkpoint.load(cfg.load_mtp_head_from_model)
+            mtp_model = mtp_checkpoint.model_cpu
+            mtp_head = deepcopy(mtp_model.mt_head)
+            model.mt_head = mtp_head
+            logger("Replacing MTP head with %r from %s..." % (mtp_head, cfg.load_mtp_head_from_model))
+            del mtp_model, mtp_checkpoint
+
         optimized_model = wrap_model_distributed(model, local_rank, cfg.compile)
 
         # Initialize optimizers and schedulers

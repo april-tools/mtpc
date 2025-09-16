@@ -683,7 +683,6 @@ class MultiTokenLM(torch.nn.Module):
                     logit_processor=logit_processor,
                     argmax=False)
 
-
     @torch.no_grad()
     def self_speculative_generate_argmax(
         self,
@@ -717,7 +716,6 @@ class MultiTokenLM(torch.nn.Module):
                     target_top_p=1.,
                     logit_processor=logit_processor,
                     argmax=True)
-
 
     @torch.no_grad()
     def self_speculative_generate_no_lora(
@@ -950,7 +948,7 @@ class MultiTokenLM(torch.nn.Module):
             else:
                 # LL: below I am reusing the code for multi token generation in Evabyte
                 # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
-                    #     to the number of tokens we sample each time
+                #     to the number of tokens we sample each time
                 past_seen_tokens = draft_past_key_values.get_seq_length()
                 attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, past_num_tokens, device=inputs.device)
                 position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)

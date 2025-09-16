@@ -13,6 +13,7 @@ compile: true
 device: cuda   # if cpu make source num processes=1
 # from_checkpoint: path/to/model@dddd.pth
 from_checkpoint: null
+load_mtp_head_from_model: null
 
 name: nanogpt
 hydra:

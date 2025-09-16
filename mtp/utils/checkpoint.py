@@ -165,6 +165,18 @@ class Checkpoint(object):
         # Otherwise, you get a randomly initialised one
         return model
 
+    @property
+    def model_cpu(self):
+        model = hydra.utils.instantiate(self.config.model).model
+
+        # If we have begun training, you are getting the saved model
+        if self.global_step >= 0:
+            state = self._load_state(device='cpu')
+            # Deal with cases where we only serialize subset of params
+            self._load_model_state_dict(model, state['model_state_dict'])
+        # Otherwise, you get a randomly initialised one
+        return model
+
     @classmethod
     @maskcwd
     def load(cls, filepath):

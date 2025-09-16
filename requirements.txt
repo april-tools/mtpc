@@ -18,3 +18,4 @@ wandb
 transformers
 more_itertools
 hugginface_hub
+hf_xet

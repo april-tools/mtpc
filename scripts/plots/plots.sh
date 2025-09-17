@@ -50,19 +50,3 @@ do
 		python mtp/plots/plot_throughput_speculative.py "outputs/results/$GPU/throughput-sampling-$model.jsonl" --step 900 --ntokens 1 8 16 --ncomponent 1 32 --decoding sampling --id throughput-$GPU-$model --save > /dev/null
 	done
 done
-
-
-# # All results were generated on Fubini and copied over as two files
-# cat argmax_throughput_evabyte_new-valid_250.jsonl throughput_evabyte_new-valid_250.jsonl | sort | uniq > all_results_new_valid_250.jsonl
-# cat all_results_new_valid_250 | grep -no-lora- > no_lora_all_results_new_valid_250.jsonl
-# cat all_results_new_valid_250 | grep lora-last-16 > lora_last_16_all_results_new_valid_250.jsonl
-#
-# # Acceptance rates plots
-# python mtp/plots/plot_accepted_tokens.py scripts/evabyte-pack-lora-tulu-1-epoch-no-quant/all_results_new_valid_250.jsonl --type accepted_tokens  --ntokens 8 --ncomponents 1 32 --decoding sampling --id n-8-sampling  --save
-# python mtp/plots/plot_accepted_tokens.py scripts/evabyte-pack-lora-tulu-1-epoch-no-quant/all_results_new_valid_250.jsonl --type accepted_tokens  --ntokens 8 --ncomponents 1 32 --decoding argmax  --id n-8-argmax --save
-# python mtp/plots/plot_accepted_tokens.py scripts/evabyte-pack-lora-tulu-1-epoch-no-quant/all_results_new_valid_250.jsonl --type accepted_tokens  --ntokens 16 --ncomponents 1 32 --decoding sampling --id n-16-sampling  --save
-# python mtp/plots/plot_accepted_tokens.py scripts/evabyte-pack-lora-tulu-1-epoch-no-quant/all_results_new_valid_250.jsonl --type accepted_tokens  --ntokens 16 --ncomponents 1 32 --decoding argmax --id n-16-argmax  --save
-#
-# # Throughput plots
-# python mtp/plots/plot_throughput_speculative.py scripts/evabyte-pack-lora-tulu-1-epoch-no-quant/all_results_new_valid_250.jsonl --ntokens 8 16 --ncomponents 1 8 16 32 --decoding argmax --step 900 --id argmax --save
-# python mtp/plots/plot_throughput_speculative.py scripts/evabyte-pack-lora-tulu-1-epoch-no-quant/all_results_new_valid_250.jsonl --ntokens 8 16 --ncomponents 1 8 16 32 --decoding sampling --step 900 --id sampling --save

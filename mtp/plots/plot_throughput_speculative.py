@@ -49,6 +49,8 @@ def read_results(filename):
             row = json.loads(line)
             _, step = row["checkpoint"].split("@")
             row["step"] = int(step)
+            if "adaptor" in row and row["adaptor"] == "none":
+                row["adaptor"] = "no-lora"
             if row["device"] != args.device:
                 continue
             if row["argmax"] != (args.decoding == "argmax"):
@@ -161,7 +163,7 @@ if __name__ == "__main__":
         "--adaptor",
         type=str,
         default=None,
-        choices=("none", "lora-last-16"),
+        choices=("no-lora", "lora-last-16"),
         help="Whether to filter for adaptor",
     )
     parser.add_argument(

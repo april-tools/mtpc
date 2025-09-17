@@ -11,10 +11,9 @@ from mtp.plots.utils import setup_tueplots
 
 
 def get_label(row):
-    n = row["ntoken"]
     r = row["ncomponent"]
     circuit = row["circuit"].upper()
-    return f"{circuit:<5} r={r:<4} n={n:<3}"
+    return f"{circuit:<5} r={r:<4}"
 
 
 def get_model_type(model, ncomponent):
@@ -28,8 +27,7 @@ def get_model_type(model, ncomponent):
         return "hmm"
     if "-btree-" in model:
         return "btree"
-    else:
-        return "unknown"
+    return "unknown"
 
 
 def order_model(model_name):
@@ -122,6 +120,8 @@ if __name__ == "__main__":
             row["model"], step = row["checkpoint"].split("@")
             row["step"] = int(step)
             row["circuit"] = get_model_type(row["model"], row["ncomponent"])
+            if row["circuit"] == "stp":
+                row["avg_accepted_tokens"] = 1.
             if (
                 args.filter_experiments is not None
                 and row["model"] not in args.filter_experiments
@@ -134,7 +134,7 @@ if __name__ == "__main__":
             if args.circuits is not None and row["circuit"] not in args.circuits:
                 continue
             if args.steps is not None:
-                if row["step"] not in args.steps:
+                if row["step"] not in args.steps and row["circuit"] != "stp":
                     continue
             if row["argmax"] != (args.decoding == "argmax"):
                 continue
@@ -229,34 +229,45 @@ if __name__ == "__main__":
     # Do not confusingly estimate these comparisons using all steps
     if args.steps is not None and len(args.steps) == 1:
         df = pd.DataFrame(rows)
+        print(df)
         df["model"] = df.apply(get_label, axis=1)
+
         agg_dfs = []
         for ntoken in args.ntokens:
-            agg = (
-                df[df["ntoken"] == ntoken]
-                .groupby(["model", "circuit", "ncomponent"])
-                .agg(
-                    {
-                        "avg_accepted_tokens": ["mean", "std"],
-                    }
+            sub_df = df[(df["ntoken"] == ntoken) | (df["circuit"] == "stp")]
+            baseline_fields = []
+            for field in ["FF "]:
+                df_match = sub_df["model"].str.contains(field, regex=False)
+                if df_match.any():
+                    field_value = sub_df["model"][df_match].iloc[0]
+                    baseline_fields.append(field_value)
+            if len(baseline_fields) > 0:
+                agg = (
+                    sub_df
+                    .groupby(["model", "circuit", "ncomponent"])
+                    .agg(
+                        {
+                            "avg_accepted_tokens": ["mean", "std"],
+                        }
+                    )
                 )
-            )
-            agg = agg.sort_values(
-                ["circuit", "ncomponent"],
-                ascending=[False, True],
-                key=lambda x: x.map(order_model) if x.name == "circuit" else x,
-            )
-            agg = agg.droplevel(["circuit", "ncomponent"])
-            # agg = agg.drop(["circuit", "ncomponent"], level=1, axis=1)
-            baseline = agg.loc[
-                ("FF    r=1    n=%s " % str(ntoken).ljust(2)),
-                ("avg_accepted_tokens", "mean"),
-            ]
-            # Normalize
-            agg[("Acceptance Rate", "increase over FF r=1")] = (
-                agg[("avg_accepted_tokens", "mean")] / baseline
-            )
-            agg_dfs.append(agg)
+                agg = agg.sort_values(
+                    ["circuit", "ncomponent"],
+                    ascending=[False, True],
+                    key=lambda x: x.map(order_model) if x.name == "circuit" else x,
+                )
+                agg = agg.droplevel(["circuit", "ncomponent"])
+                # agg = agg.drop(["circuit", "ncomponent"], level=1, axis=1)
+                for field_value in baseline_fields:
+                    baseline = agg.loc[
+                        field_value,
+                        ("avg_accepted_tokens", "mean"),
+                    ]
+                    # Normalize
+                    agg[("Acceptance Rate", "increase over FF")] = (
+                        agg[("avg_accepted_tokens", "mean")] / baseline
+                    )
+                agg_dfs.append(agg)
         results = pd.concat(dict(zip(args.ntokens, agg_dfs)), names=["ntoken", "model"])
         print(
             results.to_latex(

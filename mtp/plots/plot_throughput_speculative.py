@@ -15,79 +15,48 @@ from mtp.plots.utils import setup_tueplots
 def order_model(model_name):
     score = 100
     if "stp" in model_name.lower():
-        score = 0
+        score = 5
     if "ff" in model_name.lower():
-        score = 1
-    elif "cp" in model_name.lower():
-        score = 2
-    elif "btree" in model_name.lower():
-        score = 3
-    elif "hmm" in model_name.lower():
         score = 4
+    elif "cp" in model_name.lower():
+        score = 3
+    elif "btree" in model_name.lower():
+        score = 2
+    elif "hmm" in model_name.lower():
+        score = 1
     return score
 
 
-if __name__ == "__main__":
+def run_identifier(r, show_ntoken: bool = False, show_ncomponent: bool = False) -> str:
+    model = r["model"]
+    res = model.upper()
+    if model == "stp":
+        return res
+    if show_ntoken:
+        res += f" n={r['ntoken']}"
+    if show_ncomponent:
+        res += f" r={r['ncomponent']}"
+    transformer_n_layer = r["transformer_n_layer"]
+    if transformer_n_layer == 0:
+        return res
+    return f"{res} transf-{int(transformer_n_layer)}"
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "results", type=str, help="Path to throughput.txt file (list of json)."
-    )
-    parser.add_argument(
-        "--ntokens",
-        type=int,
-        nargs="+",
-        help="The number of tokens for the circuit model",
-    )
-    parser.add_argument(
-        "--ncomponents",
-        type=int,
-        nargs="+",
-        help="The number of components for the circuit model",
-    )
-    parser.add_argument(
-        "--decoding",
-        type=str,
-        required=True,
-        choices=("argmax", "sampling"),
-        help="What decoding to use",
-    )
-    parser.add_argument(
-        "--step", type=int, default=None, help="What step to filter for"
-    )
-    parser.add_argument(
-        "--device",
-        choices=("cuda", "cpu"),
-        default="cuda",
-        type=str,
-        help="Device to plot throughput for.",
-    )
-    parser.add_argument(
-        "--id",
-        type=str,
-        default="",
-        help="The id of the experiment that will be appended to the filename",
-    )
-    parser.add_argument(
-        "--save",
-        action="store_true",
-        help="If specified saves the plot instead of interactive plot.",
-    )
 
-    args = parser.parse_args()
-
+def read_results(filename):
     entries: list[dict[str, Any]] = []
-    with open(args.results, "r") as f:
+    with open(filename, "r") as f:
         for line in f:
             row = json.loads(line)
             _, step = row["checkpoint"].split("@")
             row["step"] = int(step)
+            if "adaptor" in row and row["adaptor"] == "none":
+                row["adaptor"] = "no-lora"
             if row["device"] != args.device:
                 continue
             if row["argmax"] != (args.decoding == "argmax"):
                 continue
             if args.step is not None:
-                if args.step != row["step"]:
+                if args.step != row["step"] and "SingleTokenLM" not in row["model"]:
                     continue
             entry: dict[str, Any] = {}
             if "SingleTokenLM" in row["model"]:
@@ -106,6 +75,10 @@ if __name__ == "__main__":
                 entry["avg_accepted_tokens"] = 1.0
                 entry["avg_tokens_llm_call"] = 1.0
             elif "MultiTokenLM" in row["model"]:
+                if args.adaptor is not None:
+                    adaptor = row.get("adaptor") or None
+                    if args.adaptor != adaptor:
+                        continue
                 entry["model"] = row["circuit"]
                 if row["ntoken"] not in args.ntokens:
                     continue
@@ -118,6 +91,7 @@ if __name__ == "__main__":
                 entry["model"] = entry["model"].replace("fully_factorized", "ff")
                 entry["ncomponent"] = row["ncomponent"]
                 entry["ntoken"] = row["ntoken"]
+                entry["adaptor"] = row.get("adaptor", None)
                 entry["throughput"] = row["tokens_per_second"]
                 if row["speculative"]:
                     entry["hx_accepted_tokens"] = np.array(
@@ -152,29 +126,74 @@ if __name__ == "__main__":
                 entry["transformer_n_layer"] = row["transformer_n_layer"]
             else:
                 raise ValueError(f"Unknown model name {row['model']}")
-            entry['num_generated_tokens'] = row['num_generated_tokens']
+            entry["num_generated_tokens"] = row["num_generated_tokens"]
             entries.append(entry)
+    return entries
 
-    def run_identifier(
-        r, show_ntoken: bool = False, show_ncomponent: bool = False
-    ) -> str:
-        model = r["model"]
-        res = model.upper()
-        if model == "stp":
-            return res
-        if show_ntoken:
-            res += f" n={r['ntoken']}"
-        if show_ncomponent:
-            res += f" r={r['ncomponent']}"
-        transformer_n_layer = r["transformer_n_layer"]
-        if transformer_n_layer == 0:
-            return res
-        return f"{res} transf-{int(transformer_n_layer)}"
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "results", type=str, help="Path to throughput.txt file (list of json)."
+    )
+    parser.add_argument(
+        "--ntokens",
+        type=int,
+        nargs="+",
+        help="The number of tokens for the circuit model",
+    )
+    parser.add_argument(
+        "--ncomponents",
+        type=int,
+        nargs="+",
+        help="The number of components for the circuit model",
+    )
+    parser.add_argument(
+        "--decoding",
+        type=str,
+        required=True,
+        choices=("argmax", "sampling"),
+        help="What decoding to use",
+    )
+    parser.add_argument(
+        "--step", type=int, default=None, help="What step to filter for"
+    )
+    parser.add_argument(
+        "--adaptor",
+        type=str,
+        default=None,
+        choices=("no-lora", "lora-last-16"),
+        help="Whether to filter for adaptor",
+    )
+    parser.add_argument(
+        "--device",
+        choices=("cuda", "cpu"),
+        default="cuda",
+        type=str,
+        help="Device to plot throughput for.",
+    )
+    parser.add_argument(
+        "--id",
+        type=str,
+        default="",
+        help="The id of the experiment that will be appended to the filename",
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="If specified saves the plot instead of interactive plot.",
+    )
+
+    args = parser.parse_args()
+
+    entries = read_results(args.results)
 
     df = pd.DataFrame(entries)
     df["run_id"] = df.apply(lambda r: run_identifier(r, show_ncomponent=True), axis=1)
     df = df.sort_values(
         ["model", "ncomponent"],
+        ascending=[False, True],
         key=lambda x: x.map(order_model) if x.name == "model" else x,
     )
 
@@ -219,31 +238,47 @@ if __name__ == "__main__":
     plt.clf()
     plt.cla()
 
-    agg_dfs = []
-    for ntoken in args.ntokens:
-        sub_df = df[df["ntoken"] == ntoken]
-        for field in ["FF (M) r=1", "FF (S) r=1", "STP"]:
-            df_match = sub_df['run_id'].str.contains(field, regex=False)
-            if df_match.any():
-                field_value = sub_df['run_id'][df_match].iloc[0]
-                agg = (
-                    sub_df
-                    .groupby(["run_id"])
-                    .agg(
-                        {
-                            "throughput": ["mean", "std"],
-                        }
+    # Do not confusingly estimate these comparisons using all steps
+    if args.step is not None:
+
+        agg_dfs = []
+        for ntoken in args.ntokens:
+            sub_df = df[(df["ntoken"] == ntoken) | (df["model"] == "stp")]
+            baseline_fields = []
+            for field in ["FF (M) r=1", "FF (S) r=1", "STP"]:
+                df_match = sub_df["run_id"].str.contains(field, regex=False)
+                if df_match.any():
+                    field_value = sub_df["run_id"][df_match].iloc[0]
+                    baseline_fields.append(field_value)
+            if len(baseline_fields) > 0:
+                agg = sub_df.groupby(["run_id", "model", "ncomponent"]).agg(
+                    {
+                        "throughput": ["mean", "std"],
+                    }
+                )
+                agg = agg.sort_values(
+                    ["model", "ncomponent"],
+                    ascending=[False, True],
+                    key=lambda x: x.map(order_model) if x.name == "model" else x,
+                )
+                agg = agg.droplevel(["model", "ncomponent"])
+                for field_value in baseline_fields:
+                    # Get baseline using the specific index
+                    baseline = agg.loc[(field_value), ("throughput", "mean")]
+                    # Normalize
+                    agg[("throughput", "speed-up over %s" % field_value)] = (
+                        agg[("throughput", "mean")] / baseline
                     )
-                )
-                # Get baseline using the specific index
-                baseline = agg.loc[(field_value), ("throughput", "mean")]
-                # Normalize
-                agg[("throughput", "speed-up over %s" % field)] = (
-                    agg[("throughput", "mean")] / baseline
-                )
+                # Drop STP from the larger ntoken
+                if ntoken > 1:
+                    agg = agg.drop(index='STP')
                 agg_dfs.append(agg)
-    results = pd.concat(dict(zip(args.ntokens, agg_dfs)), names=["ntoken", "model"])
-    print(results.to_latex(float_format="%.2f", multirow=False, label="tab:throughput"))
+        results = pd.concat(dict(zip(args.ntokens, agg_dfs)), names=["ntoken", "model"])
+        print(
+            results.to_latex(
+                float_format="%.2f", multirow=False, label="tab:throughput"
+            ).replace('_', ' ')
+        )
 
     # Plot number of accepted tokens per multi token model
     # unique_ntokens = np.unique([e['ntoken'] for e in entries]).tolist()

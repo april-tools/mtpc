@@ -54,3 +54,5 @@ done
 
 # Table 1
 python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file outputs/results/RTX-3090/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/RTX-3090/throughput-evabyte-sampling-no-lora-1024-250.jsonl > "outputs/tables/throughput-RTX-3090-no-lora-cp-comparsion.txt"
+
+python mtp/tables/table_2_throughput_longer.py --raw-throughput-file outputs/results/RTX-3090/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/RTX-3090/throughput-evabyte-sampling-no-lora-1024-250.jsonl

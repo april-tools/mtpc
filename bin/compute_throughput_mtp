@@ -31,7 +31,6 @@ python -m mtp.generate \
   --disable-eos \
   | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
 
-
 adaptor=none
 
 for circuit in fully_factorized cp hmm btree;
@@ -41,7 +40,7 @@ do
     if [[ $circuit == "fully_factorized" ]]; then
       n_components="1"
     else
-      n_components="32"
+      n_components="8 16 32 64 128"
     fi
 
     mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=$adaptor data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )
@@ -59,7 +58,6 @@ do
   done
 done
 
-
 adaptor=lora-last-16
 
 for circuit in fully_factorized cp hmm btree;
@@ -69,7 +67,7 @@ do
     if [[ $circuit == "fully_factorized" ]]; then
       n_components="1"
     else
-      n_components="32"
+      n_components="8 16 32 64 128"
     fi
 
     mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=$adaptor data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )

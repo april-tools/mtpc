@@ -13,7 +13,12 @@ from mtp.plots.utils import setup_tueplots
 def get_label(row):
     r = row["ncomponent"]
     circuit = row["circuit"].upper()
-    return f"{circuit:<5} r={r:<4}"
+    step = row["step"]
+    if circuit == 'FF':
+        ss = f"FF@{step:<3}"
+        return f"{ss:<11}"
+    else:
+        return f"{circuit:<6} r={r:<4}"
 
 
 def get_model_type(model, ncomponent):
@@ -120,8 +125,6 @@ if __name__ == "__main__":
             row["model"], step = row["checkpoint"].split("@")
             row["step"] = int(step)
             row["circuit"] = get_model_type(row["model"], row["ncomponent"])
-            if row["circuit"] == "stp":
-                row["avg_accepted_tokens"] = 1.
             if (
                 args.filter_experiments is not None
                 and row["model"] not in args.filter_experiments
@@ -134,8 +137,9 @@ if __name__ == "__main__":
             if args.circuits is not None and row["circuit"] not in args.circuits:
                 continue
             if args.steps is not None:
-                if row["step"] not in args.steps and row["circuit"] != "stp":
-                    continue
+                if row["step"] not in args.steps:
+                    if (row["step"] != 0 or row["circuit"] != "ff"):
+                        continue
             if row["argmax"] != (args.decoding == "argmax"):
                 continue
             rows.append(row)
@@ -229,14 +233,13 @@ if __name__ == "__main__":
     # Do not confusingly estimate these comparisons using all steps
     if args.steps is not None and len(args.steps) == 1:
         df = pd.DataFrame(rows)
-        print(df)
         df["model"] = df.apply(get_label, axis=1)
 
         agg_dfs = []
         for ntoken in args.ntokens:
-            sub_df = df[(df["ntoken"] == ntoken) | (df["circuit"] == "stp")]
+            sub_df = df[(df["ntoken"] == ntoken)]
             baseline_fields = []
-            for field in ["FF "]:
+            for field in ["FF@0", f"FF@{args.steps[0]}"]:
                 df_match = sub_df["model"].str.contains(field, regex=False)
                 if df_match.any():
                     field_value = sub_df["model"][df_match].iloc[0]
@@ -264,7 +267,7 @@ if __name__ == "__main__":
                         ("avg_accepted_tokens", "mean"),
                     ]
                     # Normalize
-                    agg[("Acceptance Rate", "increase over FF")] = (
+                    agg[("Acceptance Rate", f"increase over {field_value.rstrip()}")] = (
                         agg[("avg_accepted_tokens", "mean")] / baseline
                     )
                 agg_dfs.append(agg)
@@ -272,5 +275,5 @@ if __name__ == "__main__":
         print(
             results.to_latex(
                 float_format="%.2f", multirow=False, label="tab:avg_accepted_tokens"
-            )
+            ).replace('_', ' ')
         )

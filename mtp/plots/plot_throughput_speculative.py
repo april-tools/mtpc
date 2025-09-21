@@ -277,7 +277,7 @@ if __name__ == "__main__":
         print(
             results.to_latex(
                 float_format="%.2f", multirow=False, label="tab:throughput"
-            )
+            ).replace('_', ' ')
         )
 
     # Plot number of accepted tokens per multi token model

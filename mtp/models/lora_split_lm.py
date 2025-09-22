@@ -1,0 +1,225 @@
+import torch
+from copy import deepcopy
+
+from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
+
+
+def count_adapter_layers(lm):
+    """Count transformer layers that have LoRA adapters"""
+
+    count = 0
+    for layer in lm.layers:
+        # Check if this layer has any LoRA modules
+        for module in layer.modules():
+            if hasattr(module, "lora_A"):
+                count += 1
+                break  # Found adapter in this layer, move to next layer
+
+    return count
+
+
+def get_position_ids(inputs, cache):
+    # Construct input_ids
+    if cache is None:
+        position_ids = torch.arange(
+            0, inputs.shape[1], device=inputs.device, dtype=torch.int
+        ).unsqueeze(dim=0)
+    else:
+        past_seen_tokens = cache.get_seq_length()
+        # attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, past_num_tokens, device=inputs.device)
+        position_ids = torch.arange(
+            past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int
+        ).unsqueeze(dim=0)
+    return position_ids
+
+
+class LoRASplitLM(torch.nn.Module):
+    """
+    LM split into three components for efficient speculative decoding:
+    1. Shared encoder (first N-K layers)
+    2. Draft encoder (last K layers with LoRA)
+    3. Verifier encoder (last K layers without LoRA)
+    """
+
+    def __init__(
+        self, shared_encoder, draft_encoder, verifier_encoder, split_layer_idx
+    ):
+        super().__init__()
+        self.shared_encoder = shared_encoder
+        self.draft_encoder = draft_encoder
+        self.verifier_encoder = verifier_encoder
+        self.split_layer_idx = split_layer_idx
+
+        self.reset_caches()
+
+    @classmethod
+    def from_lm(cls, lm, split_layer_idx: int = None):
+        """
+        Create SplitLM from an existing LM instance
+
+        Args:
+            lm: The original LM instance
+            split_layer_idx: Layer index to split at. If None, uses num_layers - num_adapter_layers
+        """
+
+        num_adapter_layers = count_adapter_layers(lm.model.model)
+        num_total_layers = len(lm.model.model.layers)
+        if num_adapter_layers == 0:
+            raise ValueError("LM instance must have adapters to create SplitLM")
+
+        if split_layer_idx is None:
+            # Default: split where LoRA layers start
+            split_layer_idx = num_total_layers - num_adapter_layers
+        else:
+            assert 0 < split_layer_idx < num_total_layers
+        print(f"Found {num_adapter_layers} adapter layers..")
+
+        all_layers = deepcopy(lm.model.model.layers)
+
+        # ===================== Shared Encoder ================================
+        shared_encoder = deepcopy(lm)
+        shared_encoder.model.model.layers = None
+        draft_encoder = deepcopy(shared_encoder)
+        verifier_encoder = deepcopy(shared_encoder)
+
+        shared_encoder.model.model.layers = deepcopy(all_layers[:split_layer_idx])
+        # NOTE: ! Important !
+        # Monkey-patch norm since it would be applied to the last activation giving wrong result
+        shared_encoder.model.model.norm = torch.nn.Identity()
+
+        # ===================== Draft LoRA Encoder ============================
+        draft_encoder.model.model.layers = deepcopy(all_layers[split_layer_idx:])
+        # Merge LoRA weights
+        draft_encoder = draft_encoder.merge_and_unload()
+
+        # ================== Verifier no LoRA Encoder =========================
+        verifier_encoder.model.model.layers = deepcopy(all_layers[split_layer_idx:])
+        verifier_encoder = verifier_encoder.unload()
+
+        del all_layers
+
+        return cls(shared_encoder, draft_encoder, verifier_encoder, split_layer_idx)
+
+    def get_attention_mask():
+        pass
+
+    def prefill(self, input_ids):
+        use_cache = True
+
+        # Initialises the cache
+        self.init_caches()
+
+        position_ids = get_position_ids(input_ids, None)
+
+        # ============ Prefill: Shared Encoder ========================
+        shared_outputs = self.shared_encoder(
+            input_ids=input_ids,
+            use_cache=use_cache,
+            position_ids=position_ids,
+            past_key_values=self.shared_encoder_cache,
+            multibyte_decoding=False,
+        )
+        shared_hidden_state = shared_outputs["last_hidden_state"]
+
+        # ============ Prefill: Draft Encoder ========================
+        draft_outputs = self.draft_encoder(
+            input_ids=input_ids,
+            inputs_embeds=shared_hidden_state,
+            use_cache=use_cache,
+            past_key_values=self.draft_encoder_cache,
+            position_ids=position_ids,
+            multibyte_decoding=False,
+        )
+        draft_hidden_state = draft_outputs["last_hidden_state"]
+        # ============ Prefill: Verifier Encoder ========================
+        verifier_outputs = self.verifier_encoder(
+            input_ids=input_ids,
+            inputs_embeds=shared_hidden_state,
+            use_cache=use_cache,
+            past_key_values=self.verifier_encoder_cache,
+            position_ids=position_ids,
+            multibyte_decoding=False,
+        )
+        verifier_hidden_state = verifier_outputs["last_hidden_state"]
+
+        # Update kv cache
+        for outputs in [shared_outputs, draft_outputs, verifier_outputs]:
+            outputs["past_key_values"] = (
+                self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                    outputs["past_key_values"]
+                )
+            )
+
+        self.update_caches(
+            shared_outputs["past_key_values"],
+            draft_outputs["past_key_values"],
+            verifier_outputs["past_key_values"],
+        )
+
+        return shared_hidden_state, draft_hidden_state, verifier_hidden_state
+
+    def draft(self, input_ids, use_cache=True, shared_hidden_state=None):
+
+        if use_cache:
+            position_ids = get_position_ids(input_ids, self.shared_encoder_cache)
+            assert self.shared_encoder_cache is not None, "Prefilling required"
+            assert self.draft_encoder_cache is not None, "Prefilling required"
+            shared_past_key_values = self.shared_encoder_cache
+            draft_past_key_values = self.draft_encoder_cache
+        else:
+            position_ids = None
+            shared_past_key_values = None
+
+        if shared_hidden_state is None:
+            # Run shared_encoder
+            shared_outputs = self.shared_encoder(
+                input_ids=input_ids,
+                use_cache=use_cache,
+                position_ids=position_ids,
+                past_key_values=shared_past_key_values,
+                multibyte_decoding=False,
+            )
+            shared_hidden_state = shared_outputs["last_hidden_state"]
+            shared_past_key_values = shared_outputs["past_key_values"]
+            shared_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                shared_past_key_values
+            )
+
+        # Run draft_encoder
+        outputs = self.draft_encoder(
+            input_ids=input_ids,
+            inputs_embeds=shared_hidden_state,
+            use_cache=use_cache,
+            past_key_values=draft_past_key_values,
+            position_ids=position_ids,
+            multibyte_decoding=False,
+        )
+        return outputs["last_hidden_state"]
+
+    def verify(self, shared_hidden_state=None):
+        if shared_hidden_state is None:
+            # Run shared_encoder
+            pass
+        # Run verifier_encoder
+        pass
+
+    def init_caches(self, batch_size=1):
+        self.shared_encoder_cache = EvaStaticCacheForTriton(
+            batch_size,
+            self.lm.config.num_attention_heads,
+            self.lm.config.window_size + self.circuit.n_token,
+            self.lm.config.hidden_size // self.lm.config.num_attention_heads,
+            self.lm.config.num_hidden_layers,
+            torch.bfloat16,
+            self.shared_encoder.device,
+        )
+
+    def update_caches(self, shared_cache, draft_cache, verifier_cache):
+        self.shared_encoder_cache = shared_cache
+        self.draft_encoder_cache = draft_cache
+        self.verifier_encoder_cache = verifier_cache
+
+    def reset_caches(self):
+        self.shared_encoder_cache = None
+        self.draft_encoder_cache = None
+        self.verifier_encoder_cache = None

@@ -3,11 +3,12 @@ from contextlib import contextmanager
 import torch
 import torch.nn.functional as F
 import peft
-from peft import PeftModel
 
+from peft import PeftModel
 from torch import nn, Tensor
 from typing import Callable
 from transformers import AutoModelForCausalLM
+
 # from transformers import BitsAndBytesConfig
 from transformers.cache_utils import Cache
 
@@ -30,7 +31,7 @@ class LM(nn.Module):
         ref_head: str = "lm_head",
         encoder_only: bool = True,
         freeze: bool = True,
-        **kwargs
+        **kwargs,
     ):
         super().__init__()
 
@@ -66,10 +67,7 @@ class LM(nn.Module):
         self.adaptor_kwargs = adaptor_kwargs
         if self.adaptor_kwargs is not None:
             assert not isinstance(lm, PeftModel)
-            peft_config = peft.LoraConfig(
-                task_type="CAUSAL_LM",
-                **self.adaptor_kwargs
-            )
+            peft_config = peft.LoraConfig(task_type="CAUSAL_LM", **self.adaptor_kwargs)
             self._lm = peft.get_peft_model(lm, peft_config)
         else:
             self._lm = lm
@@ -81,7 +79,9 @@ class LM(nn.Module):
         if self.from_checkpoint is not None or self.from_huggingface is not None:
             # We are loading a checkpoint from either disk or from hugginface
             # As such, we retain only the keys of weights that require gradients
-            self._filter_state_dict_keys: set = {k for k, v in state_dict.items() if not v.requires_grad}
+            self._filter_state_dict_keys: set = {
+                k for k, v in state_dict.items() if not v.requires_grad
+            }
             # For instance, if we loaded a model from huggingface, freezed it, and the applied peft on it;
             # then _state_dict_keys will contain only the keys of e.g., lora weights
         else:
@@ -114,18 +114,18 @@ class LM(nn.Module):
                     map_location=get_local_device(),
                 )._lm
         elif self.from_huggingface is not None:
-            if 'EvaByte' in self.from_huggingface:
+            if "EvaByte" in self.from_huggingface:
                 # Set use_cache to false to avoid weird EvaByte behaviour during training
-                kwargs = {'trust_remote_code': True, 'use_cache': False}
+                kwargs = {"trust_remote_code": True, "use_cache": False}
             else:
-                kwargs = {'attn_implementation': "flash_attention_2"}
+                kwargs = {"attn_implementation": "flash_attention_2"}
             lm = AutoModelForCausalLM.from_pretrained(
                 self.from_huggingface,
                 torch_dtype=torch.bfloat16,
                 # quantization_config=BitsAndBytesConfig(load_in_4bit=True),
-                **kwargs
+                **kwargs,
             )
-            if 'EvaByte' in self.from_huggingface:
+            if "EvaByte" in self.from_huggingface:
                 # By default, we do not use caching in EvaByte, and always return dictionaries
                 lm.config.use_cache = False
                 lm.config.return_dict = True
@@ -179,13 +179,14 @@ class LM(nn.Module):
         inference due to memory overhead.
         """
         if not self.has_adapter:
-            raise ValueError('No LoRA present, cannot enable dual model inference.')
+            raise ValueError("No LoRA present, cannot enable dual model inference.")
 
         if self._dual_model_enabled:
             return  # Already enabled
 
         # Create merged model from the LoRA version (LoRA weights baked in)
         from copy import deepcopy
+
         self._lm_merged = deepcopy(self._lm).merge_and_unload()
 
         # Keep track of model without adapters
@@ -239,8 +240,9 @@ class LM(nn.Module):
         ), "The forward of GPT can only be called if encoder_only=False"
 
         if not (attention_mask is None or torch.all(attention_mask == 1)):
-            raise NotImplementedError('LM.forward cannot handle attention mask that is not all ones (i.e. variable-sized sequences)')
-
+            raise NotImplementedError(
+                "LM.forward cannot handle attention mask that is not all ones (i.e. variable-sized sequences)"
+            )
 
         # forward the encoder
         xx = self.encoder(input_ids=input_ids, attention_mask=attention_mask)[
@@ -252,7 +254,10 @@ class LM(nn.Module):
             # if we are given some desired targets also calculate the loss
             logits = self.head_logits(xx)
             loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)), labels.view(-1), ignore_index=IGNORE_TOKEN_ID, reduction='none'
+                logits.view(-1, logits.size(-1)),
+                labels.view(-1),
+                ignore_index=IGNORE_TOKEN_ID,
+                reduction="none",
             )
             # Average across sequence dimension and do not normalise along batch
             loss = loss.view(B, S).mean(dim=1).sum()
@@ -275,10 +280,22 @@ class LM(nn.Module):
 
         # Checker whether the LM is multi-token model
         # In that case, return the logits of the first part of the head only
-        if hasattr(self._lm.config, "num_pred_heads") and self._lm.config.num_pred_heads > 1:
-            num_pred_heads, vocab_size = self._lm.config.num_pred_heads, self._lm.config.vocab_size
-            assert logits.shape == (logits.shape[0], logits.shape[1], num_pred_heads * vocab_size)
-            logits = logits.view(logits.shape[0], logits.shape[1], num_pred_heads, vocab_size)
+        if (
+            hasattr(self._lm.config, "num_pred_heads")
+            and self._lm.config.num_pred_heads > 1
+        ):
+            num_pred_heads, vocab_size = (
+                self._lm.config.num_pred_heads,
+                self._lm.config.vocab_size,
+            )
+            assert logits.shape == (
+                logits.shape[0],
+                logits.shape[1],
+                num_pred_heads * vocab_size,
+            )
+            logits = logits.view(
+                logits.shape[0], logits.shape[1], num_pred_heads, vocab_size
+            )
             logits = logits[:, :, 0]  # (B, S, V)
 
         # Cast to float32
@@ -300,11 +317,15 @@ class LM(nn.Module):
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
         prefill_time = 0
-        first_run = (past_key_values is None)
+        first_run = past_key_values is None
         if use_cache:
             with time_block(inputs.device) as t:
                 # We only pass in the unseen inputs, because we are using cache
-                past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+                past_seen_tokens = (
+                    past_key_values.get_seq_length()
+                    if past_key_values is not None
+                    else 0
+                )
                 if position_ids is None:
                     if attention_mask is not None:
                         # This is the default position_ids initialization from HF's generate()
@@ -312,15 +333,22 @@ class LM(nn.Module):
                         position_ids = attention_mask.long().cumsum(-1) - 1
                         position_ids.masked_fill_(attention_mask == 0, 1)
                     else:
-                        position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=int)
-                        position_ids = position_ids.unsqueeze(dim=0).expand(inputs.shape[0], -1)
+                        position_ids = torch.arange(
+                            past_seen_tokens,
+                            inputs.shape[1],
+                            device=inputs.device,
+                            dtype=int,
+                        )
+                        position_ids = position_ids.unsqueeze(dim=0).expand(
+                            inputs.shape[0], -1
+                        )
                 # Evaluate the encoder
                 outputs = self.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
                     use_cache=use_cache,
                     attention_mask=attention_mask,
                     past_key_values=past_key_values,
-                    position_ids=position_ids
+                    position_ids=position_ids,
                 )
                 # token embeddings of shape (b, t, n_embd)
                 xx = outputs["last_hidden_state"]
@@ -332,7 +360,9 @@ class LM(nn.Module):
         else:
             xx = self.encoder(inputs)["last_hidden_state"]
 
-        logits = self.head_logits(xx[:, [-1], :])  # note: using list [-1] to preserve the time dim
+        logits = self.head_logits(
+            xx[:, [-1], :]
+        )  # note: using list [-1] to preserve the time dim
         if logit_processor is not None:
             logits = logit_processor(logits)
         if use_argmax:
@@ -340,6 +370,6 @@ class LM(nn.Module):
         else:
             probs = torch.softmax(logits, dim=2)
             tokens = torch.multinomial(probs.squeeze(dim=1), num_samples=1)
-        return dict(tokens=tokens,
-                    past_key_values=past_key_values,
-                    prefill_time=prefill_time)
+        return dict(
+            tokens=tokens, past_key_values=past_key_values, prefill_time=prefill_time
+        )

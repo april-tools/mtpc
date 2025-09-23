@@ -5,18 +5,30 @@ from typing import Callable
 from torch import Tensor, LongTensor
 from transformers.cache_utils import Cache
 
-from mtp.models.evabyte.multibyte_decoding_evabyte import multi_byte_pred_prepare_attn_mask
+from mtp.models.evabyte.multibyte_decoding_evabyte import (
+    multi_byte_pred_prepare_attn_mask,
+)
 from mtp.utils.profile import time_block
 from mtp.utils.sampling import truncate_logprobs_top_p
 from mtp.utils.packing import packed_targets_to_target_windows
 from mtp.models.evabyte.training_utils import prepare_evabyte_mask_and_position
-from mtp.models.evabyte.training_utils import is_evabyte_packed_sequence, EVABYTE_EOS_TOKEN_ID
+from mtp.models.evabyte.training_utils import (
+    is_evabyte_packed_sequence,
+    EVABYTE_EOS_TOKEN_ID,
+)
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
+from mtp.models.lora_split_lm import LoRASplitLM
 
 from .lm import LM
 
 from mtp.models.circuits import CircuitModel
-from mtp.models.loss import compute_full_kl, compute_binary_approx_kl, compute_cross_entropy, compute_valid_mask, IGNORE_TOKEN_ID
+from mtp.models.loss import (
+    compute_full_kl,
+    compute_binary_approx_kl,
+    compute_cross_entropy,
+    compute_valid_mask,
+    IGNORE_TOKEN_ID,
+)
 
 
 class MultiTokenLM(torch.nn.Module):
@@ -48,37 +60,43 @@ class MultiTokenLM(torch.nn.Module):
         init_from_lm_head: bool = True,
         beta: float = 0.0,
         gamma: float = 1.0,
-        kl_type: str = 'forward',
-        kl_algorithm: str = 'binary_approx'
+        kl_type: str = "forward",
+        kl_algorithm: str = "binary_approx",
     ):
         super().__init__()
         self.lm = lm
         self.circuit = circuit
 
         # Select and instantiate the MTP head
-        self.mt_head_type = mt_head_kwargs.get('type', 'vanilla')
-        if self.mt_head_type == 'vanilla':
+        self.mt_head_type = mt_head_kwargs.get("type", "vanilla")
+        if self.mt_head_type == "vanilla":
             from .mtp_head import MultiTokenHead as VanillaMultiTokenHead
+
             mtp_head_cls = VanillaMultiTokenHead
-        elif self.mt_head_type == 'evabyte':
+        elif self.mt_head_type == "evabyte":
             from .evabyte.mtp_head import MultiTokenHead as EvabyteMultiTokenHead
+
             mtp_head_cls = EvabyteMultiTokenHead
         else:
-            raise NotImplementedError(f"Unknown multi-token head called {self.mt_head_type}")
+            raise NotImplementedError(
+                f"Unknown multi-token head called {self.mt_head_type}"
+            )
         self.mt_head = mtp_head_cls(
             self.circuit.parameters_config,
             self.circuit.vocab_size,
-            n_embd=mt_head_kwargs['n_embd'],
-            transformer_n_head=mt_head_kwargs.get('transformer_n_head', 1),
-            transformer_n_layer=mt_head_kwargs.get('transformer_n_layer', 0),
-            expander_type=mt_head_kwargs.get('expander_type', 'linear'),
-            expander_n_layer=mt_head_kwargs.get('expander_n_layer', 1),
-            expander_hidden_size=mt_head_kwargs.get('expander_hidden_size', 64),
+            n_embd=mt_head_kwargs["n_embd"],
+            transformer_n_head=mt_head_kwargs.get("transformer_n_head", 1),
+            transformer_n_layer=mt_head_kwargs.get("transformer_n_layer", 0),
+            expander_type=mt_head_kwargs.get("expander_type", "linear"),
+            expander_n_layer=mt_head_kwargs.get("expander_n_layer", 1),
+            expander_hidden_size=mt_head_kwargs.get("expander_hidden_size", 64),
             expander_use_skip=not init_from_lm_head,
-            freeze_vocab_unembedding=mt_head_kwargs.get('freeze_vocab_unembedding', False),
-            share_sum_weights=mt_head_kwargs.get('share_sum_weights', False),
-            contextual_hmm_weights=mt_head_kwargs.get('contextual_hmm_weights', True),
-            init_hmm_identity=mt_head_kwargs.get('init_hmm_identity', True)
+            freeze_vocab_unembedding=mt_head_kwargs.get(
+                "freeze_vocab_unembedding", False
+            ),
+            share_sum_weights=mt_head_kwargs.get("share_sum_weights", False),
+            contextual_hmm_weights=mt_head_kwargs.get("contextual_hmm_weights", True),
+            init_hmm_identity=mt_head_kwargs.get("init_hmm_identity", True),
         )
         self.init_from_lm_head = init_from_lm_head
 
@@ -95,7 +113,10 @@ class MultiTokenLM(torch.nn.Module):
         self.gamma = gamma
         self.kl_type = kl_type
         self.kl_algorithm = kl_algorithm
-        self.register_buffer('_exp_gamma_weights', torch.tensor([self.gamma ** k for k in range(self.circuit.n_token)]))
+        self.register_buffer(
+            "_exp_gamma_weights",
+            torch.tensor([self.gamma**k for k in range(self.circuit.n_token)]),
+        )
         self._exp_gamma_normalizer = torch.sum(self._exp_gamma_weights).item()
 
         # Keep track of what we need to compute
@@ -103,8 +124,10 @@ class MultiTokenLM(torch.nn.Module):
 
         if self.compute_kl:
             # NOTE: We compute teacher_log_probs in a no_grad block.
-            assert self.lm.freeze, 'Unfreezing LM with KL loss is not currently supported'
-            assert not self.lm.encoder_only, 'We need the LM head to compute KL'
+            assert (
+                self.lm.freeze
+            ), "Unfreezing LM with KL loss is not currently supported"
+            assert not self.lm.encoder_only, "We need the LM head to compute KL"
 
         if self.init_from_lm_head:
             self.mt_head.set_unembedding_weights(self.lm.lm_head_weights)
@@ -161,32 +184,44 @@ class MultiTokenLM(torch.nn.Module):
         # V = self.vocab_size
 
         if attention_mask is None:
-            attention_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=torch.int32)
+            attention_mask = torch.ones_like(
+                input_ids, device=input_ids.device, dtype=torch.int32
+            )
 
         # Evabyte needs special treatment since they construct two types of
         # attention mask (window and block), and the huggingface attention mask does not suffice
         # EvaByte also supports packing - see the helper function below
-        if self.mt_head_type == 'evabyte':
-            attention_mask, position_ids = prepare_evabyte_mask_and_position(input_ids, self.lm)
+        if self.mt_head_type == "evabyte":
+            attention_mask, position_ids = prepare_evabyte_mask_and_position(
+                input_ids, self.lm
+            )
         else:
             position_ids = None
 
         # 1) Encode the inputs with the underlying LM (backbone).
         #    shape -> (B, S, D)
-        xxd = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)['last_hidden_state']
+        xxd = self.lm.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+        )["last_hidden_state"]
 
         # 2) Parameterize the circuit with our NN activations
-        self._parameterize_circuit(xxd, attention_mask=attention_mask, position_ids=position_ids)
+        self._parameterize_circuit(
+            xxd, attention_mask=attention_mask, position_ids=position_ids
+        )
 
         # 3) Expand target tokens into windows of size H
-        if self.mt_head_type == 'evabyte' and is_evabyte_packed_sequence(input_ids):
-            # If we are using packing (i.e. multiple seqs per batch), we need to ignore 
+        if self.mt_head_type == "evabyte" and is_evabyte_packed_sequence(input_ids):
+            # If we are using packing (i.e. multiple seqs per batch), we need to ignore
             # predictions that take us across example boundaries by introducing IGNORE_TOKEN_ID.
             # yy: (B, S) -> (B, S, H)
-            yy = packed_targets_to_target_windows(labels, H, EVABYTE_EOS_TOKEN_ID, IGNORE_TOKEN_ID)
+            yy = packed_targets_to_target_windows(
+                labels, H, EVABYTE_EOS_TOKEN_ID, IGNORE_TOKEN_ID
+            )
         else:
             # Pad labels on the right by H - 1  (B, S+)
-            yy = F.pad(labels, (0, H - 1), mode='constant', value=IGNORE_TOKEN_ID)
+            yy = F.pad(labels, (0, H - 1), mode="constant", value=IGNORE_TOKEN_ID)
 
             # Make target labels, yy, and attention masks, windowed
             # from yy: (B, S+) to yy: (B, S, H)
@@ -197,7 +232,11 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl:
             with torch.no_grad(), self.lm.disable_adapter_if_any():
                 if self.lm.has_adapter:
-                    xxv = self.lm.encoder(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids)['last_hidden_state']
+                    xxv = self.lm.encoder(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        position_ids=position_ids,
+                    )["last_hidden_state"]
                 else:  # If the LM has no adaptors, then the verifier hidden features are the same as the draft features
                     xxv = xxd
                 # logits: (B, S, V)
@@ -207,7 +246,9 @@ class MultiTokenLM(torch.nn.Module):
                 teacher_log_probs = torch.log_softmax(logits, dim=-1)
 
                 _, S, V = teacher_log_probs.shape
-                assert V == self.circuit.vocab_size, 'Circuit and teacher have different vocab size'
+                assert (
+                    V == self.circuit.vocab_size
+                ), "Circuit and teacher have different vocab size"
 
                 if self.kl_algorithm == "binary_approx":
                     # We only need the log probs for the target category
@@ -220,7 +261,12 @@ class MultiTokenLM(torch.nn.Module):
                 # such that when we unfold we still get S windows to predict
                 # We pad with -inf to make sure we notice if we are using invalid tokens (kl would be inf or nan)
                 # shape: B, S+, V   (pad starts from last dim and moves forward in pairs)
-                teacher_log_probs = F.pad(teacher_log_probs, (0, 0, 0, H - 1), mode='constant', value=-torch.inf)
+                teacher_log_probs = F.pad(
+                    teacher_log_probs,
+                    (0, 0, 0, H - 1),
+                    mode="constant",
+                    value=-torch.inf,
+                )
 
                 # Make teacher_log_probs windowed for kl with circuit logprobs
                 # shape: B, S, V, H
@@ -234,8 +280,12 @@ class MultiTokenLM(torch.nn.Module):
                 teacher_log_probs = teacher_log_probs.squeeze(-1)
 
                 # If we use packing make sure we don't leak predictions across example boundaries
-                if self.mt_head_type == 'evabyte' and is_evabyte_packed_sequence(input_ids):
-                    teacher_log_probs[yy.permute(2, 0, 1) == IGNORE_TOKEN_ID] = -torch.inf
+                if self.mt_head_type == "evabyte" and is_evabyte_packed_sequence(
+                    input_ids
+                ):
+                    teacher_log_probs[yy.permute(2, 0, 1) == IGNORE_TOKEN_ID] = (
+                        -torch.inf
+                    )
         else:
             teacher_log_probs = None
 
@@ -267,35 +317,40 @@ class MultiTokenLM(torch.nn.Module):
         )
 
         # 7) Weigh the losses and optionally discount
-        kl_loss = losses['kl_loss'] if self.compute_kl else 0.0
-        ce_loss = losses['ce_loss'] if self.compute_ce else 0.0
+        kl_loss = losses["kl_loss"] if self.compute_kl else 0.0
+        ce_loss = losses["ce_loss"] if self.compute_ce else 0.0
         # L_k = β * KL( p^c_k || p^d_k ) + (1 - β) * CE( p^d_k, x_{k} )
         combined_loss = self.beta * kl_loss + (1.0 - self.beta) * ce_loss
         # Possibly discount by gamma^k (no discount if gamma = 1.)
         # We want the loss to stay on same scale for more tokens
         # and for change of gamma - gamma should only scale relatively
         # so divide by the exp_gamma_normalizer
-        avg_combined_loss = torch.sum(combined_loss * self._exp_gamma_weights, dim=-1) / self._exp_gamma_normalizer
+        avg_combined_loss = (
+            torch.sum(combined_loss * self._exp_gamma_weights, dim=-1)
+            / self._exp_gamma_normalizer
+        )
 
         # Set the losses for logging / these are detached outside
-        outputs = {'loss': avg_combined_loss}
+        outputs = {"loss": avg_combined_loss}
         if self.compute_kl or self.compute_ce:
             for k in range(H):
                 if self.compute_kl:
-                    if self.kl_algorithm == 'full':
-                        outputs[f'kl_loss_at_{k+1}'] = kl_loss[k]
-                    elif self.kl_algorithm == 'binary_approx':
-                        outputs[f'kl_loss_ba_at_{k+1}'] = kl_loss[k]
+                    if self.kl_algorithm == "full":
+                        outputs[f"kl_loss_at_{k+1}"] = kl_loss[k]
+                    elif self.kl_algorithm == "binary_approx":
+                        outputs[f"kl_loss_ba_at_{k+1}"] = kl_loss[k]
                 if self.compute_ce:
-                    outputs[f'ce_loss_at_{k+1}'] = ce_loss[k]
+                    outputs[f"ce_loss_at_{k+1}"] = ce_loss[k]
 
         if return_log_probs:
             # TODO: fix below. We should not be recomputing things here
             # but we would need to standardize what log probs we return
             # currently this would differ depending on with_logits or not
             lp = self.circuit(yy)
-            outputs['log_probs'] = lp.detach().cpu()
-            outputs['full_log_probs'] = log_probs.detach().cpu()  # ??? What is a full log probs ???
+            outputs["log_probs"] = lp.detach().cpu()
+            outputs["full_log_probs"] = (
+                log_probs.detach().cpu()
+            )  # ??? What is a full log probs ???
 
         return outputs
 
@@ -307,10 +362,10 @@ class MultiTokenLM(torch.nn.Module):
         past_key_values: Cache = None,
         position_ids: Tensor = None,
         generate: bool = False,
-        top_p: float = 1.,
+        top_p: float = 1.0,
         logit_processor: Callable = None,
     ) -> Cache:
-        if top_p != 1.:
+        if top_p != 1.0:
             assert generate is True
 
         # Obtain dictionary of circuit parameters
@@ -320,16 +375,18 @@ class MultiTokenLM(torch.nn.Module):
             attention_mask=attention_mask,
             past_key_values=past_key_values,
             position_ids=position_ids,
-            generate=generate
+            generate=generate,
         )
 
         # Set the parameters to the circuit
         if logit_processor is not None:
-            categoricals = logit_processor(outputs['categorical'])
+            categoricals = logit_processor(outputs["categorical"])
         else:
-            categoricals = outputs['categorical']
-        self.circuit.parameterize({'categorical': categoricals, 'sum': outputs['sum']}, top_p=top_p)
-        return outputs['past_key_values']
+            categoricals = outputs["categorical"]
+        self.circuit.parameterize(
+            {"categorical": categoricals, "sum": outputs["sum"]}, top_p=top_p
+        )
+        return outputs["past_key_values"]
 
     def compute_next_token_loss(self, yy: Tensor) -> Tensor:
         # We keep track of next token prediction loss too, in order to discern
@@ -387,11 +444,17 @@ class MultiTokenLM(torch.nn.Module):
         if self.compute_kl:
             if self.kl_algorithm == "full":
                 losses["kl_loss"] = compute_full_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type, valid_mask=compute_valid_mask(yy)
+                    draft_log_probs,
+                    teacher_log_probs,
+                    self.kl_type,
+                    valid_mask=compute_valid_mask(yy),
                 )
             elif self.kl_algorithm == "binary_approx":
                 losses["kl_loss"] = compute_binary_approx_kl(
-                    draft_log_probs, teacher_log_probs, self.kl_type, valid_mask=compute_valid_mask(yy)
+                    draft_log_probs,
+                    teacher_log_probs,
+                    self.kl_type,
+                    valid_mask=compute_valid_mask(yy),
                 )
             else:
                 raise ValueError("Unknown kl_algorithm = %s" % self.kl_algorithm)
@@ -404,14 +467,14 @@ class MultiTokenLM(torch.nn.Module):
     def generate(
         self,
         inputs: Tensor,
-        mode: str = 'mtp',
+        mode: str = "mtp",
         use_argmax: bool = False,
         use_cache: bool = False,
         attention_mask: Tensor = None,
         past_key_values: Cache = None,
         head_past_key_values: Cache = None,
         position_ids: Tensor = None,
-        draft_top_p: float = 1.,
+        draft_top_p: float = 1.0,
         logit_processor: Callable = None,
     ) -> dict:
         assert attention_mask is None
@@ -427,42 +490,59 @@ class MultiTokenLM(torch.nn.Module):
                         inputs.shape[0],
                         self.lm.config.num_attention_heads,
                         self.lm.config.window_size + self.circuit.n_token,
-                        self.lm.config.hidden_size // self.lm.config.num_attention_heads,
+                        self.lm.config.hidden_size
+                        // self.lm.config.num_attention_heads,
                         self.lm.config.num_hidden_layers,
                         torch.bfloat16,
                         inputs.device,
                     )
-                    position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
+                    position_ids = torch.arange(
+                        0, inputs.shape[1], device=inputs.device, dtype=torch.int
+                    ).unsqueeze(dim=0)
                     outputs = self.lm.encoder(
                         inputs,
                         attention_mask=None,
                         use_cache=True,
                         past_key_values=past_key_values,
                         position_ids=position_ids,
-                        multibyte_decoding=False
+                        multibyte_decoding=False,
                     )
-                    past_key_values = outputs['past_key_values']
-                    past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(past_key_values)
+                    past_key_values = outputs["past_key_values"]
+                    past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                        past_key_values
+                    )
                 prefill_time = t.elapsed_time
             else:
                 # LL: below I am reusing the code for multi token generation in Evabyte
                 # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
                 #     to the number of tokens we sample each time
                 past_seen_tokens = past_key_values.get_seq_length()
-                attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, self.circuit.n_token, device=inputs.device)
-                position_ids = torch.arange(past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
+                attn_mask = multi_byte_pred_prepare_attn_mask(
+                    self.lm.config,
+                    past_seen_tokens,
+                    self.circuit.n_token,
+                    device=inputs.device,
+                )
+                position_ids = torch.arange(
+                    past_seen_tokens,
+                    inputs.shape[1],
+                    device=inputs.device,
+                    dtype=torch.int,
+                ).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
                     use_cache=True,
                     attention_mask=attn_mask,
                     past_key_values=past_key_values,
                     position_ids=position_ids,
-                    multibyte_decoding=True
+                    multibyte_decoding=True,
                 )
-                past_key_values = outputs['past_key_values']
+                past_key_values = outputs["past_key_values"]
                 past_key_values = self.lm.lm_model.multi_byte_pred_update_cache(
                     past_key_values,
-                    torch.arange(self.circuit.n_token, device=inputs.device, dtype=torch.int).unsqueeze(dim=0),
+                    torch.arange(
+                        self.circuit.n_token, device=inputs.device, dtype=torch.int
+                    ).unsqueeze(dim=0),
                     0,
                     self.circuit.n_token,
                 )
@@ -470,7 +550,7 @@ class MultiTokenLM(torch.nn.Module):
             outputs = self.lm.encoder(input_ids=inputs, use_cache=False)
 
         # Parameterize the circuit
-        xx = outputs['last_hidden_state']
+        xx = outputs["last_hidden_state"]
         next_head_past_key_values = self._parameterize_circuit(
             xx,
             use_cache=use_cache,
@@ -505,11 +585,11 @@ class MultiTokenLM(torch.nn.Module):
             tokens=tokens,
             past_key_values=past_key_values,
             head_past_key_values=head_past_key_values,
-            prefill_time=prefill_time
+            prefill_time=prefill_time,
         )
 
     @torch.no_grad()
-    def self_speculative_sample(self, tokens, logits, target_top_p: float = 1.):
+    def self_speculative_sample(self, tokens, logits, target_top_p: float = 1.0):
         tokens = tokens.clone()
         # Determine the number of accepted tokens,
         # by iteratively computing conditional probabilities with the circuit
@@ -535,11 +615,17 @@ class MultiTokenLM(torch.nn.Module):
         # lm_next_token_log_probs: (B, H + 1, V)
         lm_next_token_log_probs = torch.log_softmax(logits, dim=2)
         if target_top_p < 1.0:
-            lm_next_token_log_probs = truncate_logprobs_top_p(lm_next_token_log_probs, p=target_top_p)
+            lm_next_token_log_probs = truncate_logprobs_top_p(
+                lm_next_token_log_probs, p=target_top_p
+            )
         # lm_next_token_log_probs_cpu: (B, H, 1)
-        lm_next_token_log_probs_cpu = torch.gather(lm_next_token_log_probs[:, :-1], dim=2, index=tokens.unsqueeze(dim=-1)).cpu()
+        lm_next_token_log_probs_cpu = torch.gather(
+            lm_next_token_log_probs[:, :-1], dim=2, index=tokens.unsqueeze(dim=-1)
+        ).cpu()
         # log_marginal_probs_cpu: (B, H, 1)
-        log_marginal_probs_cpu = log_marginal_probs.cpu()  # Move to the CPU as it will be slightly faster due to non-vectorizable code below
+        log_marginal_probs_cpu = (
+            log_marginal_probs.cpu()
+        )  # Move to the CPU as it will be slightly faster due to non-vectorizable code below
         #
         # Compute the number of tokens to accept
         num_accepted_tokens = 0
@@ -620,7 +706,6 @@ class MultiTokenLM(torch.nn.Module):
         tokens = torch.cat([tokens[:, :num_accepted_tokens], last_token], dim=1)
         return tokens
 
-
     @torch.no_grad()
     def self_speculative_argmax(self, tokens, logits):
         #
@@ -633,7 +718,7 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the number of accepted tokens, i.e., by stopping at the first draft token
         # that is different from the token predicted by the target model by argmaxing
         assert tokens.shape[0] == 1  # B = 1 for now
-        #import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         rej_idx = torch.argwhere(tokens != target_argmax_tokens[:, :-1])
         if rej_idx.shape[0] == 0:
             num_accepted_tokens = tokens.shape[1]
@@ -645,7 +730,6 @@ class MultiTokenLM(torch.nn.Module):
 
         tokens = torch.cat([tokens[:, :num_accepted_tokens], last_token], dim=1)
         return tokens
-
 
     @torch.no_grad()
     def self_speculative_generate(
@@ -659,29 +743,39 @@ class MultiTokenLM(torch.nn.Module):
         position_ids: Tensor = None,
         past_num_tokens: int = None,
         last_hidden_state: Tensor = None,
-        draft_top_p: float = 1.,
-        target_top_p: float = 1.,
+        draft_top_p: float = 1.0,
+        target_top_p: float = 1.0,
         logit_processor: Callable = None,
+        legacy=False,
     ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
                 "Multi-batch self-speculative decoding not implemented yet"
             )
-        func = self.self_speculative_generate_with_lora if self.lm.has_adapter \
-            else self.self_speculative_generate_no_lora
-        return func(inputs,
-                    use_cache=use_cache,
-                    attention_mask=attention_mask,
-                    draft_past_key_values=draft_past_key_values,
-                    verifier_past_key_values=verifier_past_key_values,
-                    head_past_key_values=head_past_key_values,
-                    position_ids=position_ids,
-                    past_num_tokens=past_num_tokens,
-                    last_hidden_state=last_hidden_state,
-                    draft_top_p=draft_top_p,
-                    target_top_p=target_top_p,
-                    logit_processor=logit_processor,
-                    argmax=False)
+        if self.lm.has_adapter:
+            if legacy:
+                func = self.self_speculative_generate_with_lora_legacy
+            else:
+                func = self.self_speculative_generate_with_lora
+        else:
+            if legacy:
+                raise ValueError("There is no legacy no lora algorithm")
+            func = self.self_speculative_generate_no_lora
+        return func(
+            inputs,
+            use_cache=use_cache,
+            attention_mask=attention_mask,
+            draft_past_key_values=draft_past_key_values,
+            verifier_past_key_values=verifier_past_key_values,
+            head_past_key_values=head_past_key_values,
+            position_ids=position_ids,
+            past_num_tokens=past_num_tokens,
+            last_hidden_state=last_hidden_state,
+            draft_top_p=draft_top_p,
+            target_top_p=target_top_p,
+            logit_processor=logit_processor,
+            argmax=False,
+        )
 
     @torch.no_grad()
     def self_speculative_generate_argmax(
@@ -696,26 +790,36 @@ class MultiTokenLM(torch.nn.Module):
         past_num_tokens: int = None,
         last_hidden_state: Tensor = None,
         logit_processor: Callable = None,
+        legacy=False,
     ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
                 "Multi-batch self-speculative decoding not implemented yet"
             )
-        func = self.self_speculative_generate_with_lora if self.lm.has_adapter \
-            else self.self_speculative_generate_no_lora
-        return func(inputs,
-                    use_cache=use_cache,
-                    attention_mask=attention_mask,
-                    draft_past_key_values=draft_past_key_values,
-                    verifier_past_key_values=verifier_past_key_values,
-                    head_past_key_values=head_past_key_values,
-                    position_ids=position_ids,
-                    past_num_tokens=past_num_tokens,
-                    last_hidden_state=last_hidden_state,
-                    draft_top_p=1.,
-                    target_top_p=1.,
-                    logit_processor=logit_processor,
-                    argmax=True)
+        if self.lm.has_adapter:
+            if legacy:
+                func = self.self_speculative_generate_with_lora_legacy
+            else:
+                func = self.self_speculative_generate_with_lora
+        else:
+            if legacy:
+                raise ValueError("There is no legacy no lora algorithm")
+            func = self.self_speculative_generate_no_lora
+        return func(
+            inputs,
+            use_cache=use_cache,
+            attention_mask=attention_mask,
+            draft_past_key_values=draft_past_key_values,
+            verifier_past_key_values=verifier_past_key_values,
+            head_past_key_values=head_past_key_values,
+            position_ids=position_ids,
+            past_num_tokens=past_num_tokens,
+            last_hidden_state=last_hidden_state,
+            draft_top_p=1.0,
+            target_top_p=1.0,
+            logit_processor=logit_processor,
+            argmax=True,
+        )
 
     @torch.no_grad()
     def self_speculative_generate_no_lora(
@@ -729,14 +833,14 @@ class MultiTokenLM(torch.nn.Module):
         position_ids: Tensor = None,
         past_num_tokens: int = None,
         last_hidden_state: Tensor = None,
-        draft_top_p: float = 1.,
-        target_top_p: float = 1.,
+        draft_top_p: float = 1.0,
+        target_top_p: float = 1.0,
         argmax: bool = False,
         logit_processor: Callable = None,
     ) -> dict:
 
         if argmax:
-            assert draft_top_p == 1. and target_top_p == 1.
+            assert draft_top_p == 1.0 and target_top_p == 1.0
 
         prefill_time = 0
         # Compute the embeddings
@@ -749,22 +853,27 @@ class MultiTokenLM(torch.nn.Module):
                         inputs.shape[0],
                         self.lm.config.num_attention_heads,
                         self.lm.config.window_size + self.circuit.n_token,
-                        self.lm.config.hidden_size // self.lm.config.num_attention_heads,
+                        self.lm.config.hidden_size
+                        // self.lm.config.num_attention_heads,
                         self.lm.config.num_hidden_layers,
                         torch.bfloat16,
                         inputs.device,
                     )
-                    position_ids = torch.arange(0, inputs.shape[1], device=inputs.device, dtype=torch.int).unsqueeze(dim=0)
+                    position_ids = torch.arange(
+                        0, inputs.shape[1], device=inputs.device, dtype=torch.int
+                    ).unsqueeze(dim=0)
                     outputs = self.lm.encoder(
                         inputs,
                         attention_mask=None,
                         use_cache=True,
                         past_key_values=draft_past_key_values,
                         position_ids=position_ids,
-                        multibyte_decoding=False
+                        multibyte_decoding=False,
                     )
-                    draft_past_key_values = outputs['past_key_values']
-                    draft_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(draft_past_key_values)
+                    draft_past_key_values = outputs["past_key_values"]
+                    draft_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                        draft_past_key_values
+                    )
                     verifier_past_key_values = draft_past_key_values
                 prefill_time = t.elapsed_time
         else:
@@ -773,7 +882,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Parameterize the circuit
         if last_hidden_state is None:
-            xx = outputs['last_hidden_state']
+            xx = outputs["last_hidden_state"]
         else:
             xx = last_hidden_state
         next_head_past_key_values = self._parameterize_circuit(
@@ -810,23 +919,33 @@ class MultiTokenLM(torch.nn.Module):
             if use_cache:
                 past_seen_tokens = verifier_past_key_values.get_seq_length()
                 # TODO: grv check line below - we may need past_seen_tokens -1 for first arg
-                verifier_attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, gen_seq.shape[1] - past_seen_tokens + 1, device=gen_seq.device)
-                position_ids = torch.arange(past_seen_tokens - 1, gen_seq.shape[1], device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0)
+                verifier_attn_mask = multi_byte_pred_prepare_attn_mask(
+                    self.lm.config,
+                    past_seen_tokens,
+                    gen_seq.shape[1] - past_seen_tokens + 1,
+                    device=gen_seq.device,
+                )
+                position_ids = torch.arange(
+                    past_seen_tokens - 1,
+                    gen_seq.shape[1],
+                    device=gen_seq.device,
+                    dtype=torch.int,
+                ).unsqueeze(dim=0)
                 outputs = self.lm.encoder(
-                    input_ids=gen_seq[:, past_seen_tokens - 1:],
+                    input_ids=gen_seq[:, past_seen_tokens - 1 :],
                     use_cache=True,
                     attention_mask=verifier_attn_mask,
                     past_key_values=verifier_past_key_values,
                     position_ids=position_ids,
-                    multibyte_decoding=True
+                    multibyte_decoding=True,
                 )
-                verifier_past_key_values = outputs['past_key_values']
+                verifier_past_key_values = outputs["past_key_values"]
             else:
                 outputs = self.lm.encoder(input_ids=gen_seq, use_cache=False)
             # zz: (B, S + H, D) -> (B, H + 1, D)
-            zz = outputs['last_hidden_state']
+            zz = outputs["last_hidden_state"]
             assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
-            zz = zz[:, -tokens.shape[1] - 1:]
+            zz = zz[:, -tokens.shape[1] - 1 :]
             # logits: (B, H + 1, V)
             logits = self.lm.head_logits(zz)
             if logit_processor is not None:
@@ -836,28 +955,38 @@ class MultiTokenLM(torch.nn.Module):
             if argmax:
                 tokens = self.self_speculative_argmax(tokens, logits)
             else:
-                tokens = self.self_speculative_sample(tokens, logits, target_top_p=target_top_p)
+                tokens = self.self_speculative_sample(
+                    tokens, logits, target_top_p=target_top_p
+                )
 
             # Drop last token as that was sampled from logits and would mean
             # we need another LLM evaluation
             tokens = tokens[:, :-1]
             num_generated_tokens = tokens.shape[1]
 
-            last_hidden_state = outputs['last_hidden_state']
+            last_hidden_state = outputs["last_hidden_state"]
             if use_cache:
                 last_hidden_state = last_hidden_state[:, : num_generated_tokens + 1]
             else:
                 # We do not add + 1 here because we are counting from the beginning of time
-                last_hidden_state = last_hidden_state[:, : inputs.shape[1] + num_generated_tokens]
+                last_hidden_state = last_hidden_state[
+                    :, : inputs.shape[1] + num_generated_tokens
+                ]
 
             # Update the KV cache, based on the number of tokens we have sampled previously
             if use_cache:
                 if num_generated_tokens > 0:
-                    verifier_past_key_values = self.lm.lm_model.multi_byte_pred_update_cache(
-                        verifier_past_key_values,
-                        torch.arange(self.circuit.n_token, device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0),
-                        0,
-                        num_generated_tokens,
+                    verifier_past_key_values = (
+                        self.lm.lm_model.multi_byte_pred_update_cache(
+                            verifier_past_key_values,
+                            torch.arange(
+                                self.circuit.n_token,
+                                device=gen_seq.device,
+                                dtype=torch.int,
+                            ).unsqueeze(dim=0),
+                            0,
+                            num_generated_tokens,
+                        )
                     )
                 draft_past_key_values = verifier_past_key_values
         return dict(
@@ -868,11 +997,172 @@ class MultiTokenLM(torch.nn.Module):
             head_past_key_values=head_past_key_values,
             past_num_tokens=num_generated_tokens,
             last_hidden_state=last_hidden_state,
-            prefill_time=prefill_time
+            prefill_time=prefill_time,
         )
 
     @torch.no_grad()
     def self_speculative_generate_with_lora(
+        self,
+        inputs: Tensor,
+        use_cache: bool = False,
+        attention_mask: Tensor = None,
+        draft_past_key_values: Cache = None,
+        verifier_past_key_values: Cache = None,
+        head_past_key_values: Cache = None,
+        position_ids: Tensor = None,
+        past_num_tokens: int = None,
+        last_hidden_state: Tensor = None,
+        draft_top_p: float = 1.0,
+        target_top_p: float = 1.0,
+        argmax: bool = False,
+        logit_processor: Callable = None,
+    ) -> dict:
+        if len(inputs.shape) != 2 or inputs.shape[0] != 1:
+            raise NotImplementedError(
+                "Multi-batch self-speculative decoding not implemented yet"
+            )
+            # inputs: (B, S), with B = 1 and also possibly S = 1
+
+        assert isinstance(self.lm, LoRASplitLM)
+
+        if argmax:
+            assert draft_top_p == 1.0 and target_top_p == 1.0
+        is_prefill = last_hidden_state is None
+
+        prefill_time = 0
+        # Compute the embeddings
+        if use_cache:
+            if is_prefill:
+                with time_block(inputs.device) as t:
+                    hidden_states = self.lm.prefill(
+                        input_ids=inputs, circuit_n_token=self.circuit.n_token
+                    )
+                prefill_time = t.elapsed_time
+        else:
+            raise NotImplementedError("Expected use_cache=True")
+            # outputs = self.lm.draft(input_ids=inputs, use_cache=False)
+        # Parameterize the circuit
+        if is_prefill:
+            xx = hidden_states["draft_last_hidden_state"]
+        else:
+            xx = last_hidden_state
+        next_head_past_key_values = self._parameterize_circuit(
+            xx,
+            use_cache=use_cache,
+            attention_mask=attention_mask,
+            past_key_values=head_past_key_values,
+            position_ids=position_ids,
+            generate=True,
+            top_p=draft_top_p,
+            logit_processor=logit_processor,
+        )
+
+        # Update caches for the next iteration
+        if use_cache:
+            head_past_key_values = next_head_past_key_values
+
+        if argmax:
+            # (approximate) Argmax the next H tokens
+            # tokens: (B=1, H)
+            tokens = self.circuit.argmax()
+        else:
+            # Sample the next H tokens
+            # tokens: (B=1, H)
+            tokens = self.circuit.sample(num_samples=1)
+
+        # Concatenate the tokens with the current sequence,
+        # which gives the candidate next sequence
+        # gen_seq: (B, S + H)
+        gen_seq = torch.cat([inputs, tokens], dim=1)
+
+        # Compute the next-token probabilities in parallel
+        if use_cache:
+            v_hidden_states = self.lm.verify(gen_seq, use_cache=True)
+        else:
+            raise NotImplementedError("Expected use_cache=True")
+            # outputs = self.lm.verifier(input_ids=gen_seq, use_cache=False)
+        # zz: (B, S + H, D) -> (B, H + 1, D)
+        zz = v_hidden_states["verifier_last_hidden_state"]
+        assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
+        zz = zz[:, -tokens.shape[1] - 1 :]
+        # logits: (B, H + 1, V)
+        logits = self.lm.head_logits(zz)
+        if logit_processor is not None:
+            logits = logit_processor(logits)
+
+        # Reject tokens, return accepted plus the one obtained from logits
+        if argmax:
+            tokens = self.self_speculative_argmax(tokens, logits)
+        else:
+            tokens = self.self_speculative_sample(
+                tokens, logits, target_top_p=target_top_p
+            )
+
+        # Drop last token as that was sampled from logits and would mean
+        # we need another LLM evaluation
+        tokens = tokens[:, :-1]
+        num_generated_tokens = tokens.shape[1]
+
+        # Re-use shared state from verifier and compute activations for draft model
+        shared_state = v_hidden_states["shared_last_hidden_state"][:, : num_generated_tokens + 1]
+        hidden_states = self.lm.draft(torch.cat([inputs, tokens], dim=1), use_cache=True, shared_hidden_state=shared_state)
+
+        # Update the KV cache, based on the number of tokens we have sampled previously
+        if use_cache:
+            # We only advance all kv-caches and change last_hidden_state
+            # if we generate tokens
+            if num_generated_tokens > 0:
+                self.lm.verifier_encoder_cache = (
+                    self.lm.verifier_encoder.multi_byte_pred_update_cache(
+                        v_hidden_states["verifier_past_key_values"],
+                        torch.arange(
+                            self.circuit.n_token + 1, device=gen_seq.device, dtype=torch.int
+                        ).unsqueeze(dim=0),
+                        0,
+                        num_generated_tokens,
+                    )
+                )
+                self.lm.shared_encoder_cache = (
+                    self.lm.shared_encoder.multi_byte_pred_update_cache(
+                        v_hidden_states["shared_past_key_values"],
+                        torch.arange(
+                            self.circuit.n_token + 1, device=gen_seq.device, dtype=torch.int
+                        ).unsqueeze(dim=0),
+                        0,
+                        num_generated_tokens,
+                    )
+                )
+                self.lm.draft_encoder_cache = (
+                    self.lm.draft_encoder.multi_byte_pred_update_cache(
+                        hidden_states["draft_past_key_values"],
+                        torch.arange(
+                            num_generated_tokens, device=gen_seq.device, dtype=torch.int
+                        ).unsqueeze(dim=0),
+                        0,
+                        num_generated_tokens,
+                    )
+                )
+                last_hidden_state = hidden_states["draft_last_hidden_state"]
+        else:
+            raise NotImplementedError("Expected use_cache=True")
+            # We do not add + 1 here because we are counting from the beginning of time
+            # last_hidden_state = v_hidden_states["shared_last_hidden_state"][
+            #     :, : inputs.shape[1] + num_generated_tokens
+            # ]
+
+        return dict(
+            tokens=tokens,
+            num_accepted_tokens=num_generated_tokens,
+            draft_past_key_values=self.lm.draft_encoder_cache,
+            verifier_past_key_values=self.lm.verifier_encoder_cache,
+            head_past_key_values=head_past_key_values,
+            past_num_tokens=past_num_tokens,
+            last_hidden_state=last_hidden_state,
+            prefill_time=prefill_time,
+        )
+
+    @torch.no_grad()
+    def self_speculative_generate_with_lora_legacy(
         self,
         inputs: Tensor,
         use_cache: bool = False,

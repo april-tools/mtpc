@@ -20,6 +20,7 @@ from mtp.utils.timestamp import unique_timestamp
 from mtp.utils.checkpoint import load_model_with_overrides
 from mtp.utils.profile import time_block
 from mtp.data import DistributedDataLoader
+from mtp.models.lora_split_lm import LoRASplitLM
 
 from .train import set_deterministic
 
@@ -129,10 +130,22 @@ def generate(
     warmup: bool = False,
     disable_eos=False,
 ):
-    # Init model in case loading takes additional time - do not use this output
-    if warmup:
-        with ctx:
-            _ = model.generate(x, mode=args.mode, use_cache=False)
+    # # Init model in case loading takes additional time - do not use this output
+    # if warmup:
+    #     with ctx:
+    #         if args.speculative:
+    #             outputs = model.self_speculative_generate(
+    #                 x,
+    #                 use_cache=args.use_cache,
+    #                 draft_past_key_values=None,
+    #                 verifier_past_key_values=None,
+    #                 head_past_key_values=None,
+    #                 past_num_tokens=None,
+    #                 last_hidden_state=None,
+    #                 logit_processor=None,
+    #             )
+    #         else:
+    #             _ = model.generate(x, mode=args.mode, use_cache=False)
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
@@ -169,6 +182,7 @@ def generate(
                             past_num_tokens=past_num_tokens,
                             last_hidden_state=last_hidden_state,
                             logit_processor=logit_processor,
+                            legacy=args.legacy_lora_speculative,
                         )
                     else:
                         outputs = model.self_speculative_generate(
@@ -182,6 +196,7 @@ def generate(
                             draft_top_p=draft_top_p,
                             target_top_p=target_top_p,
                             logit_processor=logit_processor,
+                            legacy=args.legacy_lora_speculative,
                         )
                     tokens = outputs["tokens"]
                     acc_tokens = outputs["num_accepted_tokens"]
@@ -406,6 +421,12 @@ if __name__ == "__main__":
         help="Disable predicting eos so that we can guarantee that num-tokens "
         "tokens are generated per prompt.",
     )
+    parser.add_argument(
+        "--legacy-lora-speculative",
+        default=False,
+        action="store_true",
+        help="Use legacy inefficient algorithm for lora speculative decoding",
+    )
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
 
@@ -429,14 +450,18 @@ if __name__ == "__main__":
     # If args.checkpoint=None, load random initialised model with overrides
     model, cfg = load_model_with_overrides(args.checkpoint, args.overrides)
 
-    model.to(args.device)
-    model.eval()
-
     if args.dequantize:
         model.lm.dequantize()
 
-    # if model.lm.has_adapter and args.speculative:
-    #     model.lm.enable_dual_model_inference()
+    if model.lm.has_adapter and args.speculative:
+        if args.legacy_lora_speculative:
+            model.lm.enable_dual_model_inference()
+        else:
+            # Replace the lm with a split model
+            model.lm = LoRASplitLM.from_lm(model.lm._lm)
+
+    model.to(args.device)
+    model.eval()
 
     if args.compile:
         # Enable verbose logging

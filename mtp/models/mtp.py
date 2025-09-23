@@ -1089,22 +1089,19 @@ class MultiTokenLM(torch.nn.Module):
                 tokens, logits, target_top_p=target_top_p
             )
 
+        # print('D cache', self.lm.draft_encoder_cache.get_seq_length())
+        # print('V cache', self.lm.verifier_encoder_cache.get_seq_length())
+        # print('S cache', self.lm.shared_encoder_cache.get_seq_length())
+
         # Drop last token as that was sampled from logits and would mean
         # we need another LLM evaluation
         tokens = tokens[:, :-1]
         num_generated_tokens = tokens.shape[1]
 
-        last_hidden_state = v_hidden_states["shared_last_hidden_state"]
-        if use_cache:
-            last_hidden_state = last_hidden_state[:, : num_generated_tokens + 1]
-        else:
-            # We do not add + 1 here because we are counting from the beginning of time
-            last_hidden_state = last_hidden_state[
-                :, : inputs.shape[1] + num_generated_tokens
-            ]
-
         # Update the KV cache, based on the number of tokens we have sampled previously
         if use_cache:
+            # We only advance all kv-caches and change last_hidden_state
+            # if we generate tokens
             if num_generated_tokens > 0:
                 self.lm.verifier_encoder_cache = (
                     self.lm.verifier_encoder.multi_byte_pred_update_cache(
@@ -1126,9 +1123,6 @@ class MultiTokenLM(torch.nn.Module):
                         num_generated_tokens,
                     )
                 )
-                # After prefilling we need to constantly advance the draft kv cache
-                # by the number of tokens we fed it (which are the number of
-                # generated tokens at the previous spec dec step)
                 if not is_prefill:
                     self.lm.draft_encoder_cache = (
                         self.lm.draft_encoder.multi_byte_pred_update_cache(
@@ -1140,6 +1134,13 @@ class MultiTokenLM(torch.nn.Module):
                             past_num_tokens,
                         )
                     )
+                past_num_tokens = num_generated_tokens
+                last_hidden_state = v_hidden_states["shared_last_hidden_state"][:, : num_generated_tokens + 1]
+        else:
+            # We do not add + 1 here because we are counting from the beginning of time
+            last_hidden_state = v_hidden_states["shared_last_hidden_state"][
+                :, : inputs.shape[1] + num_generated_tokens
+            ]
 
         return dict(
             tokens=tokens,
@@ -1147,7 +1148,7 @@ class MultiTokenLM(torch.nn.Module):
             draft_past_key_values=self.lm.draft_encoder_cache,
             verifier_past_key_values=self.lm.verifier_encoder_cache,
             head_past_key_values=head_past_key_values,
-            past_num_tokens=num_generated_tokens,
+            past_num_tokens=past_num_tokens,
             last_hidden_state=last_hidden_state,
             prefill_time=prefill_time,
         )

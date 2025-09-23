@@ -123,6 +123,10 @@ class LoRASplitLM(torch.nn.Module):
 
         return cls(shared_encoder, draft_encoder, verifier_encoder, lm_head, split_layer_idx)
 
+    @property
+    def has_adapter(self):
+        return True
+
     @torch.no_grad()
     def prefill(self, input_ids, circuit_n_token):
         use_cache = True

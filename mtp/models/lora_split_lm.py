@@ -44,13 +44,12 @@ class LoRASplitLM(torch.nn.Module):
     """
 
     def __init__(
-        self, shared_encoder, draft_encoder, verifier_encoder, config, split_layer_idx
+        self, shared_encoder, draft_encoder, verifier_encoder, split_layer_idx
     ):
         super().__init__()
         self.shared_encoder = shared_encoder
         self.draft_encoder = draft_encoder
         self.verifier_encoder = verifier_encoder
-        self.config = config
         self.split_layer_idx = split_layer_idx
 
         self.reset_caches()
@@ -89,21 +88,24 @@ class LoRASplitLM(torch.nn.Module):
         # NOTE: ! Important !
         # Monkey-patch norm since it would be applied to the last activation giving wrong result
         shared_encoder.model.model.norm = torch.nn.Identity()
+        shared_encoder.config.num_hidden_layers = len(shared_encoder.model.model.layers)
 
         # ===================== Draft LoRA Encoder ============================
         draft_encoder.model.model.layers = deepcopy(all_layers[split_layer_idx:])
         # Merge LoRA weights
         draft_encoder = draft_encoder.merge_and_unload()
+        draft_encoder.config.num_hidden_layers = len(draft_encoder.model.model.layers)
 
         # ================== Verifier no LoRA Encoder =========================
         verifier_encoder.model.model.layers = deepcopy(all_layers[split_layer_idx:])
         verifier_encoder = verifier_encoder.unload()
+        verifier_encoder.config.num_hidden_layers = len(
+            verifier_encoder.model.model.layers
+        )
 
         del all_layers
 
-        return cls(
-            shared_encoder, draft_encoder, verifier_encoder, lm.config, split_layer_idx
-        )
+        return cls(shared_encoder, draft_encoder, verifier_encoder, split_layer_idx)
 
     def prefill(self, input_ids):
         use_cache = True
@@ -113,6 +115,8 @@ class LoRASplitLM(torch.nn.Module):
 
         position_ids = get_position_ids(input_ids, None)
 
+        # NOTE: No need to update cache as multibyte_decoding=False
+        # appends to the cache in the forward pass
         # ============ Prefill: Shared Encoder ========================
         shared_outputs = self.shared_encoder(
             input_ids=input_ids,
@@ -145,25 +149,39 @@ class LoRASplitLM(torch.nn.Module):
         verifier_hidden_state = verifier_outputs["last_hidden_state"]
 
         # Update kv cache
-        for outputs in [shared_outputs, draft_outputs, verifier_outputs]:
-            outputs["past_key_values"] = (
-                self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                    outputs["past_key_values"]
-                )
+        shared_outputs["past_key_values"] = (
+            self.shared_encoder.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                shared_outputs["past_key_values"]
             )
-
-        self.update_caches(
-            shared_outputs["past_key_values"],
-            draft_outputs["past_key_values"],
-            verifier_outputs["past_key_values"],
+        )
+        draft_outputs["past_key_values"] = (
+            self.draft_encoder.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                draft_outputs["past_key_values"]
+            )
+        )
+        verifier_outputs["past_key_values"] = (
+            self.verifier_encoder.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                verifier_outputs["past_key_values"]
+            )
         )
 
-        results = dict(shared_last_hidden_state=shared_hidden_state,
-                       draft_last_hidden_state=draft_hidden_state,
-                       verified_last_hidden_state=verifier_hidden_state)
+        self.update_caches(
+            shared_cache=shared_outputs["past_key_values"],
+            draft_cache=draft_outputs["past_key_values"],
+            verifier_cache=verifier_outputs["past_key_values"],
+        )
+
+        results = dict(
+            shared_last_hidden_state=shared_hidden_state,
+            draft_last_hidden_state=draft_hidden_state,
+            verified_last_hidden_state=verifier_hidden_state,
+        )
         return results
 
     def draft(self, input_ids, use_cache=True, shared_hidden_state=None):
+
+        if not use_cache:
+            raise ValueError("use_cache=False not fully implemented")
 
         if use_cache:
             position_ids = get_position_ids(input_ids, self.shared_encoder_cache)
@@ -176,7 +194,7 @@ class LoRASplitLM(torch.nn.Module):
                 past_seen_tokens == self.draft_encoder_cache.get_seq_length()
             ), "draft and shared cache out of sync"
             attn_mask = multi_byte_pred_prepare_attn_mask(
-                self.config,
+                self.shared_encoder.config,
                 past_seen_tokens,
                 input_ids[1] - past_seen_tokens,
                 device=input_ids.device,
@@ -211,13 +229,18 @@ class LoRASplitLM(torch.nn.Module):
         )
         draft_past_key_values = draft_outputs["past_key_values"]
 
-        results = dict(shared_last_hidden_state=shared_outputs["last_hidden_state"],
-                       draft_last_hidden_state=draft_outputs["last_hidden_state"],
-                       draft_past_key_values=draft_past_key_values,
-                       shared_past_key_values=shared_past_key_values)
+        results = dict(
+            shared_last_hidden_state=shared_outputs["last_hidden_state"],
+            draft_last_hidden_state=draft_outputs["last_hidden_state"],
+            draft_past_key_values=draft_past_key_values,
+            shared_past_key_values=shared_past_key_values,
+        )
         return results
 
     def verify(self, input_ids, use_cache=True, shared_hidden_state=None):
+
+        if not use_cache:
+            raise ValueError("use_cache=False not fully implemented")
 
         if use_cache:
             assert self.shared_encoder_cache is not None, "Prefilling required"
@@ -229,7 +252,7 @@ class LoRASplitLM(torch.nn.Module):
                 past_seen_tokens == self.veriifier_encoder_cache.get_seq_length()
             ), "draft and shared cache out of sync"
             attn_mask = multi_byte_pred_prepare_attn_mask(
-                self.config,
+                self.shared_encoder.config,
                 past_seen_tokens,
                 input_ids[1] - past_seen_tokens + 1,
                 device=input_ids.device,
@@ -246,7 +269,7 @@ class LoRASplitLM(torch.nn.Module):
             # Run shared_encoder
             # TODO: Below should be input_ids[:, past_seen_tokens - 1 :]
             shared_outputs = self.shared_encoder(
-                input_ids=input_ids,
+                input_ids=input_ids[:, past_seen_tokens - 1 :],
                 use_cache=use_cache,
                 attention_mask=attn_mask,
                 position_ids=position_ids,
@@ -257,10 +280,8 @@ class LoRASplitLM(torch.nn.Module):
             shared_past_key_values = shared_outputs["past_key_values"]
 
         # Run verifier_encoder
-        # TODO: Below should be input_ids[:, past_seen_tokens - 1 :]
-        # TODO: probably similarly for the shared_hidden_state
         verifier_outputs = self.draft_encoder(
-            input_ids=input_ids,
+            input_ids=input_ids[:, past_seen_tokens - 1 :],
             inputs_embeds=shared_hidden_state,
             use_cache=use_cache,
             attention_mask=attn_mask,
@@ -270,37 +291,42 @@ class LoRASplitLM(torch.nn.Module):
         )
         verifier_past_key_values = verifier_outputs["past_key_values"]
 
-        results = dict(shared_last_hidden_state=shared_outputs["last_hidden_state"],
-                       verifier_last_hidden_state=verifier_outputs["last_hidden_state"],
-                       verifier_past_key_values=verifier_past_key_values,
-                       shared_past_key_values=shared_past_key_values)
+        results = dict(
+            shared_last_hidden_state=shared_outputs["last_hidden_state"],
+            verifier_last_hidden_state=verifier_outputs["last_hidden_state"],
+            verifier_past_key_values=verifier_past_key_values,
+            shared_past_key_values=shared_past_key_values,
+        )
         return results
 
     def init_caches(self, batch_size=1):
         self.shared_encoder_cache = EvaStaticCacheForTriton(
             batch_size,
-            self.config.num_attention_heads,
-            self.config.window_size + self.circuit.n_token,
-            self.config.hidden_size // self.config.num_attention_heads,
-            self.config.num_hidden_layers,
+            self.shared_encoder.config.num_attention_heads,
+            self.shared_encoder.config.window_size + self.circuit.n_token,
+            self.shared_encoder.config.hidden_size
+            // self.shared_encoder.config.num_attention_heads,
+            self.shared_encoder.config.num_hidden_layers,
             torch.bfloat16,
             self.shared_encoder.device,
         )
         self.draft_encoder_cache = EvaStaticCacheForTriton(
             batch_size,
-            self.config.num_attention_heads,
-            self.config.window_size + self.circuit.n_token,
-            self.config.hidden_size // self.config.num_attention_heads,
-            self.config.num_hidden_layers,
+            self.draft_encoder.config.num_attention_heads,
+            self.draft_encoder.config.window_size + self.circuit.n_token,
+            self.draft_encoder.config.hidden_size
+            // self.draft_encoder.config.num_attention_heads,
+            self.draft_encoder.config.num_hidden_layers,
             torch.bfloat16,
             self.draft_encoder.device,
         )
         self.verifier_encoder_cache = EvaStaticCacheForTriton(
             batch_size,
-            self.config.num_attention_heads,
-            self.config.window_size + self.circuit.n_token,
-            self.config.hidden_size // self.config.num_attention_heads,
-            self.config.num_hidden_layers,
+            self.verifier_encoder.config.num_attention_heads,
+            self.verifier_encoder.config.window_size + self.circuit.n_token,
+            self.verifier_encoder.config.hidden_size
+            // self.verifier_encoder.config.num_attention_heads,
+            self.verifier_encoder.config.num_hidden_layers,
             torch.bfloat16,
             self.verifier_encoder.device,
         )

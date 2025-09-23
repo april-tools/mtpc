@@ -2,6 +2,9 @@ import torch
 from copy import deepcopy
 
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
+from mtp.models.evabyte.multibyte_decoding_evabyte import (
+    multi_byte_pred_prepare_attn_mask,
+)
 
 
 def count_adapter_layers(lm):
@@ -26,7 +29,6 @@ def get_position_ids(inputs, cache):
         ).unsqueeze(dim=0)
     else:
         past_seen_tokens = cache.get_seq_length()
-        # attn_mask = multi_byte_pred_prepare_attn_mask(self.lm.config, past_seen_tokens, past_num_tokens, device=inputs.device)
         position_ids = torch.arange(
             past_seen_tokens, inputs.shape[1], device=inputs.device, dtype=torch.int
         ).unsqueeze(dim=0)
@@ -42,12 +44,13 @@ class LoRASplitLM(torch.nn.Module):
     """
 
     def __init__(
-        self, shared_encoder, draft_encoder, verifier_encoder, split_layer_idx
+        self, shared_encoder, draft_encoder, verifier_encoder, config, split_layer_idx
     ):
         super().__init__()
         self.shared_encoder = shared_encoder
         self.draft_encoder = draft_encoder
         self.verifier_encoder = verifier_encoder
+        self.config = config
         self.split_layer_idx = split_layer_idx
 
         self.reset_caches()
@@ -98,10 +101,9 @@ class LoRASplitLM(torch.nn.Module):
 
         del all_layers
 
-        return cls(shared_encoder, draft_encoder, verifier_encoder, split_layer_idx)
-
-    def get_attention_mask():
-        pass
+        return cls(
+            shared_encoder, draft_encoder, verifier_encoder, lm.config, split_layer_idx
+        )
 
     def prefill(self, input_ids):
         use_cache = True
@@ -156,7 +158,10 @@ class LoRASplitLM(torch.nn.Module):
             verifier_outputs["past_key_values"],
         )
 
-        return shared_hidden_state, draft_hidden_state, verifier_hidden_state
+        results = dict(shared_last_hidden_state=shared_hidden_state,
+                       draft_last_hidden_state=draft_hidden_state,
+                       verified_last_hidden_state=verifier_hidden_state)
+        return results
 
     def draft(self, input_ids, use_cache=True, shared_hidden_state=None):
 
@@ -166,58 +171,147 @@ class LoRASplitLM(torch.nn.Module):
             assert self.draft_encoder_cache is not None, "Prefilling required"
             shared_past_key_values = self.shared_encoder_cache
             draft_past_key_values = self.draft_encoder_cache
+            past_seen_tokens = self.shared_encoder_cache.get_seq_length()
+            assert (
+                past_seen_tokens == self.draft_encoder_cache.get_seq_length()
+            ), "draft and shared cache out of sync"
+            attn_mask = multi_byte_pred_prepare_attn_mask(
+                self.config,
+                past_seen_tokens,
+                input_ids[1] - past_seen_tokens,
+                device=input_ids.device,
+            )
         else:
             position_ids = None
             shared_past_key_values = None
+            draft_past_key_values = None
+            attn_mask = None
 
         if shared_hidden_state is None:
             # Run shared_encoder
             shared_outputs = self.shared_encoder(
                 input_ids=input_ids,
                 use_cache=use_cache,
+                attention_mask=attn_mask,
                 position_ids=position_ids,
                 past_key_values=shared_past_key_values,
-                multibyte_decoding=False,
+                multibyte_decoding=use_cache,
             )
             shared_hidden_state = shared_outputs["last_hidden_state"]
             shared_past_key_values = shared_outputs["past_key_values"]
-            shared_past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                shared_past_key_values
-            )
 
         # Run draft_encoder
-        outputs = self.draft_encoder(
+        draft_outputs = self.draft_encoder(
             input_ids=input_ids,
             inputs_embeds=shared_hidden_state,
             use_cache=use_cache,
             past_key_values=draft_past_key_values,
             position_ids=position_ids,
-            multibyte_decoding=False,
+            multibyte_decoding=use_cache,
         )
-        return outputs["last_hidden_state"]
+        draft_past_key_values = draft_outputs["past_key_values"]
 
-    def verify(self, shared_hidden_state=None):
+        results = dict(shared_last_hidden_state=shared_outputs["last_hidden_state"],
+                       draft_last_hidden_state=draft_outputs["last_hidden_state"],
+                       draft_past_key_values=draft_past_key_values,
+                       shared_past_key_values=shared_past_key_values)
+        return results
+
+    def verify(self, input_ids, use_cache=True, shared_hidden_state=None):
+
+        if use_cache:
+            assert self.shared_encoder_cache is not None, "Prefilling required"
+            assert self.verifier_encoder_cache is not None, "Prefilling required"
+            shared_past_key_values = self.shared_encoder_cache
+            verifier_past_key_values = self.verifier_encoder_cache
+            past_seen_tokens = self.shared_encoder_cache.get_seq_length()
+            assert (
+                past_seen_tokens == self.veriifier_encoder_cache.get_seq_length()
+            ), "draft and shared cache out of sync"
+            attn_mask = multi_byte_pred_prepare_attn_mask(
+                self.config,
+                past_seen_tokens,
+                input_ids[1] - past_seen_tokens + 1,
+                device=input_ids.device,
+            )
+            position_ids = get_position_ids(input_ids, self.shared_encoder_cache)
+            # TODO: Below is correct
+            # position_ids = torch.arange(past_seen_tokens - 1, input_ids.shape[1], device=input_ids.device, dtype=torch.int).unsqueeze(dim=0)
+        else:
+            position_ids = None
+            shared_past_key_values = None
+            verifier_past_key_values = None
+
         if shared_hidden_state is None:
             # Run shared_encoder
-            pass
+            # TODO: Below should be input_ids[:, past_seen_tokens - 1 :]
+            shared_outputs = self.shared_encoder(
+                input_ids=input_ids,
+                use_cache=use_cache,
+                attention_mask=attn_mask,
+                position_ids=position_ids,
+                past_key_values=shared_past_key_values,
+                multibyte_decoding=use_cache,
+            )
+            shared_hidden_state = shared_outputs["last_hidden_state"]
+            shared_past_key_values = shared_outputs["past_key_values"]
+
         # Run verifier_encoder
-        pass
+        # TODO: Below should be input_ids[:, past_seen_tokens - 1 :]
+        # TODO: probably similarly for the shared_hidden_state
+        verifier_outputs = self.draft_encoder(
+            input_ids=input_ids,
+            inputs_embeds=shared_hidden_state,
+            use_cache=use_cache,
+            attention_mask=attn_mask,
+            past_key_values=verifier_past_key_values,
+            position_ids=position_ids,
+            multibyte_decoding=use_cache,
+        )
+        verifier_past_key_values = verifier_outputs["past_key_values"]
+
+        results = dict(shared_last_hidden_state=shared_outputs["last_hidden_state"],
+                       verifier_last_hidden_state=verifier_outputs["last_hidden_state"],
+                       verifier_past_key_values=verifier_past_key_values,
+                       shared_past_key_values=shared_past_key_values)
+        return results
 
     def init_caches(self, batch_size=1):
         self.shared_encoder_cache = EvaStaticCacheForTriton(
             batch_size,
-            self.lm.config.num_attention_heads,
-            self.lm.config.window_size + self.circuit.n_token,
-            self.lm.config.hidden_size // self.lm.config.num_attention_heads,
-            self.lm.config.num_hidden_layers,
+            self.config.num_attention_heads,
+            self.config.window_size + self.circuit.n_token,
+            self.config.hidden_size // self.config.num_attention_heads,
+            self.config.num_hidden_layers,
             torch.bfloat16,
             self.shared_encoder.device,
         )
+        self.draft_encoder_cache = EvaStaticCacheForTriton(
+            batch_size,
+            self.config.num_attention_heads,
+            self.config.window_size + self.circuit.n_token,
+            self.config.hidden_size // self.config.num_attention_heads,
+            self.config.num_hidden_layers,
+            torch.bfloat16,
+            self.draft_encoder.device,
+        )
+        self.verifier_encoder_cache = EvaStaticCacheForTriton(
+            batch_size,
+            self.config.num_attention_heads,
+            self.config.window_size + self.circuit.n_token,
+            self.config.hidden_size // self.config.num_attention_heads,
+            self.config.num_hidden_layers,
+            torch.bfloat16,
+            self.verifier_encoder.device,
+        )
 
-    def update_caches(self, shared_cache, draft_cache, verifier_cache):
-        self.shared_encoder_cache = shared_cache
-        self.draft_encoder_cache = draft_cache
-        self.verifier_encoder_cache = verifier_cache
+    def update_caches(self, shared_cache=None, draft_cache=None, verifier_cache=None):
+        if shared_cache is not None:
+            self.shared_encoder_cache = shared_cache
+        if draft_cache is not None:
+            self.draft_encoder_cache = draft_cache
+        if verifier_cache is not None:
+            self.verifier_encoder_cache = verifier_cache
 
     def reset_caches(self):
         self.shared_encoder_cache = None

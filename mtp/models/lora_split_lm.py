@@ -210,12 +210,12 @@ class LoRASplitLM(torch.nn.Module):
         # Checker whether the LM is multi-token model
         # In that case, return the logits of the first part of the head only
         if (
-            hasattr(self._lm.config, "num_pred_heads")
-            and self._lm.config.num_pred_heads > 1
+            hasattr(self.shared_encoder.config, "num_pred_heads")
+            and self.shared_encoder.config.num_pred_heads > 1
         ):
             num_pred_heads, vocab_size = (
-                self._lm.config.num_pred_heads,
-                self._lm.config.vocab_size,
+                self.shared_encoder.config.num_pred_heads,
+                self.shared_encoder.config.vocab_size,
             )
             assert logits.shape == (
                 logits.shape[0],

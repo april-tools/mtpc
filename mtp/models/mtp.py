@@ -1017,11 +1017,12 @@ class MultiTokenLM(torch.nn.Module):
 
         if argmax:
             assert draft_top_p == 1.0 and target_top_p == 1.0
+        is_prefill = last_hidden_state is None
 
         prefill_time = 0
         # Compute the embeddings
         if use_cache:
-            if draft_past_key_values is None:
+            if is_prefill:
                 with time_block(inputs.device) as t:
                     # LL: prepare Evabyte KV cache for multi-token prediction
                     # LL: the below code is required for the first iteration, i.e., here's why check draft_past_key_values is None here
@@ -1033,7 +1034,7 @@ class MultiTokenLM(torch.nn.Module):
             raise NotImplementedError("Expected use_cache=True")
             # outputs = self.lm.draft(input_ids=inputs, use_cache=False)
         # Parameterize the circuit
-        if last_hidden_state is not None:
+        if not is_prefill:
             hidden_states = self.lm.draft(inputs, use_cache=True, shared_hidden_state=last_hidden_state)
         xx = hidden_states["draft_last_hidden_state"]
         next_head_past_key_values = self._parameterize_circuit(
@@ -1125,18 +1126,27 @@ class MultiTokenLM(torch.nn.Module):
                         num_generated_tokens,
                     )
                 )
-                # self.lm.draft_encoder_cache = self.lm.draft_encoder.multi_byte_pred_update_cache(
-                #     hidden_states["verifier_past_key_values"],
-                #     torch.arange(self.circuit.n_token, device=gen_seq.device, dtype=torch.int).unsqueeze(dim=0),
-                #     0,
-                #     num_generated_tokens,
-                # )
+                # After prefilling we need to constantly advance the draft kv cache
+                # by the number of tokens we fed it (which are the number of
+                # generated tokens at the previous spec dec step)
+                if not is_prefill:
+                    self.lm.draft_encoder_cache = (
+                        self.lm.draft_encoder.multi_byte_pred_update_cache(
+                            hidden_states["draft_past_key_values"],
+                            torch.arange(
+                                past_num_tokens, device=gen_seq.device, dtype=torch.int
+                            ).unsqueeze(dim=0),
+                            0,
+                            past_num_tokens,
+                        )
+                    )
+        print('tokens', tokens)
 
         return dict(
             tokens=tokens,
             num_accepted_tokens=num_generated_tokens,
-            draft_past_key_values=None,
-            verifier_past_key_values=None,
+            draft_past_key_values=self.lm.draft_encoder_cache,
+            verifier_past_key_values=self.lm.verifier_encoder_cache,
             head_past_key_values=head_past_key_values,
             past_num_tokens=num_generated_tokens,
             last_hidden_state=last_hidden_state,

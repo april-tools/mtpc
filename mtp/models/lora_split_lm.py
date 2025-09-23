@@ -265,7 +265,7 @@ class LoRASplitLM(torch.nn.Module):
             draft_past_key_values = self.draft_encoder_cache
             past_seen_tokens = self.draft_encoder_cache.get_seq_length()
             attn_mask = multi_byte_pred_prepare_attn_mask(
-                self.shared_encoder.config,
+                self.draft_encoder.config,
                 past_seen_tokens,
                 input_ids.shape[1] - past_seen_tokens,
                 device=input_ids.device,

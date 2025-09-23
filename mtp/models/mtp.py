@@ -752,7 +752,7 @@ class MultiTokenLM(torch.nn.Module):
             raise NotImplementedError(
                 "Multi-batch self-speculative decoding not implemented yet"
             )
-        if self.lm_has_adapter:
+        if self.lm.has_adapter:
             if legacy:
                 func = self.self_speculative_generate_with_lora_legacy
             else:
@@ -796,7 +796,7 @@ class MultiTokenLM(torch.nn.Module):
             raise NotImplementedError(
                 "Multi-batch self-speculative decoding not implemented yet"
             )
-        if self.lm_has_adapter:
+        if self.lm.has_adapter:
             if legacy:
                 func = self.self_speculative_generate_with_lora_legacy
             else:
@@ -1034,8 +1034,6 @@ class MultiTokenLM(torch.nn.Module):
         if use_cache:
             if is_prefill:
                 with time_block(inputs.device) as t:
-                    # LL: prepare Evabyte KV cache for multi-token prediction
-                    # LL: the below code is required for the first iteration, i.e., here's why check draft_past_key_values is None here
                     hidden_states = self.lm.prefill(
                         input_ids=inputs, circuit_n_token=self.circuit.n_token
                     )

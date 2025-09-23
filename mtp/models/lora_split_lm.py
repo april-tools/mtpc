@@ -258,7 +258,6 @@ class LoRASplitLM(torch.nn.Module):
             raise ValueError("use_cache=False not fully implemented")
 
         if use_cache:
-            position_ids = get_position_ids(input_ids, self.draft_encoder_cache)
             assert self.shared_encoder_cache is not None, "Prefilling required"
             assert self.draft_encoder_cache is not None, "Prefilling required"
             shared_past_key_values = self.shared_encoder_cache
@@ -270,6 +269,7 @@ class LoRASplitLM(torch.nn.Module):
                 input_ids.shape[1] - past_seen_tokens,
                 device=input_ids.device,
             )
+            position_ids = get_position_ids(input_ids, draft_past_key_values)
         else:
             position_ids = None
             shared_past_key_values = None
@@ -301,13 +301,12 @@ class LoRASplitLM(torch.nn.Module):
             position_ids=position_ids,
             multibyte_decoding=use_cache,
         )
-        draft_past_key_values = draft_outputs["past_key_values"]
 
         results = dict(
             shared_last_hidden_state=shared_hidden_state,
             draft_last_hidden_state=draft_outputs["last_hidden_state"],
             shared_past_key_values=shared_past_key_values,
-            draft_past_key_values=draft_past_key_values,
+            draft_past_key_values=draft_outputs["past_key_values"]
         )
         return results
 
@@ -350,7 +349,6 @@ class LoRASplitLM(torch.nn.Module):
                 multibyte_decoding=use_cache,
             )
             shared_hidden_state = shared_outputs["last_hidden_state"]
-            shared_past_key_values = shared_outputs["past_key_values"]
 
         # Run verifier_encoder
         verifier_outputs = self.verifier_encoder.model(
@@ -362,13 +360,12 @@ class LoRASplitLM(torch.nn.Module):
             position_ids=position_ids,
             multibyte_decoding=use_cache,
         )
-        verifier_past_key_values = verifier_outputs["past_key_values"]
 
         results = dict(
             shared_last_hidden_state=shared_hidden_state,
             verifier_last_hidden_state=verifier_outputs["last_hidden_state"],
-            shared_past_key_values=shared_past_key_values,
-            verifier_past_key_values=verifier_past_key_values,
+            shared_past_key_values=shared_outputs["past_key_values"],
+            verifier_past_key_values=verifier_outputs["past_key_values"],
         )
         return results
 
@@ -377,8 +374,7 @@ class LoRASplitLM(torch.nn.Module):
             batch_size,
             self.shared_encoder.config.num_attention_heads,
             self.shared_encoder.config.window_size + num_tokens_speculate,
-            self.shared_encoder.config.hidden_size
-            // self.shared_encoder.config.num_attention_heads,
+            self.shared_encoder.config.hidden_size // self.shared_encoder.config.num_attention_heads,
             self.shared_encoder.config.num_hidden_layers,
             torch.bfloat16,
             self.shared_encoder.device,
@@ -387,8 +383,7 @@ class LoRASplitLM(torch.nn.Module):
             batch_size,
             self.draft_encoder.config.num_attention_heads,
             self.draft_encoder.config.window_size + num_tokens_speculate,
-            self.draft_encoder.config.hidden_size
-            // self.draft_encoder.config.num_attention_heads,
+            self.draft_encoder.config.hidden_size // self.draft_encoder.config.num_attention_heads,
             self.draft_encoder.config.num_hidden_layers,
             torch.bfloat16,
             self.draft_encoder.device,
@@ -397,8 +392,7 @@ class LoRASplitLM(torch.nn.Module):
             batch_size,
             self.verifier_encoder.config.num_attention_heads,
             self.verifier_encoder.config.window_size + num_tokens_speculate,
-            self.verifier_encoder.config.hidden_size
-            // self.verifier_encoder.config.num_attention_heads,
+            self.verifier_encoder.config.hidden_size // self.verifier_encoder.config.num_attention_heads,
             self.verifier_encoder.config.num_hidden_layers,
             torch.bfloat16,
             self.verifier_encoder.device,

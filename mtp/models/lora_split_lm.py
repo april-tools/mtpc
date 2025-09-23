@@ -197,8 +197,8 @@ class LoRASplitLM(torch.nn.Module):
             draft_last_hidden_state=draft_hidden_state,
             verifier_last_hidden_state=verifier_hidden_state,
             shared_past_key_values=shared_outputs["past_key_values"],
-            draft_past_key_values=shared_outputs["past_key_values"],
-            verifier_past_key_values=shared_outputs["past_key_values"],
+            draft_past_key_values=draft_outputs["past_key_values"],
+            verifier_past_key_values=verifier_outputs["past_key_values"],
         )
         return results
 
@@ -242,24 +242,38 @@ class LoRASplitLM(torch.nn.Module):
         if use_cache:
             # NOTE: shared is usually ahead of draft because we accepted X tokens
             # so we need to compute separate position ids and attn weights
-            shared_position_ids = get_position_ids(input_ids, self.shared_encoder_cache, "draft")
-            draft_position_ids = get_position_ids(input_ids, self.draft_encoder_cache, "draft")
             assert self.shared_encoder_cache is not None, "Prefilling required"
             assert self.draft_encoder_cache is not None, "Prefilling required"
             shared_past_key_values = self.shared_encoder_cache
             draft_past_key_values = self.draft_encoder_cache
             shared_past_seen_tokens = shared_past_key_values.get_seq_length()
             draft_past_seen_tokens = draft_past_key_values.get_seq_length()
+
+            shared_position_ids = get_position_ids(input_ids, self.shared_encoder_cache, "draft")
+            if shared_hidden_state is None:
+                draft_position_ids = get_position_ids(input_ids, self.draft_encoder_cache, "draft")
+            else:
+                # draft_position_ids = get_position_ids(shared_hidden_state, self.draft_encoder_cache, "draft")
+                draft_position_ids = torch.arange(
+                    draft_past_seen_tokens,
+                    draft_past_seen_tokens + shared_hidden_state.shape[1],
+                    device=input_ids.device,
+                    dtype=torch.int,
+                ).unsqueeze(dim=0)
             shared_attn_mask = multi_byte_pred_prepare_attn_mask(
                 self.shared_encoder.config,
                 shared_past_seen_tokens,
                 input_ids.shape[1] - shared_past_seen_tokens,
                 device=input_ids.device,
             )
+            if shared_hidden_state is None:
+                catchup_length = input_ids.shape[1] - draft_past_seen_tokens
+            else:
+                catchup_length = shared_hidden_state.shape[1]
             draft_attn_mask = multi_byte_pred_prepare_attn_mask(
                 self.draft_encoder.config,
                 draft_past_seen_tokens,
-                input_ids.shape[1] - draft_past_seen_tokens,
+                catchup_length,
                 device=input_ids.device,
             )
         else:
@@ -269,6 +283,8 @@ class LoRASplitLM(torch.nn.Module):
             draft_past_key_values = None
             shared_attn_mask = None
             draft_attn_mask = None
+            shared_past_seen_tokens = 0
+            draft_past_seen_tokens = 0
 
         if shared_hidden_state is None:
             # Run shared_encoder
@@ -296,7 +312,7 @@ class LoRASplitLM(torch.nn.Module):
         draft_past_key_values = draft_outputs["past_key_values"]
 
         results = dict(
-            shared_last_hidden_state=shared_outputs["last_hidden_state"],
+            shared_last_hidden_state=shared_hidden_state,
             draft_last_hidden_state=draft_outputs["last_hidden_state"],
             shared_past_key_values=shared_past_key_values,
             draft_past_key_values=draft_past_key_values,
@@ -329,10 +345,10 @@ class LoRASplitLM(torch.nn.Module):
             position_ids = None
             shared_past_key_values = None
             verifier_past_key_values = None
+            past_seen_tokens = 1
 
         if shared_hidden_state is None:
             # Run shared_encoder
-            # TODO: Below should be input_ids[:, past_seen_tokens - 1 :]
             shared_outputs = self.shared_encoder.model(
                 input_ids=input_ids[:, past_seen_tokens - 1 :],
                 use_cache=use_cache,
@@ -357,10 +373,10 @@ class LoRASplitLM(torch.nn.Module):
         verifier_past_key_values = verifier_outputs["past_key_values"]
 
         results = dict(
+            shared_last_hidden_state=shared_hidden_state,
             verifier_last_hidden_state=verifier_outputs["last_hidden_state"],
-            shared_last_hidden_state=shared_outputs["last_hidden_state"],
-            verifier_past_key_values=verifier_past_key_values,
             shared_past_key_values=shared_past_key_values,
+            verifier_past_key_values=verifier_past_key_values,
         )
         return results
 

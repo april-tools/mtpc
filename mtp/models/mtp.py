@@ -1140,7 +1140,6 @@ class MultiTokenLM(torch.nn.Module):
                             past_num_tokens,
                         )
                     )
-        print('tokens', tokens)
 
         return dict(
             tokens=tokens,

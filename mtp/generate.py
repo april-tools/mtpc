@@ -20,6 +20,7 @@ from mtp.utils.timestamp import unique_timestamp
 from mtp.utils.checkpoint import load_model_with_overrides
 from mtp.utils.profile import time_block
 from mtp.data import DistributedDataLoader
+from mtp.models.lora_split_lm import LoRASplitLM
 
 from .train import set_deterministic
 
@@ -132,7 +133,19 @@ def generate(
     # Init model in case loading takes additional time - do not use this output
     if warmup:
         with ctx:
-            _ = model.generate(x, mode=args.mode, use_cache=False)
+            if args.speculative:
+                outputs = model.self_speculative_generate(
+                    x,
+                    use_cache=args.use_cache,
+                    draft_past_key_values=None,
+                    verifier_past_key_values=None,
+                    head_past_key_values=None,
+                    past_num_tokens=None,
+                    last_hidden_state=None,
+                    logit_processor=None,
+                )
+            else:
+                _ = model.generate(x, mode=args.mode, use_cache=False)
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
@@ -158,6 +171,7 @@ def generate(
         # Keep track of total number of tokens generated
         while (x.shape[1] - init_length) < args.num_tokens:
             with time_block(args.device) as t:
+                print('speculative:', args.speculative)
                 if args.speculative:
                     if args.argmax:
                         outputs = model.self_speculative_generate_argmax(
@@ -429,14 +443,16 @@ if __name__ == "__main__":
     # If args.checkpoint=None, load random initialised model with overrides
     model, cfg = load_model_with_overrides(args.checkpoint, args.overrides)
 
-    model.to(args.device)
-    model.eval()
-
     if args.dequantize:
         model.lm.dequantize()
 
-    # if model.lm.has_adapter and args.speculative:
-    #     model.lm.enable_dual_model_inference()
+    if model.lm.has_adapter and args.speculative:
+        # model.lm.enable_dual_model_inference()
+        # Replace the lm with a split model
+        model.lm = LoRASplitLM.from_lm(model.lm._lm)
+
+    model.to(args.device)
+    model.eval()
 
     if args.compile:
         # Enable verbose logging

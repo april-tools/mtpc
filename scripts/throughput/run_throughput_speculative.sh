@@ -33,3 +33,20 @@ $MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-last-16 lora-la
 $MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-last-16 lora-last-16 0 0
 $MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-last-16 lora-last-16 1 0
 $MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-last-16 lora-last-16 2 0
+
+
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 0 900
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 1 900
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 2 900
+
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 0 600
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 1 600
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 2 600
+
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 0 300
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 1 300
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 2 300
+
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 0 0
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 1 0
+$MTP_ROOT/bin/compute_throughput_speculative outputs/models/lora-continued lora-continued 2 0

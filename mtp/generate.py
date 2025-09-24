@@ -614,6 +614,7 @@ if __name__ == "__main__":
     stats["exp_end"] = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
     stats["exp_host"] = socket.gethostname()
     stats["model"] = cfg.model.model._target_
+    stats["legacy_lora_speculative"] = args.legacy_lora_speculative
     stats["random_seed"] = args.random_seed
     stats["prompt_subset_index"] = args.prompt_subset_index
     stats["ntoken"] = n_token

@@ -1102,7 +1102,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Re-use shared state from verifier and compute activations for draft model
         shared_state = v_hidden_states["shared_last_hidden_state"][:, : num_generated_tokens + 1]
-        hidden_states = self.lm.draft(torch.cat([inputs, tokens], dim=1), use_cache=True, shared_hidden_state=shared_state)
+        d_hidden_states = self.lm.draft(torch.cat([inputs, tokens], dim=1), use_cache=True, shared_hidden_state=shared_state)
 
         # Update the KV cache, based on the number of tokens we have sampled previously
         if use_cache:
@@ -1131,7 +1131,7 @@ class MultiTokenLM(torch.nn.Module):
                 )
                 self.lm.draft_encoder_cache = (
                     self.lm.draft_encoder.multi_byte_pred_update_cache(
-                        hidden_states["draft_past_key_values"],
+                        d_hidden_states["draft_past_key_values"],
                         torch.arange(
                             num_generated_tokens, device=gen_seq.device, dtype=torch.int
                         ).unsqueeze(dim=0),
@@ -1139,7 +1139,7 @@ class MultiTokenLM(torch.nn.Module):
                         num_generated_tokens,
                     )
                 )
-                last_hidden_state = hidden_states["draft_last_hidden_state"]
+                last_hidden_state = d_hidden_states["draft_last_hidden_state"]
         else:
             raise NotImplementedError("Expected use_cache=True")
             # We do not add + 1 here because we are counting from the beginning of time

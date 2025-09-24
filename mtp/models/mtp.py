@@ -1038,16 +1038,13 @@ class MultiTokenLM(torch.nn.Module):
                         input_ids=inputs, circuit_n_token=self.circuit.n_token
                     )
                 prefill_time = t.elapsed_time
+                last_hidden_state = hidden_states["draft_last_hidden_state"]
         else:
             raise NotImplementedError("Expected use_cache=True")
             # outputs = self.lm.draft(input_ids=inputs, use_cache=False)
         # Parameterize the circuit
-        if is_prefill:
-            xx = hidden_states["draft_last_hidden_state"]
-        else:
-            xx = last_hidden_state
         next_head_past_key_values = self._parameterize_circuit(
-            xx,
+            last_hidden_state,
             use_cache=use_cache,
             attention_mask=attention_mask,
             past_key_values=head_past_key_values,

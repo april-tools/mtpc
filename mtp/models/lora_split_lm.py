@@ -105,8 +105,8 @@ class LoRASplitLM(torch.nn.Module):
         for idx, layer in enumerate(draft_encoder.model.model.layers):
             layer.self_attn.layer_idx = idx
         # Merge LoRA weights
-        # draft_encoder = draft_encoder.merge_and_unload()
-        draft_encoder.config.num_hidden_layers = len(draft_encoder.model.model.layers)
+        draft_encoder = draft_encoder.merge_and_unload()
+        draft_encoder.config.num_hidden_layers = len(draft_encoder.model.layers)
 
         # ================== Verifier no LoRA Encoder =========================
         verifier_encoder.model.model.layers = deepcopy(all_layers[split_layer_idx:])
@@ -146,7 +146,7 @@ class LoRASplitLM(torch.nn.Module):
         shared_hidden_state = shared_outputs["last_hidden_state"]
 
         # ============ Prefill: Draft Encoder ========================
-        draft_outputs = self.draft_encoder.model.model(
+        draft_outputs = self.draft_encoder.model(
             input_ids=input_ids,
             inputs_embeds=shared_hidden_state,
             use_cache=use_cache,
@@ -292,7 +292,7 @@ class LoRASplitLM(torch.nn.Module):
             # shared_past_key_values = shared_outputs["past_key_values"]
 
         # Run draft_encoder
-        draft_outputs = self.draft_encoder.model.model(
+        draft_outputs = self.draft_encoder.model(
             input_ids=input_ids[:, past_seen_tokens:],
             inputs_embeds=shared_hidden_state[:, 1:],
             use_cache=use_cache,

@@ -130,22 +130,10 @@ def generate(
     warmup: bool = False,
     disable_eos=False,
 ):
-    # # Init model in case loading takes additional time - do not use this output
+    # Init model in case loading takes additional time - do not use this output
     # if warmup:
     #     with ctx:
-    #         if args.speculative:
-    #             outputs = model.self_speculative_generate(
-    #                 x,
-    #                 use_cache=args.use_cache,
-    #                 draft_past_key_values=None,
-    #                 verifier_past_key_values=None,
-    #                 head_past_key_values=None,
-    #                 past_num_tokens=None,
-    #                 last_hidden_state=None,
-    #                 logit_processor=None,
-    #             )
-    #         else:
-    #             _ = model.generate(x, mode=args.mode, use_cache=False)
+    #         _ = model.generate(x, mode=args.mode, use_cache=False)
 
     assert x.shape[0] == 1
     init_length = x.shape[1]

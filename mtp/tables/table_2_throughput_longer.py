@@ -115,6 +115,6 @@ if __name__ == "__main__":
             ("circuit"): lambda x: f"{x:<5s}",
         },
         index=False,
-        label="tab:cp-vary-stats"
+        label="tab:no-lora-stats"
     )
     print(latex_table)

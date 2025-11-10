@@ -1080,7 +1080,7 @@ class MultiTokenLM(torch.nn.Module):
         # zz: (B, S + H, D) -> (B, H + 1, D)
         zz = v_hidden_states["verifier_last_hidden_state"]
         assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
-        zz = zz[:, -tokens.shape[1] - 1 :]
+        zz = zz[:, -tokens.shape[1] - 1:]
         # logits: (B, H + 1, V)
         logits = self.lm.head_logits(zz)
         if logit_processor is not None:
@@ -1105,8 +1105,9 @@ class MultiTokenLM(torch.nn.Module):
 
         num_generated_tokens = tokens.shape[1]
         # Update shared to keep only valid states
+        # If no tokens were accepted, we do not "progress" the hidden state
         shared_last_hidden_state = v_hidden_states["shared_last_hidden_state"][
-            :, : inputs.shape[1] + num_generated_tokens
+            :, : inputs.shape[1] + num_accepted_tokens
         ]
 
         # Re-use shared state from verifier and compute activations for draft model

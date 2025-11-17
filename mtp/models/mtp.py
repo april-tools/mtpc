@@ -1039,14 +1039,41 @@ class MultiTokenLM(torch.nn.Module):
                     input_ids=inputs, circuit_n_token=self.circuit.n_token
                 )
             prefill_time = t.elapsed_time
-            draft_last_hidden_state = prefill_hidden_states["draft_last_hidden_state"]
-            shared_last_hidden_state = prefill_hidden_states["shared_last_hidden_state"]
+            d_hidden_states = {"draft_last_hidden_state": prefill_hidden_states["draft_last_hidden_state"],
+                               "shared_last_hidden_state": prefill_hidden_states["shared_last_hidden_state"]}
         else:
-            draft_last_hidden_state = last_hidden_state["draft_last_hidden_state"]
             shared_last_hidden_state = last_hidden_state["shared_last_hidden_state"]
+            # Re-use shared state from verifier and compute activations for draft
+            # model. If no tokens were accepted, we will compute the state for the
+            # additional token we generated from logits.
+            d_hidden_states = self.lm.draft(
+                inputs,
+                use_cache=True,
+                shared_hidden_state=shared_last_hidden_state,
+            )
+            self.lm.draft_encoder_cache = (
+                self.lm.draft_encoder.multi_byte_pred_update_cache(
+                    d_hidden_states["draft_past_key_values"],
+                    torch.arange(
+                        past_num_tokens, device=inputs.device, dtype=torch.int
+                    ).unsqueeze(dim=0),
+                    0,
+                    past_num_tokens,
+                )
+            )
+            self.lm.shared_encoder_cache = (
+                self.lm.shared_encoder.multi_byte_pred_update_cache(
+                    d_hidden_states["shared_past_key_values"],
+                    torch.arange(
+                        self.circuit.n_token + 1, device=inputs.device, dtype=torch.int
+                    ).unsqueeze(dim=0),
+                    0,
+                    past_num_tokens,
+                )
+            )
         # Parameterize the circuit
         next_head_past_key_values = self._parameterize_circuit(
-            draft_last_hidden_state,
+            d_hidden_states["draft_last_hidden_state"],
             use_cache=use_cache,
             attention_mask=attention_mask,
             past_key_values=head_past_key_values,
@@ -1075,7 +1102,7 @@ class MultiTokenLM(torch.nn.Module):
 
         # Compute the next-token probabilities in parallel
         v_hidden_states = self.lm.verify(
-            gen_seq, shared_hidden_state=shared_last_hidden_state, use_cache=True
+            gen_seq, shared_hidden_state=d_hidden_states["shared_last_hidden_state"], use_cache=True
         )
         # zz: (B, S + H, D) -> (B, H + 1, D)
         zz = v_hidden_states["verifier_last_hidden_state"]
@@ -1111,47 +1138,13 @@ class MultiTokenLM(torch.nn.Module):
         shared_last_hidden_state = v_hidden_states["shared_last_hidden_state"][
             :, : inputs.shape[1] + num_accepted_tokens
         ]
-        # Re-use shared state from verifier and compute activations for draft
-        # model. If no tokens were accepted, we will compute the state for the
-        # additional token we generated from logits.
-        d_hidden_states = self.lm.draft(
-            torch.cat([inputs, tokens], dim=1),
-            use_cache=True,
-            shared_hidden_state=shared_last_hidden_state,
-        )
-        # If we only generated one token below will update
-        shared_last_hidden_state = d_hidden_states["shared_last_hidden_state"]
-        draft_last_hidden_state = d_hidden_states["draft_last_hidden_state"]
-        last_hidden_state = {
-            "shared_last_hidden_state": shared_last_hidden_state,
-            "draft_last_hidden_state": draft_last_hidden_state,
-        }
+        last_hidden_state = {"shared_last_hidden_state": shared_last_hidden_state}
 
         self.lm.verifier_encoder_cache = (
             self.lm.verifier_encoder.multi_byte_pred_update_cache(
                 v_hidden_states["verifier_past_key_values"],
                 torch.arange(
                     self.circuit.n_token + 1, device=gen_seq.device, dtype=torch.int
-                ).unsqueeze(dim=0),
-                0,
-                num_generated_tokens,
-            )
-        )
-        self.lm.shared_encoder_cache = (
-            self.lm.shared_encoder.multi_byte_pred_update_cache(
-                v_hidden_states["shared_past_key_values"],
-                torch.arange(
-                    self.circuit.n_token + 1, device=gen_seq.device, dtype=torch.int
-                ).unsqueeze(dim=0),
-                0,
-                num_generated_tokens,
-            )
-        )
-        self.lm.draft_encoder_cache = (
-            self.lm.draft_encoder.multi_byte_pred_update_cache(
-                d_hidden_states["draft_past_key_values"],
-                torch.arange(
-                    num_generated_tokens, device=gen_seq.device, dtype=torch.int
                 ).unsqueeze(dim=0),
                 0,
                 num_generated_tokens,
@@ -1164,7 +1157,7 @@ class MultiTokenLM(torch.nn.Module):
             draft_past_key_values=self.lm.draft_encoder_cache,
             verifier_past_key_values=self.lm.verifier_encoder_cache,
             head_past_key_values=head_past_key_values,
-            past_num_tokens=past_num_tokens,
+            past_num_tokens=num_generated_tokens,
             last_hidden_state=last_hidden_state,
             prefill_time=prefill_time,
         )

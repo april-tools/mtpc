@@ -379,6 +379,45 @@ class LoRASplitLM(torch.nn.Module):
         if verifier_cache is not None:
             self.verifier_encoder_cache = verifier_cache
 
+    def update_verifier_cache(self, past_key_values, num_candidates, num_valid):
+        assert num_valid <= num_candidates
+        self.verifier_encoder_cache = (
+            self.verifier_encoder.multi_byte_pred_update_cache(
+                past_key_values,
+                torch.arange(
+                    num_candidates, device=self.verifier_encoder.device, dtype=torch.int
+                ).unsqueeze(dim=0),
+                0,
+                num_valid,
+            )
+        )
+
+    def update_draft_cache(self, past_key_values, num_candidates, num_valid):
+        assert num_valid <= num_candidates
+        self.draft_encoder_cache = (
+            self.draft_encoder.multi_byte_pred_update_cache(
+                past_key_values,
+                torch.arange(
+                    num_candidates, device=self.draft_encoder.device, dtype=torch.int
+                ).unsqueeze(dim=0),
+                0,
+                num_valid,
+            )
+        )
+
+    def update_shared_cache(self, past_key_values, num_candidates, num_valid):
+        assert num_valid <= num_candidates
+        self.shared_encoder_cache = (
+            self.shared_encoder.multi_byte_pred_update_cache(
+                past_key_values,
+                torch.arange(
+                    num_candidates, device=self.shared_encoder.device, dtype=torch.int
+                ).unsqueeze(dim=0),
+                0,
+                num_valid,
+            )
+        )
+
     def reset_caches(self):
         self.shared_encoder_cache = None
         self.draft_encoder_cache = None

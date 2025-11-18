@@ -944,7 +944,7 @@ class MultiTokenLM(torch.nn.Module):
         # zz: (B, S + H, D) -> (B, H + 1, D)
         zz = outputs["last_hidden_state"]
         assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
-        zz = zz[:, -tokens.shape[1] - 1 :]
+        zz = zz[:, -tokens.shape[1] - 1:]
         # logits: (B, H + 1, V)
         logits = self.lm.head_logits(zz)
         if logit_processor is not None:
@@ -1032,15 +1032,20 @@ class MultiTokenLM(torch.nn.Module):
         is_prefill = last_hidden_state is None
 
         prefill_time = 0
-        # Compute the embeddings
         if is_prefill:
             with time_block(inputs.device) as t:
                 prefill_hidden_states = self.lm.prefill(
                     input_ids=inputs, circuit_n_token=self.circuit.n_token
                 )
             prefill_time = t.elapsed_time
-            d_hidden_states = {"draft_last_hidden_state": prefill_hidden_states["draft_last_hidden_state"],
-                               "shared_last_hidden_state": prefill_hidden_states["shared_last_hidden_state"]}
+            d_hidden_states = {
+                "draft_last_hidden_state": prefill_hidden_states[
+                    "draft_last_hidden_state"
+                ],
+                "shared_last_hidden_state": prefill_hidden_states[
+                    "shared_last_hidden_state"
+                ],
+            }
         else:
             shared_last_hidden_state = last_hidden_state["shared_last_hidden_state"]
             # Re-use shared state from verifier and compute activations for draft
@@ -1051,25 +1056,15 @@ class MultiTokenLM(torch.nn.Module):
                 use_cache=True,
                 shared_hidden_state=shared_last_hidden_state,
             )
-            self.lm.draft_encoder_cache = (
-                self.lm.draft_encoder.multi_byte_pred_update_cache(
-                    d_hidden_states["draft_past_key_values"],
-                    torch.arange(
-                        past_num_tokens, device=inputs.device, dtype=torch.int
-                    ).unsqueeze(dim=0),
-                    0,
-                    past_num_tokens,
-                )
+            self.lm.update_draft_cache(
+                d_hidden_states["draft_past_key_values"],
+                past_num_tokens,
+                past_num_tokens,
             )
-            self.lm.shared_encoder_cache = (
-                self.lm.shared_encoder.multi_byte_pred_update_cache(
-                    d_hidden_states["shared_past_key_values"],
-                    torch.arange(
-                        self.circuit.n_token + 1, device=inputs.device, dtype=torch.int
-                    ).unsqueeze(dim=0),
-                    0,
-                    past_num_tokens,
-                )
+            self.lm.update_shared_cache(
+                d_hidden_states["shared_past_key_values"],
+                self.circuit.n_token + 1,
+                past_num_tokens,
             )
         # Parameterize the circuit
         next_head_past_key_values = self._parameterize_circuit(
@@ -1102,7 +1097,9 @@ class MultiTokenLM(torch.nn.Module):
 
         # Compute the next-token probabilities in parallel
         v_hidden_states = self.lm.verify(
-            gen_seq, shared_hidden_state=d_hidden_states["shared_last_hidden_state"], use_cache=True
+            gen_seq,
+            shared_hidden_state=d_hidden_states["shared_last_hidden_state"],
+            use_cache=True,
         )
         # zz: (B, S + H, D) -> (B, H + 1, D)
         zz = v_hidden_states["verifier_last_hidden_state"]
@@ -1140,15 +1137,10 @@ class MultiTokenLM(torch.nn.Module):
         ]
         last_hidden_state = {"shared_last_hidden_state": shared_last_hidden_state}
 
-        self.lm.verifier_encoder_cache = (
-            self.lm.verifier_encoder.multi_byte_pred_update_cache(
-                v_hidden_states["verifier_past_key_values"],
-                torch.arange(
-                    self.circuit.n_token + 1, device=gen_seq.device, dtype=torch.int
-                ).unsqueeze(dim=0),
-                0,
-                num_generated_tokens,
-            )
+        self.lm.update_verifier_cache(
+            v_hidden_states["verifier_past_key_values"],
+            self.circuit.n_token + 1,
+            num_generated_tokens,
         )
 
         return dict(
@@ -1332,7 +1324,7 @@ class MultiTokenLM(torch.nn.Module):
             # zz: (B, S + H, D) -> (B, H + 1, D)
             zz = outputs["last_hidden_state"]
             assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
-            zz = zz[:, -tokens.shape[1] - 1 :]
+            zz = zz[:, -tokens.shape[1] - 1:]
             # logits: (B, H + 1, V)
             logits = self.lm.head_logits(zz)
             if logit_processor is not None:

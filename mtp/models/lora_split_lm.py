@@ -385,20 +385,20 @@ class LoRASplitLM(torch.nn.Module):
         if verifier_cache is not None:
             self.verifier_encoder_cache = verifier_cache
 
-    def update_verifier_cache(self, past_key_values, num_candidates, num_valid):
+    def update_shared_cache(self, past_key_values, num_candidates, num_valid):
         assert num_valid <= num_candidates
-        self.verifier_encoder_cache = (
-            self.verifier_encoder.multi_byte_pred_update_cache(
+        self.shared_encoder_cache = (
+            self.shared_encoder.multi_byte_pred_update_cache(
                 past_key_values,
                 torch.arange(
-                    num_candidates, device=self.verifier_encoder.device, dtype=torch.int
+                    num_candidates, device=self.shared_encoder.device, dtype=torch.int
                 ).unsqueeze(dim=0),
                 0,
                 num_valid,
             )
         )
-        self.verifier_seen_tokens += num_valid
-        assert self.verifier_seen_tokens == self.verifier_encoder_cache.get_seq_length()
+        self.shared_seen_tokens += num_valid
+        assert self.shared_seen_tokens == self.shared_encoder_cache.get_seq_length()
 
     def update_draft_cache(self, past_key_values, num_candidates, num_valid):
         assert num_valid <= num_candidates
@@ -415,20 +415,21 @@ class LoRASplitLM(torch.nn.Module):
         self.draft_seen_tokens += num_valid
         assert self.draft_seen_tokens == self.draft_encoder_cache.get_seq_length()
 
-    def update_shared_cache(self, past_key_values, num_candidates, num_valid):
+    def update_verifier_cache(self, past_key_values, num_candidates, num_valid):
         assert num_valid <= num_candidates
-        self.shared_encoder_cache = (
-            self.shared_encoder.multi_byte_pred_update_cache(
+        self.verifier_encoder_cache = (
+            self.verifier_encoder.multi_byte_pred_update_cache(
                 past_key_values,
                 torch.arange(
-                    num_candidates, device=self.shared_encoder.device, dtype=torch.int
+                    num_candidates, device=self.verifier_encoder.device, dtype=torch.int
                 ).unsqueeze(dim=0),
                 0,
                 num_valid,
             )
         )
-        self.shared_seen_tokens += num_valid
-        assert self.shared_seen_tokens == self.shared_encoder_cache.get_seq_length()
+        self.verifier_seen_tokens += num_valid
+        assert self.verifier_seen_tokens == self.verifier_encoder_cache.get_seq_length()
+
 
     def reset_caches(self):
         self.shared_encoder_cache = None

@@ -756,11 +756,11 @@ class MultiTokenLM(torch.nn.Module):
             if legacy:
                 func = self.self_speculative_generate_with_lora_legacy
             else:
-                func = self.self_speculative_generate_with_lora
+                func = self.self_speculative_generate_unified
         else:
             if legacy:
                 raise ValueError("There is no legacy no lora algorithm")
-            func = self.self_speculative_generate_no_lora
+            func = self.self_speculative_generate_unified
         return func(
             inputs,
             use_cache=use_cache,
@@ -800,11 +800,11 @@ class MultiTokenLM(torch.nn.Module):
             if legacy:
                 func = self.self_speculative_generate_with_lora_legacy
             else:
-                func = self.self_speculative_generate_with_lora
+                func = self.self_speculative_generate_unified
         else:
             if legacy:
                 raise ValueError("There is no legacy no lora algorithm")
-            func = self.self_speculative_generate_no_lora
+            func = self.self_speculative_generate_unified
         return func(
             inputs,
             use_cache=use_cache,
@@ -1000,7 +1000,7 @@ class MultiTokenLM(torch.nn.Module):
         )
 
     @torch.no_grad()
-    def self_speculative_generate_with_lora(
+    def self_speculative_generate_unified(
         self,
         inputs: Tensor,
         use_cache: bool = False,
@@ -1054,7 +1054,7 @@ class MultiTokenLM(torch.nn.Module):
             d_hidden_states = self.lm.draft(
                 inputs,
                 use_cache=True,
-                shared_hidden_state=shared_last_hidden_state,
+                shared_last_hidden_state=shared_last_hidden_state,
             )
             self.lm.update_draft_cache(
                 d_hidden_states["draft_past_key_values"],
@@ -1098,7 +1098,7 @@ class MultiTokenLM(torch.nn.Module):
         # Compute the next-token probabilities in parallel
         v_hidden_states = self.lm.verify(
             gen_seq,
-            shared_hidden_state=d_hidden_states["shared_last_hidden_state"],
+            shared_last_hidden_state=d_hidden_states["shared_last_hidden_state"],
             use_cache=True,
         )
         # zz: (B, S + H, D) -> (B, H + 1, D)

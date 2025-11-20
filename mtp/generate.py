@@ -441,8 +441,8 @@ if __name__ == "__main__":
     if args.dequantize:
         model.lm.dequantize()
 
-    if model.lm.has_adapter and args.speculative:
-        if args.legacy_lora_speculative:
+    if args.speculative:
+        if model.lm.has_adapter and args.legacy_lora_speculative:
             model.lm.enable_dual_model_inference()
         else:
             # Replace the lm with a split model

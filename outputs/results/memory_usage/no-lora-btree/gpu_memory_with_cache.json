@@ -1,0 +1,42 @@
+[
+  {
+    "circuit": "btree",
+    "n_token": 8,
+    "n_component": 32,
+    "mode": "mtp",
+    "peak_mem_gb": 13.8359375,
+    "mem_after_load_gb": 12.775390625,
+    "num_generated_tokens": 1024,
+    "prompt_length": 57
+  },
+  {
+    "circuit": "btree",
+    "n_token": 8,
+    "n_component": 32,
+    "mode": "speculative",
+    "peak_mem_gb": 13.85546875,
+    "mem_after_load_gb": 12.814453125,
+    "num_generated_tokens": 1024,
+    "prompt_length": 57
+  },
+  {
+    "circuit": "btree",
+    "n_token": 16,
+    "n_component": 32,
+    "mode": "mtp",
+    "peak_mem_gb": 14.5390625,
+    "mem_after_load_gb": 13.498046875,
+    "num_generated_tokens": 1024,
+    "prompt_length": 57
+  },
+  {
+    "circuit": "btree",
+    "n_token": 16,
+    "n_component": 32,
+    "mode": "speculative",
+    "peak_mem_gb": 14.55859375,
+    "mem_after_load_gb": 13.498046875,
+    "num_generated_tokens": 1024,
+    "prompt_length": 57
+  }
+]

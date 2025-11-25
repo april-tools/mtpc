@@ -241,6 +241,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", help="Device to profile on.")
     parser.add_argument(
+        "--adaptor",
+        default="none",
+        choices=["none", "lora-last-1", "lora-last-2", "lora-last-4"],
+        help="Adaptor to use when building overrides.",
+    )
+    parser.add_argument(
         "--prompt",
         default="Who is Albert Einstein?",
         help="Prompt used to seed decoding.",
@@ -334,7 +340,7 @@ def main():
         "model=mtp",
         "lm=evabyte",
         "mt_head=linear-evabyte",
-        "adaptor=none",
+        f"adaptor={args.adaptor}",
         "lm.model.encoder_only=false",
         "data=tulu3-evabyte-packed",
         "data.vocab_size=320",

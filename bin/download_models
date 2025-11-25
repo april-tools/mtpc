@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+import os
+
+from huggingface_hub import HfApi, snapshot_download, logging as hf_logging
+from huggingface_hub.utils import disable_progress_bars
+from tqdm import tqdm
+
+hf_logging.set_verbosity_error()  # Only show errors, suppress download progress
+disable_progress_bars()
+
+
+assert "MTP_ROOT" in os.environ, "MTP_ROOT environment variable must be set"
+MTP_ROOT = os.environ["MTP_ROOT"]
+
+api = HfApi()
+collection_ids = ["agrv/evabyte-mtpc-no-lora", "agrv/evabyte-mtpc-lora-continued"]
+
+for collection_id in collection_ids:
+    collection = api.get_collection(collection_id)
+    collection_slug = collection_id.split("/")[-1]
+    folder_name = collection_slug.removeprefix("evabyte-mtpc-")
+    base_dir = os.path.join(MTP_ROOT, "outputs", "models", folder_name)
+
+    models = [item for item in collection.items if item.item_type == "model"]
+
+    print(f"\n{'='*60}")
+    print(f"Collection: {collection_id}")
+    print(f"Destination: {base_dir}")
+    print(f"Models: {len(models)}")
+    print(f"{'='*60}")
+
+    for item in tqdm(models, desc=folder_name):
+        model_name = item.item_id.split("/")[-1]
+        dest = os.path.join(base_dir, model_name)
+        tqdm.write(f"  → {model_name}")
+        snapshot_download(
+            repo_id=item.item_id,
+            local_dir=dest,
+        )
+
+print(f"\n✓ All downloads complete")

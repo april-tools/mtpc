@@ -69,6 +69,11 @@ pytest
 ./bin/download_data --dataset fineweb-edu
 ```
 
+## Download models
+```
+./bin/download_models
+```
+
 ## Wandb
 
 The training script is setup to use wandb to track metrics.

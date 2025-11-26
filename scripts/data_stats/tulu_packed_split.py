@@ -1,10 +1,9 @@
 import os
 import argparse
-import numpy as np
 
 from datasets import DatasetDict, Dataset, Value, Sequence, Features
 
-from mtp.data import TuluPackedDataLoader
+from mtp.data.tuluv3_packing import TuluPackedDataLoader
 from mtp.utils.packing import pack_by_length
 from mtp.models.loss import IGNORE_TOKEN_ID
 
@@ -13,6 +12,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--seq-length", type=int, default=2048 * 4)
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=("EvaByte/EvaByte-SFT", "benjamin/Llama3-2-3B-IT-Byte"),
+        default="EvaByte/EvaByte-SFT",
+    )
 
     args = parser.parse_args()
 
@@ -20,12 +25,16 @@ if __name__ == "__main__":
         args.seq_length % 2048 == 0
     ), "Sequence length must be a multiple of 2048 for EvaByte compatibility"
 
+    repo, model_abbrv = args.model.split('/', 1)
+    model_abbrv, _ = model_abbrv.split('-', 1)
+    model_abbrv = model_abbrv.lower()
+
     # NOTE: We drop examples that do not fit in the sequence length
     # so changing the sequence length will change the number of outputs
     # TuluPackedDataLoader does not pad the examples, so we can pack them later
     ds = TuluPackedDataLoader(
         "allenai/tulu-3-sft-mixture",
-        "EvaByte/EvaByte-SFT",
+        args.model,
         None,
         args.seq_length,
         0,
@@ -42,7 +51,7 @@ if __name__ == "__main__":
         ds.dataset,
         max_len=args.seq_length,
         num_bins=5,
-        num_proc=int(os.environ.get('HF_DATASETS_NUM_PROC', 1)),
+        num_proc=int(os.environ.get("HF_DATASETS_NUM_PROC", 1)),
         pad_id=ds.tokenizer.pad_token_type_id,
         ignore_token_id=IGNORE_TOKEN_ID,
     )
@@ -68,7 +77,7 @@ if __name__ == "__main__":
     dataset_dict = DatasetDict({"train": train_dataset, "valid": valid_dataset})
 
     dataset_dict.push_to_hub(
-        f"agrv/tulu-v3-sft-evabyte-packed-seq-len-{args.seq_length}",
+        f"agrv/tulu-v3-sft-{model_abbrv}-packed-seq-len-{args.seq_length}",
         token=os.environ["HF_TOKEN"],
     )
     dataset_dict.cleanup_cache_files()

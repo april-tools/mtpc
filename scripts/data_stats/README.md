@@ -1,8 +1,9 @@
 # Generate the Tulu dataset
 
-## Create the packed Tulu split
+## Create the packed Tulu splits with EvaByte and Llama-Byte tokenisation
 ```bash
-HF_DATASETS_NUM_PROC=50 HF_CACHE_ACTIVE=1 python scripts/data_stats/tulu_packed_split.py --seq-length 8192
+HF_DATASETS_NUM_PROC=50 HF_CACHE_ACTIVE=1 python $MTP_ROOT/scripts/data_stats/tulu_packed_split.py --seq-length 8192
+HF_DATASETS_NUM_PROC=50 HF_CACHE_ACTIVE=1 python $MTP_ROOT/scripts/data_stats/tulu_packed_split.py --seq-length 8192 --model benjamin/Llama3-2-3B-IT-Byte
 ```
 
 

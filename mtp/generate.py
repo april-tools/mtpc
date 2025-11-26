@@ -473,7 +473,8 @@ if __name__ == "__main__":
                 )
             else:
                 tokeniser = AutoTokenizer.from_pretrained("EvaByte/EvaByte", **kwargs)
-        tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
+        else:
+            tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
         vocabs = None
 
     # Load prompts from prompt_source if specific prompt not given

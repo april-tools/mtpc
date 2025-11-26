@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 """
 Profile GPU memory usage for MTP decoding across circuit types and ranks.
 
@@ -55,26 +57,13 @@ def parse_int_list(value: str) -> list[int]:
 
 def encode_prompt(tokenizer: AutoTokenizer, prompt: str, device: torch.device) -> torch.Tensor:
     messages = [{"role": "user", "content": prompt.strip()}]
-    encoded = tokenizer.apply_chat_template(
-        messages,
-        tokenize=True,
-        add_generation_prompt=True,
-        return_tensors="pt",
-        return_dict=True,
-    )["input_ids"]
+    encoded = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt", return_dict=True)["input_ids"]
     return encoded.to(device)
 
 
 def build_overrides(circuit: str, n_token: int, n_component: int, base_overrides: list[str]) -> list[str]:
     overrides = list(base_overrides)
-    overrides.extend(
-        [
-            f"circuit={circuit}",
-            f"circuit.n_token={n_token}",
-            f"circuit.n_component={n_component}",
-            "compile=false",
-        ]
-    )
+    overrides.extend([f"circuit={circuit}", f"circuit.n_token={n_token}", f"circuit.n_component={n_component}", "compile=false"])
     if circuit == "btree":
         overrides.append("circuit.n_repetition=1")
     return overrides
@@ -107,19 +96,7 @@ def run_generation(
     with torch.inference_mode(), autocast(dtype=torch.bfloat16):
         while generated < num_tokens:
             if speculative:
-                outputs = model.self_speculative_generate(
-                    input_ids,
-                    use_cache=use_cache,
-                    draft_past_key_values=past_key_values,
-                    verifier_past_key_values=verifier_past_key_values,
-                    head_past_key_values=head_past_key_values,
-                    past_num_tokens=past_num_tokens,
-                    last_hidden_state=last_hidden_state,
-                    draft_top_p=draft_top_p,
-                    target_top_p=target_top_p,
-                    logit_processor=logit_processor,
-                    legacy=False,
-                )
+                outputs = model.self_speculative_generate(input_ids, use_cache=use_cache, draft_past_key_values=past_key_values, verifier_past_key_values=verifier_past_key_values, head_past_key_values=head_past_key_values, past_num_tokens=past_num_tokens, last_hidden_state=last_hidden_state, draft_top_p=draft_top_p, target_top_p=target_top_p, logit_processor=logit_processor, legacy=False)
                 tokens = outputs["tokens"]
                 past_key_values = outputs["draft_past_key_values"]
                 verifier_past_key_values = outputs["verifier_past_key_values"]
@@ -127,15 +104,7 @@ def run_generation(
                 past_num_tokens = outputs["past_num_tokens"]
                 last_hidden_state = outputs["last_hidden_state"]
             else:
-                outputs = model.generate(
-                    input_ids,
-                    mode="mtp",
-                    use_argmax=False,
-                    use_cache=use_cache,
-                    past_key_values=past_key_values,
-                    head_past_key_values=head_past_key_values,
-                    logit_processor=logit_processor,
-                )
+                outputs = model.generate(input_ids, mode="mtp", use_argmax=False, use_cache=use_cache, past_key_values=past_key_values, head_past_key_values=head_past_key_values, logit_processor=logit_processor)
                 tokens = outputs["tokens"]
                 past_key_values = outputs["past_key_values"]
                 head_past_key_values = outputs["head_past_key_values"]
@@ -179,17 +148,7 @@ def profile_run(
     prompt_length = input_ids.shape[1]
 
     base_mem_gb = peak_memory_gb()
-    run_generation(
-        model,
-        input_ids,
-        num_tokens,
-        speculative=run.mode == "speculative",
-        use_cache=use_cache,
-        draft_top_p=draft_top_p,
-        target_top_p=target_top_p,
-        disable_eos=disable_eos,
-        tokenizer=tokenizer,
-    )
+    run_generation(model, input_ids, num_tokens, speculative=run.mode == "speculative", use_cache=use_cache, draft_top_p=draft_top_p, target_top_p=target_top_p, disable_eos=disable_eos, tokenizer=tokenizer)
     peak_mem_gb = peak_memory_gb()
 
     # Clean up before the next run
@@ -214,17 +173,7 @@ def make_plots(df: pd.DataFrame, output_dir: str, suffix: str) -> list[str]:
     paths: list[str] = []
 
     df_sorted = df.sort_values(["circuit", "n_token", "n_component"])
-    g = sns.relplot(
-        data=df_sorted,
-        x="n_component",
-        y="peak_mem_gb",
-        hue="mode",
-        style="n_token",
-        kind="line",
-        col="circuit",
-        marker=True,
-        facet_kws={"sharey": True, "sharex": True},
-    )
+    g = sns.relplot(data=df_sorted, x="n_component", y="peak_mem_gb", hue="mode", style="n_token", kind="line", col="circuit", marker=True, facet_kws={"sharey": True, "sharex": True})
     g.set_axis_labels("Rank r (n_component)", "Peak CUDA reserved (GB)")
     g.set_titles("{col_name}")
     g.figure.suptitle("GPU memory vs rank for MTP circuits", y=1.03, fontsize=13)
@@ -239,85 +188,20 @@ def make_plots(df: pd.DataFrame, output_dir: str, suffix: str) -> list[str]:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", help="Device to profile on.")
-    parser.add_argument(
-        "--adaptor",
-        default="none",
-        choices=["none", "lora-last-1", "lora-last-2", "lora-last-4"],
-        help="Adaptor to use when building overrides.",
-    )
-    parser.add_argument(
-        "--prompt",
-        default="Who is Albert Einstein?",
-        help="Prompt used to seed decoding.",
-    )
-    parser.add_argument(
-        "--num-tokens",
-        type=int,
-        default=256,
-        help="Number of tokens to generate during profiling.",
-    )
-    parser.add_argument(
-        "--circuits",
-        type=lambda x: x.split(","),
-        default="cp,btree",
-        help="Comma-separated list of circuits to profile.",
-    )
-    parser.add_argument(
-        "--n-tokens",
-        type=parse_int_list,
-        default="8,16",
-        help="Comma-separated n_token values to profile.",
-    )
-    parser.add_argument(
-        "--ranks",
-        type=parse_int_list,
-        default="8,16,32",
-        help="Comma-separated rank (n_component) values to profile.",
-    )
-    parser.add_argument(
-        "--modes",
-        type=lambda x: x.split(","),
-        default="mtp,speculative",
-        help="Comma-separated decoding modes to profile (mtp,speculative).",
-    )
-    parser.add_argument(
-        "--use-cache",
-        action="store_true",
-        help="Enable KV cache during decoding.",
-    )
-    parser.add_argument(
-        "--draft-top-p",
-        type=float,
-        default=1.0,
-        help="Top-p for draft sampler (speculative only).",
-    )
-    parser.add_argument(
-        "--target-top-p",
-        type=float,
-        default=1.0,
-        help="Top-p for target sampler (speculative only).",
-    )
-    parser.add_argument(
-        "--disable-eos",
-        action="store_true",
-        help="Prevent early EOS to keep num_tokens fixed.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=os.path.join("outputs", "results", "memory_usage"),
-        help="Directory to store JSON/CSV and plots.",
-    )
-    parser.add_argument(
-        "--hf-model",
-        default="EvaByte/EvaByte-SFT",
-        help="HuggingFace identifier for the LM/tokenizer.",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=13,
-        help="Random seed for deterministic sampling.",
-    )
+    parser.add_argument("--adaptor", default="none", choices=["none", "lora-last-1", "lora-last-2", "lora-last-4"], help="Adaptor to use when building overrides.")
+    parser.add_argument("--prompt", default="Who is Albert Einstein?", help="Prompt used to seed decoding.")
+    parser.add_argument("--num-tokens", type=int, default=256, help="Number of tokens to generate during profiling.")
+    parser.add_argument("--circuits", type=lambda x: x.split(","), default="cp,btree", help="Comma-separated list of circuits to profile.")
+    parser.add_argument("--n-tokens", type=parse_int_list, default="8,16", help="Comma-separated n_token values to profile.")
+    parser.add_argument("--ranks", type=parse_int_list, default="8,16,32", help="Comma-separated rank (n_component) values to profile.")
+    parser.add_argument("--modes", type=lambda x: x.split(","), default="mtp,speculative", help="Comma-separated decoding modes to profile (mtp,speculative).")
+    parser.add_argument("--use-cache", action="store_true", help="Enable KV cache during decoding.")
+    parser.add_argument("--draft-top-p", type=float, default=1.0, help="Top-p for draft sampler (speculative only).")
+    parser.add_argument("--target-top-p", type=float, default=1.0, help="Top-p for target sampler (speculative only).")
+    parser.add_argument("--disable-eos", action="store_true", help="Prevent early EOS to keep num_tokens fixed.")
+    parser.add_argument("--output-dir", default=os.path.join("outputs", "results", "memory_usage"), help="Directory to store JSON/CSV and plots.")
+    parser.add_argument("--hf-model", default="EvaByte/EvaByte-SFT", help="HuggingFace identifier for the LM/tokenizer.")
+    parser.add_argument("--seed", type=int, default=13, help="Random seed for deterministic sampling.")
 
     args = parser.parse_args()
 
@@ -335,17 +219,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(args.hf_model, trust_remote_code=True)
 
-    base_overrides = [
-        "model=mtp",
-        "lm=evabyte",
-        "mt_head=linear-evabyte",
-        f"adaptor={args.adaptor}",
-        "lm.model.encoder_only=false",
-        "data=tulu3-evabyte-packed",
-        "data.vocab_size=320",
-        "training.batch_size=1",
-        "training.device_batch_size=1",
-    ]
+    base_overrides = ["model=mtp", "lm=evabyte", "mt_head=linear-evabyte", f"adaptor={args.adaptor}", "lm.model.encoder_only=false", "data=tulu3-evabyte-packed", "data.vocab_size=320", "training.batch_size=1", "training.device_batch_size=1"]
 
     run_grid: list[RunConfig] = []
     for circuit in args.circuits:
@@ -354,34 +228,13 @@ def main():
                 for mode in args.modes:
                     if mode not in ("mtp", "speculative"):
                         raise ValueError(f"Unknown mode '{mode}'")
-                    run_grid.append(
-                        RunConfig(
-                            circuit=circuit,
-                            n_token=n_tok,
-                            n_component=rank,
-                            mode=mode,
-                        )
-                    )
+                    run_grid.append(RunConfig(circuit=circuit, n_token=n_tok, n_component=rank, mode=mode))
 
     records: list[dict] = []
     for run in run_grid:
-        rec = profile_run(
-            run,
-            device=device,
-            prompt=args.prompt,
-            num_tokens=args.num_tokens,
-            use_cache=args.use_cache,
-            draft_top_p=args.draft_top_p,
-            target_top_p=args.target_top_p,
-            disable_eos=args.disable_eos,
-            base_overrides=base_overrides,
-            tokenizer=tokenizer,
-        )
+        rec = profile_run(run, device=device, prompt=args.prompt, num_tokens=args.num_tokens, use_cache=args.use_cache, draft_top_p=args.draft_top_p, target_top_p=args.target_top_p, disable_eos=args.disable_eos, base_overrides=base_overrides, tokenizer=tokenizer)
         records.append(rec)
-        print(
-            f"[{run.circuit} n={run.n_token} r={run.n_component} {run.mode}] "
-            f"peak={rec['peak_mem_gb']:.2f} GB (load {rec['mem_after_load_gb']:.2f} GB)"
-        )
+        print(f"[{run.circuit} n={run.n_token} r={run.n_component} {run.mode}] peak={rec['peak_mem_gb']:.2f} GB (load {rec['mem_after_load_gb']:.2f} GB)")
 
     df = pd.DataFrame(records)
     suffix = "_with_cache" if args.use_cache else "_no_cache"

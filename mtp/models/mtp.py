@@ -202,7 +202,7 @@ class MultiTokenLM(torch.nn.Module):
             )
         elif model_is_llama(self.lm.encoder):
             attention_mask, position_ids = prepare_llama_mask_and_position(
-                input_ids
+                input_ids, self.lm
             )
         else:
             position_ids = None

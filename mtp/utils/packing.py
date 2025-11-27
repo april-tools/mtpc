@@ -121,7 +121,7 @@ def build_position_ids(input_ids: torch.LongTensor, eos_token_id: int):
     position_ids = []
 
     for b in range(bs):
-        position_id = torch.arange(0, seq_len, dtype=torch.long)
+        position_id = torch.arange(0, seq_len, dtype=torch.long, device=input_ids.device)
         # Find indecies where EOD token is.
         eos_ind = position_id[input_ids[b] == eos_token_id]
 

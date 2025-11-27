@@ -347,10 +347,10 @@ def is_evabyte_packed_sequence(input_ids):
 
 
 @torch._dynamo.disable
-def prepare_llama_mask_and_position(input_ids):
+def prepare_llama_mask_and_position(input_ids, model):
     if is_llama_packed_sequence(input_ids):
         position_ids = build_position_ids(input_ids=input_ids, eos_token_id=LLAMA_EOS_TOKEN_ID)
-        attn_mask = build_attention_mask(position_ids)
+        attn_mask = build_attention_mask(position_ids, dtype=model.encoder.dtype)
     else:
         # When we are not packing, we can pass attn_mask=None - see
         attn_mask, position_ids = None, None

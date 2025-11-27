@@ -31,6 +31,13 @@ BATCH_SIZE = 1
 DetectorFactory.seed = 0
 
 
+def get_peak_memory_gb() -> float:
+    GB = 1024**3
+    torch.cuda.synchronize()
+    torch.cuda.synchronize('cuda')
+    return torch.cuda.max_memory_reserved() / GB
+
+
 def get_huggingface_model(cfg):
     hf_model = None
     if "lm" in cfg:
@@ -451,9 +458,12 @@ if __name__ == "__main__":
     model.to(args.device)
     model.eval()
 
+
     if args.compile:
         # Enable verbose logging
         model = torch.compile(model)
+
+    gpu_base_memory = get_peak_memory_gb() if args.device == "cuda" else None
 
     # Load the tokeniser once, if needed
     # Otherwise, load the vocabulary (shakespeare models)
@@ -609,6 +619,8 @@ if __name__ == "__main__":
 
     my_uuid = unique_timestamp()
 
+    gpu_max_memory_use = get_peak_memory_gb() if args.device == "cuda" else None
+
     stats = dict()
     stats["uuid"] = my_uuid
     stats["exp_start"] = exp_start
@@ -645,6 +657,8 @@ if __name__ == "__main__":
     stats["device"] = args.device
     stats["cpu"] = cpuinfo.get_cpu_info()["brand_raw"]
     stats["gpu"] = torch.cuda.get_device_name(torch.cuda.current_device())
+    stats["gpu_model_mem_usage"] = gpu_base_memory
+    stats["gpu_max_mem_usage_during_inference"] = gpu_max_memory_use
     stats["batch_size"] = BATCH_SIZE
     stats["num_generated_tokens"] = total_num_generated_tokens
     stats["elapsed_time"] = total_elapsed_time

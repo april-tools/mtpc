@@ -117,6 +117,8 @@ class LM(nn.Module):
             if "EvaByte" in self.from_huggingface:
                 # Set use_cache to false to avoid weird EvaByte behaviour during training
                 kwargs = {"trust_remote_code": True, "use_cache": False}
+            elif "Llama3-2-3B-IT-Byte" in self.from_huggingface:
+                kwargs = {"trust_remote_code": True}
             else:
                 kwargs = {"attn_implementation": "flash_attention_2"}
             lm = AutoModelForCausalLM.from_pretrained(

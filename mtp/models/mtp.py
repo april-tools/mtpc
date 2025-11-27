@@ -5,17 +5,22 @@ from typing import Callable
 from torch import Tensor, LongTensor
 from transformers.cache_utils import Cache
 
+from mtp.models.evabyte.training_utils import (
+    model_is_evabyte,
+    model_is_llama,
+    is_evabyte_packed_sequence,
+    is_llama_packed_sequence,
+    prepare_evabyte_mask_and_position,
+    prepare_llama_mask_and_position,
+    EVABYTE_EOS_TOKEN_ID,
+    LLAMA_EOS_TOKEN_ID
+)
 from mtp.models.evabyte.multibyte_decoding_evabyte import (
     multi_byte_pred_prepare_attn_mask,
 )
 from mtp.utils.profile import time_block
 from mtp.utils.sampling import truncate_logprobs_top_p
 from mtp.utils.packing import packed_targets_to_target_windows
-from mtp.models.evabyte.training_utils import prepare_evabyte_mask_and_position
-from mtp.models.evabyte.training_utils import (
-    is_evabyte_packed_sequence,
-    EVABYTE_EOS_TOKEN_ID,
-)
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.models.lora_split_lm import LoRASplitLM
 
@@ -191,9 +196,13 @@ class MultiTokenLM(torch.nn.Module):
         # Evabyte needs special treatment since they construct two types of
         # attention mask (window and block), and the huggingface attention mask does not suffice
         # EvaByte also supports packing - see the helper function below
-        if self.mt_head_type == "evabyte":
+        if model_is_evabyte(self.lm.encoder):
             attention_mask, position_ids = prepare_evabyte_mask_and_position(
                 input_ids, self.lm
+            )
+        elif model_is_llama(self.lm.encoder):
+            attention_mask, position_ids = prepare_llama_mask_and_position(
+                input_ids
             )
         else:
             position_ids = None
@@ -212,12 +221,19 @@ class MultiTokenLM(torch.nn.Module):
         )
 
         # 3) Expand target tokens into windows of size H
-        if self.mt_head_type == "evabyte" and is_evabyte_packed_sequence(input_ids):
+        if model_is_evabyte(self.lm.encoder) and is_evabyte_packed_sequence(input_ids):
             # If we are using packing (i.e. multiple seqs per batch), we need to ignore
             # predictions that take us across example boundaries by introducing IGNORE_TOKEN_ID.
             # yy: (B, S) -> (B, S, H)
             yy = packed_targets_to_target_windows(
                 labels, H, EVABYTE_EOS_TOKEN_ID, IGNORE_TOKEN_ID
+            )
+        elif model_is_llama(self.lm.encoder) and is_llama_packed_sequence(input_ids):
+            # If we are using packing (i.e. multiple seqs per batch), we need to ignore
+            # predictions that take us across example boundaries by introducing IGNORE_TOKEN_ID.
+            # yy: (B, S) -> (B, S, H)
+            yy = packed_targets_to_target_windows(
+                labels, H, LLAMA_EOS_TOKEN_ID, IGNORE_TOKEN_ID
             )
         else:
             # Pad labels on the right by H - 1  (B, S+)
@@ -280,9 +296,11 @@ class MultiTokenLM(torch.nn.Module):
                 teacher_log_probs = teacher_log_probs.squeeze(-1)
 
                 # If we use packing make sure we don't leak predictions across example boundaries
-                if self.mt_head_type == "evabyte" and is_evabyte_packed_sequence(
-                    input_ids
-                ):
+                if model_is_evabyte(self.lm.encoder) and is_evabyte_packed_sequence(input_ids):
+                    teacher_log_probs[yy.permute(2, 0, 1) == IGNORE_TOKEN_ID] = (
+                        -torch.inf
+                    )
+                elif model_is_llama(self.lm.encoder) and is_llama_packed_sequence(input_ids):
                     teacher_log_probs[yy.permute(2, 0, 1) == IGNORE_TOKEN_ID] = (
                         -torch.inf
                     )

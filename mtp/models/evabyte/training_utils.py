@@ -2,11 +2,32 @@
 import math
 import torch
 
-from typing import List, Optional, Tuple, Union
+from mtp.utils.packing import build_attention_mask, build_position_ids
 
 
 EVABYTE_PAD_TOKEN_ID = 0
 EVABYTE_EOS_TOKEN_ID = 2
+LLAMA_EOS_TOKEN_ID = 258
+
+
+def get_model_class_name(model):
+    # Deal with the case where we have LoRA
+    try:
+        base_model = model.get_base_model()
+        class_name = type(base_model).__name__
+    except AttributeError:
+        class_name = type(model).__name__
+    return class_name
+
+
+def model_is_evabyte(model):
+    class_name = get_model_class_name(model)
+    return class_name == "EvaByteModel"
+
+
+def model_is_llama(model):
+    class_name = get_model_class_name(model)
+    return class_name == "TPULlamaModel"
 
 
 def prepare_eva_attention_mask(
@@ -97,6 +118,7 @@ def prepare_eva_attention_mask(
         device=device
     ).triu(1).to(torch.bool)
     return (chunk_causal_mask, window_causal_mask)
+
 
 def prepare_eva_training_mask(
     target_token_type_ids,
@@ -248,6 +270,7 @@ def prepare_eva_training_mask(
         attention_mask = None
     return attention_mask
 
+
 def prepare_doc_mask_position_ids(
     input_ids: torch.LongTensor,
     chunk_size: int,
@@ -321,3 +344,19 @@ def prepare_evabyte_mask_and_position(input_ids, model, eos_token_id=EVABYTE_EOS
 def is_evabyte_packed_sequence(input_ids):
     # When we pack sequences, we include EVABYTE_EOS_TOKEN_ID
     return torch.any(input_ids == EVABYTE_EOS_TOKEN_ID)
+
+
+@torch._dynamo.disable
+def prepare_llama_mask_and_position(input_ids):
+    if is_llama_packed_sequence(input_ids):
+        position_ids = build_position_ids(input_ids=input_ids, eos_token_id=LLAMA_EOS_TOKEN_ID)
+        attn_mask = build_attention_mask(position_ids)
+    else:
+        # When we are not packing, we can pass attn_mask=None - see
+        attn_mask, position_ids = None, None
+    return attn_mask, position_ids
+
+
+def is_llama_packed_sequence(input_ids):
+    # When we pack sequences, we include EVABYTE_EOS_TOKEN_ID
+    return torch.any(input_ids == LLAMA_EOS_TOKEN_ID)

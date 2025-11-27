@@ -1,0 +1,14 @@
+name: llama3-2-3b-byte
+n_embd: 3072
+n_head: 24
+
+model:
+    _target_: mtp.models.lm.LM
+    lm: null
+    encoder_only: true
+    from_checkpoint: null
+    from_huggingface: benjamin/Llama3-2-3B-IT-Byte
+    adaptor_kwargs: ${adaptor.hyperparameters}
+    ref_enc: model
+    ref_head: lm_head
+    freeze: true

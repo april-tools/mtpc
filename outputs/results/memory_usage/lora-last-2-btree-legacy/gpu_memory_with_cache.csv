@@ -1,3 +1,5 @@
 circuit,n_token,n_component,mode,peak_mem_gb,mem_after_load_gb,num_generated_tokens,prompt_length
 btree,8,32,mtp,13.849609375,12.78515625,1024,57
+btree,8,32,speculative,26.951171875,24.93359375,1024,57
 btree,16,32,mtp,14.552734375,13.5078125,1024,57
+btree,16,32,speculative,27.654296875,25.6171875,1024,57

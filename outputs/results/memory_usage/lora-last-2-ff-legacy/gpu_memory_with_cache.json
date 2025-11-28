@@ -11,11 +11,31 @@
   },
   {
     "circuit": "fully_factorized",
+    "n_token": 8,
+    "n_component": 1,
+    "mode": "speculative",
+    "peak_mem_gb": 26.306640625,
+    "mem_after_load_gb": 24.2890625,
+    "num_generated_tokens": 1024,
+    "prompt_length": 57
+  },
+  {
+    "circuit": "fully_factorized",
     "n_token": 16,
     "n_component": 1,
     "mode": "mtp",
     "peak_mem_gb": 13.224609375,
     "mem_after_load_gb": 12.19921875,
+    "num_generated_tokens": 1024,
+    "prompt_length": 57
+  },
+  {
+    "circuit": "fully_factorized",
+    "n_token": 16,
+    "n_component": 1,
+    "mode": "speculative",
+    "peak_mem_gb": 26.326171875,
+    "mem_after_load_gb": 24.30859375,
     "num_generated_tokens": 1024,
     "prompt_length": 57
   }

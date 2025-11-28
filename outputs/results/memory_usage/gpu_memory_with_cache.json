@@ -6,7 +6,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.30859375,
     "mem_after_load_gb": 12.267578125,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -16,7 +16,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.328125,
     "mem_after_load_gb": 12.306640625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -26,7 +26,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.462890625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -36,7 +36,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.462890625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -46,7 +46,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.796875,
     "mem_after_load_gb": 12.775390625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -56,7 +56,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.796875,
     "mem_after_load_gb": 12.775390625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -66,7 +66,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.462890625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -76,7 +76,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.462890625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -86,7 +86,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.796875,
     "mem_after_load_gb": 12.775390625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -96,7 +96,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.796875,
     "mem_after_load_gb": 12.775390625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -106,7 +106,7 @@
     "mode": "mtp",
     "peak_mem_gb": 14.421875,
     "mem_after_load_gb": 13.400390625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -116,7 +116,7 @@
     "mode": "speculative",
     "peak_mem_gb": 14.421875,
     "mem_after_load_gb": 13.400390625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -126,7 +126,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.328125,
     "mem_after_load_gb": 12.30859375,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -136,7 +136,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.328125,
     "mem_after_load_gb": 12.30859375,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -146,7 +146,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.462890625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -156,7 +156,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.462890625,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -166,7 +166,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.8359375,
     "mem_after_load_gb": 12.833984375,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -176,7 +176,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.8359375,
     "mem_after_load_gb": 12.833984375,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -186,7 +186,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.46484375,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -196,7 +196,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.484375,
     "mem_after_load_gb": 12.46484375,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -206,7 +206,7 @@
     "mode": "mtp",
     "peak_mem_gb": 13.81640625,
     "mem_after_load_gb": 12.794921875,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -216,7 +216,7 @@
     "mode": "speculative",
     "peak_mem_gb": 13.81640625,
     "mem_after_load_gb": 12.794921875,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -226,7 +226,7 @@
     "mode": "mtp",
     "peak_mem_gb": 14.5390625,
     "mem_after_load_gb": 13.517578125,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   },
   {
@@ -236,7 +236,7 @@
     "mode": "speculative",
     "peak_mem_gb": 14.5390625,
     "mem_after_load_gb": 13.517578125,
-    "num_generated_tokens": 128,
+    "num_generated_tokens": 256,
     "prompt_length": 57
   }
 ]

@@ -29,8 +29,8 @@ for adaptor in lora-last-1 lora-last-2 lora-last-4; do
 
   # Legacy LoRA speculative (merged adapters) for comparison
   sleep 10
-  python scripts/profile-v2-cli.py --use-cache --disable-eos --num-tokens 1024     --adaptor "$adaptor" --circuits btree --n-tokens 8,16 --ranks 32     --modes mtp --legacy-lora-speculative --output-dir outputs/results/memory_usage/${adaptor}-btree-legacy
+  python scripts/profile-v2-cli.py --use-cache --disable-eos --num-tokens 1024     --adaptor "$adaptor" --circuits btree --n-tokens 8,16 --ranks 32     --modes mtp,speculative --legacy-lora-speculative --output-dir outputs/results/memory_usage/${adaptor}-btree-legacy
 
   sleep 10
-  python scripts/profile-v2-cli.py --use-cache --disable-eos --num-tokens 1024     --adaptor "$adaptor" --circuits fully_factorized --n-tokens 8,16 --ranks 1     --modes mtp --legacy-lora-speculative --output-dir outputs/results/memory_usage/${adaptor}-ff-legacy
+  python scripts/profile-v2-cli.py --use-cache --disable-eos --num-tokens 1024     --adaptor "$adaptor" --circuits fully_factorized --n-tokens 8,16 --ranks 1     --modes mtp,speculative --legacy-lora-speculative --output-dir outputs/results/memory_usage/${adaptor}-ff-legacy
 done

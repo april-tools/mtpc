@@ -320,14 +320,14 @@ class LoRASplitLM(torch.nn.Module):
                     cache=self.draft_encoder_cache,
                     encoder=self.draft_encoder,
                     num_past_seen_tokens=self.draft_seen_tokens,
-                    self.model_type,
+                    model_type=self.model_type,
                 )
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
                 cache=self.shared_encoder_cache,
                 encoder=self.shared_encoder,
                 num_past_seen_tokens=self.shared_seen_tokens,
-                self.model_type,
+                model_type=self.model_type,
             )
 
         # If our current hidden state is not up to date
@@ -385,14 +385,14 @@ class LoRASplitLM(torch.nn.Module):
                     cache=self.verifier_encoder_cache,
                     encoder=self.verifier_encoder,
                     num_past_seen_tokens=self.verifier_seen_tokens,
-                    self.model_type,
+                    model_type=self.model_type,
                 )
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
                 cache=self.shared_encoder_cache,
                 encoder=self.shared_encoder,
                 num_past_seen_tokens=self.shared_seen_tokens,
-                self.model_type,
+                model_type=self.model_type,
             )
 
         # If our current hidden state is not up to date

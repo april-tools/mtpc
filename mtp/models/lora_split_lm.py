@@ -321,6 +321,8 @@ class LoRASplitLM(torch.nn.Module):
                     num_past_seen_tokens=self.draft_seen_tokens,
                     self.model_type,
                 )
+                if self.model_type == "evabyte":
+                    draft_kvs["multibyte_decoding"] = use_cache
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
                 cache=self.shared_encoder_cache,
@@ -328,6 +330,8 @@ class LoRASplitLM(torch.nn.Module):
                 num_past_seen_tokens=self.shared_seen_tokens,
                 self.model_type,
             )
+            if self.model_type == "evabyte":
+                shared_kvs["multibyte_decoding"] = use_cache
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:
@@ -335,7 +339,6 @@ class LoRASplitLM(torch.nn.Module):
             shared_outputs = self.shared_encoder.model(
                 input_ids=input_ids[:, self.shared_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **shared_kvs,
             )
             shared_last_hidden_state = torch.cat(
@@ -351,7 +354,6 @@ class LoRASplitLM(torch.nn.Module):
                 input_ids=input_ids[:, self.draft_seen_tokens :],
                 inputs_embeds=shared_last_hidden_state[:, self.draft_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **draft_kvs,
             )
             draft_last_hidden_state = draft_outputs["last_hidden_state"]
@@ -386,6 +388,8 @@ class LoRASplitLM(torch.nn.Module):
                     num_past_seen_tokens=self.verifier_seen_tokens,
                     self.model_type,
                 )
+                if self.model_type == "evabyte":
+                    verifier_kvs["multibyte_decoding"] = use_cache
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
                 cache=self.shared_encoder_cache,
@@ -393,6 +397,8 @@ class LoRASplitLM(torch.nn.Module):
                 num_past_seen_tokens=self.shared_seen_tokens,
                 self.model_type,
             )
+            if self.model_type == "evabyte":
+                shared_kvs["multibyte_decoding"] = use_cache
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:
@@ -400,7 +406,6 @@ class LoRASplitLM(torch.nn.Module):
             shared_outputs = self.shared_encoder.model(
                 input_ids=input_ids[:, self.shared_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **shared_kvs,
             )
             shared_last_hidden_state = torch.cat(
@@ -416,7 +421,6 @@ class LoRASplitLM(torch.nn.Module):
                 input_ids=input_ids[:, self.verifier_seen_tokens :],
                 inputs_embeds=shared_last_hidden_state[:, self.verifier_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **verifier_kvs,
             )
             verifier_last_hidden_state = verifier_outputs["last_hidden_state"]

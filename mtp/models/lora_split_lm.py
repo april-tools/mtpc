@@ -3,6 +3,7 @@ import torch
 from copy import deepcopy
 from torch import Tensor
 from peft import PeftModelForCausalLM
+from transformers.cache_utils import DynamicCache
 
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.models.evabyte.training_utils import get_model_class_name
@@ -436,40 +437,51 @@ class LoRASplitLM(torch.nn.Module):
         return results
 
     def init_caches(self, num_tokens_speculate, batch_size=1):
-        self.shared_encoder_cache = EvaStaticCacheForTriton(
-            batch_size,
-            self.shared_encoder.config.num_attention_heads,
-            self.shared_encoder.config.window_size + num_tokens_speculate,
-            self.shared_encoder.config.hidden_size
-            // self.shared_encoder.config.num_attention_heads,
-            self.shared_encoder.config.num_hidden_layers,
-            torch.bfloat16,
-            self.shared_encoder.device,
-        )
-        if self.has_adapter:
-            self.draft_encoder_cache = EvaStaticCacheForTriton(
+        # If we do not have adaptors, we do not need a cache
+        # for draft and verifier (as they do not exist)
+        self.draft_encoder_cache = None
+        self.verifier_encoder_cache = None
+
+        if self.model_type == "evabyte":
+            self.shared_encoder_cache = EvaStaticCacheForTriton(
                 batch_size,
-                self.draft_encoder.config.num_attention_heads,
-                self.draft_encoder.config.window_size + num_tokens_speculate,
-                self.draft_encoder.config.hidden_size
-                // self.draft_encoder.config.num_attention_heads,
-                self.draft_encoder.config.num_hidden_layers,
+                self.shared_encoder.config.num_attention_heads,
+                self.shared_encoder.config.window_size + num_tokens_speculate,
+                self.shared_encoder.config.hidden_size
+                // self.shared_encoder.config.num_attention_heads,
+                self.shared_encoder.config.num_hidden_layers,
                 torch.bfloat16,
-                self.draft_encoder.device,
+                self.shared_encoder.device,
             )
-            self.verifier_encoder_cache = EvaStaticCacheForTriton(
-                batch_size,
-                self.verifier_encoder.config.num_attention_heads,
-                self.verifier_encoder.config.window_size + num_tokens_speculate,
-                self.verifier_encoder.config.hidden_size
-                // self.verifier_encoder.config.num_attention_heads,
-                self.verifier_encoder.config.num_hidden_layers,
-                torch.bfloat16,
-                self.verifier_encoder.device,
-            )
+            if self.has_adapter:
+                self.draft_encoder_cache = EvaStaticCacheForTriton(
+                    batch_size,
+                    self.draft_encoder.config.num_attention_heads,
+                    self.draft_encoder.config.window_size + num_tokens_speculate,
+                    self.draft_encoder.config.hidden_size
+                    // self.draft_encoder.config.num_attention_heads,
+                    self.draft_encoder.config.num_hidden_layers,
+                    torch.bfloat16,
+                    self.draft_encoder.device,
+                )
+                self.verifier_encoder_cache = EvaStaticCacheForTriton(
+                    batch_size,
+                    self.verifier_encoder.config.num_attention_heads,
+                    self.verifier_encoder.config.window_size + num_tokens_speculate,
+                    self.verifier_encoder.config.hidden_size
+                    // self.verifier_encoder.config.num_attention_heads,
+                    self.verifier_encoder.config.num_hidden_layers,
+                    torch.bfloat16,
+                    self.verifier_encoder.device,
+                )
+        elif self.model_type in ["llama", "standard"]:
+            # Standard models use HuggingFace DynamicCache
+            self.shared_encoder_cache = DynamicCache()
+            if self.has_adapter:
+                self.draft_encoder_cache = DynamicCache()
+                self.verifier_encoder_cache = DynamicCache()
         else:
-            self.draft_encoder_cache = None
-            self.verifier_encoder_cache = None
+            raise ValueError(f"Unsupported model type: {class_name}")
 
     def set_caches(self, shared_cache=None, draft_cache=None, verifier_cache=None):
         if shared_cache is not None:

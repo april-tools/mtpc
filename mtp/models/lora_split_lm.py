@@ -494,46 +494,55 @@ class LoRASplitLM(torch.nn.Module):
     def update_shared_cache(self, past_key_values, num_candidates, num_valid):
         assert num_valid <= num_candidates
         self.shared_seen_tokens += num_valid
-        self.shared_encoder_cache = self.shared_encoder.multi_byte_pred_update_cache(
-            past_key_values,
-            torch.arange(
-                num_candidates, device=self.shared_encoder.device, dtype=torch.int
-            ).unsqueeze(dim=0),
-            0,
-            num_valid,
-        )
+        if self.model_type == "evabyte":
+            self.shared_encoder_cache = self.shared_encoder.multi_byte_pred_update_cache(
+                past_key_values,
+                torch.arange(
+                    num_candidates, device=self.shared_encoder.device, dtype=torch.int
+                ).unsqueeze(dim=0),
+                0,
+                num_valid,
+            )
+        elif self.model_type in ["llama", "standard"]:
+            self.shared_encoder_cache.crop(self.shared_seen_tokens)
         assert self.shared_seen_tokens == self.shared_encoder_cache.get_seq_length()
 
     def update_draft_cache(self, past_key_values, num_candidates, num_valid):
         assert num_valid <= num_candidates
         self.draft_seen_tokens += num_valid
         if self.has_adapter:
-            self.draft_encoder_cache = self.draft_encoder.multi_byte_pred_update_cache(
-                past_key_values,
-                torch.arange(
-                    num_candidates, device=self.draft_encoder.device, dtype=torch.int
-                ).unsqueeze(dim=0),
-                0,
-                num_valid,
-            )
+            if self.model_type == "evabyte":
+                self.draft_encoder_cache = self.draft_encoder.multi_byte_pred_update_cache(
+                    past_key_values,
+                    torch.arange(
+                        num_candidates, device=self.draft_encoder.device, dtype=torch.int
+                    ).unsqueeze(dim=0),
+                    0,
+                    num_valid,
+                )
+            elif self.model_type in ["llama", "standard"]:
+                self.draft_encoder_cache.crop(self.shared_seen_tokens)
             assert self.draft_seen_tokens == self.draft_encoder_cache.get_seq_length()
 
     def update_verifier_cache(self, past_key_values, num_candidates, num_valid):
         assert num_valid <= num_candidates
         self.verifier_seen_tokens += num_valid
         if self.has_adapter:
-            self.verifier_encoder_cache = (
-                self.verifier_encoder.multi_byte_pred_update_cache(
-                    past_key_values,
-                    torch.arange(
-                        num_candidates,
-                        device=self.verifier_encoder.device,
-                        dtype=torch.int,
-                    ).unsqueeze(dim=0),
-                    0,
-                    num_valid,
+            if self.model_type == "evabyte":
+                self.verifier_encoder_cache = (
+                    self.verifier_encoder.multi_byte_pred_update_cache(
+                        past_key_values,
+                        torch.arange(
+                            num_candidates,
+                            device=self.verifier_encoder.device,
+                            dtype=torch.int,
+                        ).unsqueeze(dim=0),
+                        0,
+                        num_valid,
+                    )
                 )
-            )
+            elif self.model_type in ["llama", "standard"]:
+                self.verifier_encoder_cache.crop(self.shared_seen_tokens)
             assert (
                 self.verifier_seen_tokens
                 == self.verifier_encoder_cache.get_seq_length()

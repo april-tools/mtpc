@@ -5,19 +5,25 @@ from torch import Tensor
 from peft import PeftModelForCausalLM
 
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
+from mtp.models.evabyte.training_utils import get_model_class_name
 from mtp.models.evabyte.multibyte_decoding_evabyte import (
     multi_byte_pred_prepare_attn_mask,
 )
 
 
-def prepare_encode_kwargs(input_ids, cache, encoder, num_past_seen_tokens):
+
+def prepare_encode_kwargs(input_ids, cache, encoder, num_past_seen_tokens, model_type):
+
     # Produce attention, position ids and past key values
-    attn_mask = multi_byte_pred_prepare_attn_mask(
-        encoder.config,
-        num_past_seen_tokens,
-        input_ids.shape[1] - num_past_seen_tokens,
-        device=input_ids.device,
-    )
+    if model_type == "evabyte":
+        attn_mask = multi_byte_pred_prepare_attn_mask(
+            encoder.config,
+            num_past_seen_tokens,
+            input_ids.shape[1] - num_past_seen_tokens,
+            device=input_ids.device,
+        )
+    else:
+        attn_mask = None
     position_ids = get_position_ids(input_ids, num_past_seen_tokens)
     result = {
         "attention_mask": attn_mask,
@@ -156,6 +162,22 @@ class LoRASplitLM(torch.nn.Module):
     def has_adapter(self):
         return self.draft_encoder is not None
 
+    @property
+    def head(self):
+        return getattr(self, "lm_head")
+
+    @property
+    def model_type(self):
+        """Detect model type from shared_encoder."""
+        class_name = get_model_class_name(self.shared_encoder)
+
+        if class_name == "EvaByteModel" or class_name == "EvaByteForCausalLM":
+            return "evabyte"
+        elif class_name == "TPULlamaModel" or class_name == "LlamaModel":
+            return "llama"
+        else:
+            raise ValueError(f"Unsupported model type: {class_name}")
+
     @torch.no_grad()
     def prefill(self, input_ids, circuit_n_token):
         use_cache = True
@@ -250,10 +272,6 @@ class LoRASplitLM(torch.nn.Module):
         )
         return results
 
-    @property
-    def head(self):
-        return getattr(self, "lm_head")
-
     def head_logits(self, xx: Tensor) -> Tensor:
         # Compute the logits with the head
         logits = self.head(xx)
@@ -297,12 +315,14 @@ class LoRASplitLM(torch.nn.Module):
                     cache=self.draft_encoder_cache,
                     encoder=self.draft_encoder,
                     num_past_seen_tokens=self.draft_seen_tokens,
+                    self.model_type,
                 )
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
                 cache=self.shared_encoder_cache,
                 encoder=self.shared_encoder,
                 num_past_seen_tokens=self.shared_seen_tokens,
+                self.model_type,
             )
 
         # If our current hidden state is not up to date
@@ -360,12 +380,14 @@ class LoRASplitLM(torch.nn.Module):
                     cache=self.verifier_encoder_cache,
                     encoder=self.verifier_encoder,
                     num_past_seen_tokens=self.verifier_seen_tokens,
+                    self.model_type,
                 )
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
                 cache=self.shared_encoder_cache,
                 encoder=self.shared_encoder,
                 num_past_seen_tokens=self.shared_seen_tokens,
+                self.model_type,
             )
 
         # If our current hidden state is not up to date

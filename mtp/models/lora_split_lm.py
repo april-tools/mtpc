@@ -11,7 +11,6 @@ from mtp.models.evabyte.multibyte_decoding_evabyte import (
 )
 
 
-
 def prepare_encode_kwargs(input_ids, cache, encoder, num_past_seen_tokens, model_type):
 
     # Produce attention, position ids and past key values
@@ -90,6 +89,9 @@ class LoRASplitLM(torch.nn.Module):
 
         self.reset_caches()
 
+        # Error if model type is not supported
+        assert self.model_type is not None
+
     @classmethod
     def from_lm(cls, lm):
         """
@@ -129,6 +131,7 @@ class LoRASplitLM(torch.nn.Module):
             shared_encoder.model.model.layers = deepcopy(all_layers[:split_layer_idx])
             # NOTE: ! Important !
             # Monkey-patch norm since it would be applied to the last activation giving wrong result
+            # Note: This works both for EvaByte and TPULlamaModel
             shared_encoder.model.model.norm = torch.nn.Identity()
             shared_encoder = shared_encoder.unload()
             shared_encoder.config.num_hidden_layers = len(shared_encoder.model.layers)
@@ -171,9 +174,9 @@ class LoRASplitLM(torch.nn.Module):
         """Detect model type from shared_encoder."""
         class_name = get_model_class_name(self.shared_encoder)
 
-        if class_name == "EvaByteModel" or class_name == "EvaByteForCausalLM":
+        if class_name == "EvaByteModel":
             return "evabyte"
-        elif class_name == "TPULlamaModel" or class_name == "LlamaModel":
+        elif class_name == "TPULlamaModel":
             return "llama"
         else:
             raise ValueError(f"Unsupported model type: {class_name}")

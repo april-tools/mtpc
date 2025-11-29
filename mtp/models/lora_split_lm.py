@@ -191,8 +191,6 @@ class LoRASplitLM(torch.nn.Module):
 
         position_ids = get_position_ids(input_ids, num_past_seen_tokens=0)
 
-        # NOTE: No need to update cache as multibyte_decoding=False
-        # appends to the cache in the forward pass
         # ============ Prefill: Shared Encoder ========================
         shared_outputs = self.shared_encoder.model(
             input_ids=input_ids,
@@ -204,12 +202,13 @@ class LoRASplitLM(torch.nn.Module):
         shared_last_hidden_state = shared_outputs["last_hidden_state"]
         shared_past_key_values = shared_outputs["past_key_values"]
 
-        # Update kv cache
-        shared_outputs["past_key_values"] = (
-            self.shared_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                shared_outputs["past_key_values"]
+        if self.model_type == "evabyte":
+            # Update kv cache
+            shared_outputs["past_key_values"] = (
+                self.shared_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                    shared_outputs["past_key_values"]
+                )
             )
-        )
 
         if self.has_adapter:
             # ============ Prefill: Draft Encoder ========================
@@ -224,12 +223,13 @@ class LoRASplitLM(torch.nn.Module):
             draft_last_hidden_state = draft_outputs["last_hidden_state"]
             draft_past_key_values = draft_outputs["past_key_values"]
 
-            # Update kv cache
-            draft_outputs["past_key_values"] = (
-                self.draft_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                    draft_past_key_values
+            if self.model_type == "evabyte":
+                # Update kv cache
+                draft_outputs["past_key_values"] = (
+                    self.draft_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                        draft_past_key_values
+                    )
                 )
-            )
             # ============ Prefill: Verifier Encoder ========================
             # NOTE: Verifier must stay one step behind Draft
             verifier_outputs = self.verifier_encoder.model(
@@ -243,12 +243,13 @@ class LoRASplitLM(torch.nn.Module):
             verifier_last_hidden_state = verifier_outputs["last_hidden_state"]
             verifier_past_key_values = verifier_outputs["past_key_values"]
 
-            # Update kv cache
-            verifier_outputs["past_key_values"] = (
-                self.verifier_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                    verifier_past_key_values
+            if self.model_type == "evabyte":
+                # Update kv cache
+                verifier_outputs["past_key_values"] = (
+                    self.verifier_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
+                        verifier_past_key_values
+                    )
                 )
-            )
         else:
             draft_last_hidden_state = shared_last_hidden_state
             draft_past_key_values = shared_past_key_values

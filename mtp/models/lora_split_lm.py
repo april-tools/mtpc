@@ -33,6 +33,18 @@ def prepare_encode_kwargs(input_ids, cache, encoder, num_past_seen_tokens, model
     return result
 
 
+def get_model_type(model):
+    class_name = get_model_class_name(model)
+
+    if class_name == "EvaByteForCausalLM":
+        return "evabyte"
+    elif class_name == "TPULlamaForCausalLM":
+        return "llama"
+    else:
+        raise ValueError(f"Unsupported model type: {class_name}")
+    return class_name
+
+
 def count_adapter_layers(lm):
     """Count transformer layers that have LoRA adapters"""
 
@@ -104,15 +116,9 @@ class LoRASplitLM(torch.nn.Module):
             lm: The original LM instance
         """
 
-        if type(lm).__name__ == "EvaByteForCausalLM":
-            shared_encoder = lm
-            draft_encoder = None
-            verifier_encoder = None
-            print("Found no adapter layers..")
+        model_type = get_model_type(lm)
 
-            lm_head = deepcopy(lm.lm_head)
-            del lm.lm_head
-        elif isinstance(lm, PeftModelForCausalLM):
+        if isinstance(lm, PeftModelForCausalLM):
             lm_head = deepcopy(lm.model.lm_head)
             del lm.model.lm_head
 
@@ -158,6 +164,14 @@ class LoRASplitLM(torch.nn.Module):
             )
 
             del all_layers
+        elif model_type in ("llama", "evabyte"):
+            shared_encoder = lm
+            draft_encoder = None
+            verifier_encoder = None
+            print("Found no adapter layers..")
+
+            lm_head = deepcopy(lm.lm_head)
+            del lm.lm_head
         else:
             raise ValueError(f"Unexpected LM of type: {lm.__class__}")
 
@@ -174,14 +188,7 @@ class LoRASplitLM(torch.nn.Module):
     @property
     def model_type(self):
         """Detect model type from shared_encoder."""
-        class_name = get_model_class_name(self.shared_encoder)
-
-        if class_name == "EvaByteModel":
-            return "evabyte"
-        elif class_name == "TPULlamaModel":
-            return "llama"
-        else:
-            raise ValueError(f"Unsupported model type: {class_name}")
+        return get_model_type(self.shared_encoder)
 
     @torch.no_grad()
     def prefill(self, input_ids, circuit_n_token):
@@ -197,7 +204,7 @@ class LoRASplitLM(torch.nn.Module):
             use_cache=True,
             position_ids=position_ids,
             past_key_values=self.shared_encoder_cache,
-            **arch_specific_inference_kwargs,
+            **self.arch_specific_inference_kwargs,
         )
         shared_last_hidden_state = shared_outputs["last_hidden_state"]
         shared_past_key_values = shared_outputs["past_key_values"]
@@ -218,7 +225,7 @@ class LoRASplitLM(torch.nn.Module):
                 use_cache=True,
                 past_key_values=self.draft_encoder_cache,
                 position_ids=position_ids,
-                **arch_specific_inference_kwargs,
+                **self.arch_specific_inference_kwargs,
             )
             draft_last_hidden_state = draft_outputs["last_hidden_state"]
             draft_past_key_values = draft_outputs["past_key_values"]
@@ -238,7 +245,7 @@ class LoRASplitLM(torch.nn.Module):
                 use_cache=True,
                 past_key_values=self.verifier_encoder_cache,
                 position_ids=position_ids[:, :-1],
-                **arch_specific_inference_kwargs,
+                **self.arch_specific_inference_kwargs,
             )
             verifier_last_hidden_state = verifier_outputs["last_hidden_state"]
             verifier_past_key_values = verifier_outputs["past_key_values"]
@@ -475,14 +482,14 @@ class LoRASplitLM(torch.nn.Module):
                     torch.bfloat16,
                     self.verifier_encoder.device,
                 )
-        elif self.model_type in ["llama", "standard"]:
+        elif self.model_type == "llama":
             # Standard models use HuggingFace DynamicCache
             self.shared_encoder_cache = DynamicCache()
             if self.has_adapter:
                 self.draft_encoder_cache = DynamicCache()
                 self.verifier_encoder_cache = DynamicCache()
         else:
-            raise ValueError(f"Unsupported model type: {class_name}")
+            raise ValueError(f"Unsupported model type: {self.model_type}")
 
     def set_caches(self, shared_cache=None, draft_cache=None, verifier_cache=None):
         if shared_cache is not None:
@@ -504,7 +511,7 @@ class LoRASplitLM(torch.nn.Module):
                 0,
                 num_valid,
             )
-        elif self.model_type in ["llama", "standard"]:
+        elif self.model_type == "llama":
             self.shared_encoder_cache.crop(self.shared_seen_tokens)
         assert self.shared_seen_tokens == self.shared_encoder_cache.get_seq_length()
 
@@ -521,7 +528,7 @@ class LoRASplitLM(torch.nn.Module):
                     0,
                     num_valid,
                 )
-            elif self.model_type in ["llama", "standard"]:
+            elif self.model_type == "llama":
                 self.draft_encoder_cache.crop(self.shared_seen_tokens)
             assert self.draft_seen_tokens == self.draft_encoder_cache.get_seq_length()
 
@@ -542,7 +549,7 @@ class LoRASplitLM(torch.nn.Module):
                         num_valid,
                     )
                 )
-            elif self.model_type in ["llama", "standard"]:
+            elif self.model_type == "llama":
                 self.verifier_encoder_cache.crop(self.shared_seen_tokens)
             assert (
                 self.verifier_seen_tokens

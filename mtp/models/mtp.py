@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 from typing import Callable
 from torch import Tensor, LongTensor
-from transformers.cache_utils import Cache
+from transformers.cache_utils import Cache, DynamicCache
 
 from mtp.models.evabyte.training_utils import (
     model_is_evabyte,
@@ -519,7 +519,6 @@ class MultiTokenLM(torch.nn.Module):
                     ).unsqueeze(dim=0)
                     outputs = self.lm.encoder(
                         inputs,
-                        attention_mask=None,
                         use_cache=True,
                         past_key_values=past_key_values,
                         position_ids=position_ids,
@@ -538,7 +537,7 @@ class MultiTokenLM(torch.nn.Module):
                 attn_mask = multi_byte_pred_prepare_attn_mask(
                     self.lm.config,
                     past_seen_tokens,
-                    self.circuit.n_token,
+                    inputs.shape[1] - past_seen_tokens,
                     device=inputs.device,
                 )
                 position_ids = torch.arange(
@@ -562,43 +561,54 @@ class MultiTokenLM(torch.nn.Module):
                         self.circuit.n_token, device=inputs.device, dtype=torch.int
                     ).unsqueeze(dim=0),
                     0,
-                    self.circuit.n_token,
+                    inputs.shape[1] - past_seen_tokens,
                 )
         else:
             outputs = self.lm.encoder(input_ids=inputs, use_cache=False)
 
-        # Parameterize the circuit
         xx = outputs["last_hidden_state"]
-        next_head_past_key_values = self._parameterize_circuit(
-            xx,
-            use_cache=use_cache,
-            attention_mask=attention_mask,
-            past_key_values=head_past_key_values,
-            position_ids=position_ids,
-            generate=True,
-            top_p=draft_top_p,
-            logit_processor=logit_processor,
-        )
 
-        # Update caches for the next iteration
-        if use_cache:
-            head_past_key_values = next_head_past_key_values
+        if mode in ("mtp", "stp-circuit"):
+            # Parameterize the circuit
+            next_head_past_key_values = self._parameterize_circuit(
+                xx,
+                use_cache=use_cache,
+                attention_mask=attention_mask,
+                past_key_values=head_past_key_values,
+                position_ids=position_ids,
+                generate=True,
+                top_p=draft_top_p,
+                logit_processor=logit_processor,
+            )
 
-        if mode == "mtp":
-            # Sample or argmax the next tokens
-            if use_argmax:
-                tokens = self.circuit.argmax()
+            # Update caches for the next iteration
+            if use_cache:
+                head_past_key_values = next_head_past_key_values
+
+            if mode == "mtp":
+                # Sample or argmax the next tokens
+                if use_argmax:
+                    tokens = self.circuit.argmax()
+                else:
+                    tokens = self.circuit.sample(num_samples=1)
             else:
-                tokens = self.circuit.sample(num_samples=1)
+                next_token_probs = torch.exp(self.compute_next_token_log_probs())
+                if use_argmax:
+                    tokens = torch.argmax(next_token_probs, dim=1)
+                    tokens = tokens.unsqueeze(dim=1)
+                else:
+                    tokens = torch.multinomial(next_token_probs, num_samples=1)
+
         elif mode == "stp":
-            next_token_probs = torch.exp(self.compute_next_token_log_probs())
+            logits = self.lm.head_logits(xx[:, -1:, :])
+            # next_token_probs = torch.exp(self.compute_next_token_log_probs())
             if use_argmax:
-                tokens = torch.argmax(next_token_probs, dim=1)
-                tokens = tokens.unsqueeze(dim=1)
+                tokens = torch.argmax(logits, dim=2)
             else:
+                next_token_probs = torch.exp(logits).squeeze(dim=1)
                 tokens = torch.multinomial(next_token_probs, num_samples=1)
         else:
-            raise ValueError("Mode must be 'stp' or 'mtp'")
+            raise ValueError("Mode must be 'mtp' or 'stp' or 'stp-circuit'")
         return dict(
             tokens=tokens,
             past_key_values=past_key_values,
@@ -777,8 +787,9 @@ class MultiTokenLM(torch.nn.Module):
                 func = self.self_speculative_generate_unified
         else:
             if legacy:
-                raise ValueError("There is no legacy no lora algorithm")
-            func = self.self_speculative_generate_unified
+                func = self.self_speculative_generate_no_lora
+            else:
+                func = self.self_speculative_generate_unified
         return func(
             inputs,
             use_cache=use_cache,
@@ -821,8 +832,9 @@ class MultiTokenLM(torch.nn.Module):
                 func = self.self_speculative_generate_unified
         else:
             if legacy:
-                raise ValueError("There is no legacy no lora algorithm")
-            func = self.self_speculative_generate_unified
+                func = self.self_speculative_generate_no_lora
+            else:
+                func = self.self_speculative_generate_unified
         return func(
             inputs,
             use_cache=use_cache,

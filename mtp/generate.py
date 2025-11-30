@@ -200,10 +200,10 @@ def generate(
                     head_past_key_values = outputs["head_past_key_values"]
                     past_num_tokens = outputs["past_num_tokens"]
                     last_hidden_state = outputs["last_hidden_state"]
-                elif args.mode == "mtp":
+                elif args.mode in ("mtp", "stp-circuit"):
                     outputs = model.generate(
                         x,
-                        mode="mtp",
+                        mode=args.mode,
                         use_argmax=args.argmax,
                         use_cache=args.use_cache,
                         past_key_values=past_key_values,
@@ -219,8 +219,10 @@ def generate(
                     outputs = model.generate(
                         x,
                         mode="stp",
+                        use_argmax=args.argmax,
                         use_cache=args.use_cache,
                         past_key_values=past_key_values,
+                        draft_top_p=draft_top_p,
                         logit_processor=logit_processor,
                     )
                     tokens = outputs["tokens"]
@@ -357,9 +359,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["stp", "mtp"],
-        help="Single Token Prediction (stp) is available both for MTP and autoregressive models. "
-        "MTP is available only for MTP models",
+        choices=["stp", "stp-circuit", "mtp"],
+        help="Single Token Prediction (stp) uses the original prediction head "
+        "autoregressively. (stp-circuit) uses the head learned by the circuit "
+        "at position 1 autoregressively. Multi Token Prediction (mtp) uses "
+        "the circuit to predict n tokens at a time with no guarantees.\n"
+        "(stp-circuit) and (mtp) is only available for MTP models."
     )
     parser.add_argument(
         "--task",
@@ -440,8 +445,10 @@ if __name__ == "__main__":
     # Initialize training context
     ctx = autocast(device_type=args.device, dtype=torch.bfloat16)
 
-    if args.speculative:
-        args.overrides.append("lm.model.encoder_only=false")
+    args.overrides.append("lm.model.encoder_only=false")
+    # if args.speculative:
+    #     args.overrides.append("lm.model.encoder_only=false")
+
     # If args.checkpoint=None, load random initialised model with overrides
     model, cfg = load_model_with_overrides(args.checkpoint, args.overrides)
 
@@ -449,15 +456,15 @@ if __name__ == "__main__":
         model.lm.dequantize()
 
     if args.speculative:
-        if model.lm.has_adapter and args.legacy_lora_speculative:
-            model.lm.enable_dual_model_inference()
+        if args.legacy_lora_speculative:
+            if model.lm.has_adapter:
+                model.lm.enable_dual_model_inference()
         else:
             # Replace the lm with a split model
             model.lm = LoRASplitLM.from_lm(model.lm._lm)
 
     model.to(args.device)
     model.eval()
-
 
     if args.compile:
         # Enable verbose logging

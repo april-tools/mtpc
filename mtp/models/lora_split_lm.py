@@ -102,9 +102,11 @@ class LoRASplitLM(torch.nn.Module):
 
         self.reset_caches()
 
+        self.arch_specific_prefill_kwargs = dict()
         self.arch_specific_inference_kwargs = dict()
         if self.model_type == "evabyte":
-            self.arch_specific_inference_kwargs = {"multibyte_decoding": False}
+            self.arch_specific_prefill_kwargs = {"multibyte_decoding": False}
+            self.arch_specific_inference_kwargs = {"multibyte_decoding": True}
 
     @classmethod
     def from_lm(cls, lm):
@@ -204,7 +206,7 @@ class LoRASplitLM(torch.nn.Module):
             use_cache=True,
             position_ids=position_ids,
             past_key_values=self.shared_encoder_cache,
-            **self.arch_specific_inference_kwargs,
+            **self.arch_specific_prefill_kwargs,
         )
         shared_last_hidden_state = shared_outputs["last_hidden_state"]
         shared_past_key_values = shared_outputs["past_key_values"]
@@ -225,7 +227,7 @@ class LoRASplitLM(torch.nn.Module):
                 use_cache=True,
                 past_key_values=self.draft_encoder_cache,
                 position_ids=position_ids,
-                **self.arch_specific_inference_kwargs,
+                **self.arch_specific_prefill_kwargs,
             )
             draft_last_hidden_state = draft_outputs["last_hidden_state"]
             draft_past_key_values = draft_outputs["past_key_values"]
@@ -245,7 +247,7 @@ class LoRASplitLM(torch.nn.Module):
                 use_cache=True,
                 past_key_values=self.verifier_encoder_cache,
                 position_ids=position_ids[:, :-1],
-                **self.arch_specific_inference_kwargs,
+                **self.arch_specific_prefill_kwargs,
             )
             verifier_last_hidden_state = verifier_outputs["last_hidden_state"]
             verifier_past_key_values = verifier_outputs["past_key_values"]

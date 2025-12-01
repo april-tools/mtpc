@@ -3,11 +3,12 @@ import torch.nn.functional as F
 
 from typing import Callable
 from torch import Tensor, LongTensor
-from transformers.cache_utils import Cache, DynamicCache
+from transformers.cache_utils import Cache
 
+from mtp.models.evabyte.multibyte_decoding_evabyte import (
+    multi_byte_pred_prepare_attn_mask,
+)
 from mtp.models.evabyte.training_utils import (
-    model_is_evabyte,
-    model_is_llama,
     is_evabyte_packed_sequence,
     is_llama_packed_sequence,
     prepare_evabyte_mask_and_position,
@@ -15,9 +16,7 @@ from mtp.models.evabyte.training_utils import (
     EVABYTE_EOS_TOKEN_ID,
     LLAMA_EOS_TOKEN_ID
 )
-from mtp.models.evabyte.multibyte_decoding_evabyte import (
-    multi_byte_pred_prepare_attn_mask,
-)
+from mtp.utils.model_types import model_is_evabyte, model_is_llama
 from mtp.utils.profile import time_block
 from mtp.utils.sampling import truncate_logprobs_top_p
 from mtp.utils.packing import packed_targets_to_target_windows

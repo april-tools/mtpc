@@ -10,26 +10,6 @@ EVABYTE_EOS_TOKEN_ID = 2
 LLAMA_EOS_TOKEN_ID = 258
 
 
-def get_model_class_name(model):
-    # Deal with the case where we have LoRA
-    try:
-        base_model = model.get_base_model()
-        class_name = type(base_model).__name__
-    except AttributeError:
-        class_name = type(model).__name__
-    return class_name
-
-
-def model_is_evabyte(model):
-    class_name = get_model_class_name(model)
-    return class_name == "EvaByteModel"
-
-
-def model_is_llama(model):
-    class_name = get_model_class_name(model)
-    return class_name == "TPULlamaModel"
-
-
 def prepare_eva_attention_mask(
         seq_len,
         device,

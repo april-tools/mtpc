@@ -455,6 +455,9 @@ if __name__ == "__main__":
     if args.dequantize:
         model.lm.dequantize()
 
+    model.to(args.device)
+    model.eval()
+
     if args.speculative:
         if args.legacy_lora_speculative:
             if model.lm.has_adapter:
@@ -462,9 +465,6 @@ if __name__ == "__main__":
         else:
             # Replace the lm with a split model
             model.lm = LoRASplitLM.from_lm(model.lm._lm)
-
-    model.to(args.device)
-    model.eval()
 
     if args.compile:
         # Enable verbose logging

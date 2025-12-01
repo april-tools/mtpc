@@ -5,48 +5,7 @@ from torch import Tensor
 from peft import PeftModelForCausalLM
 
 from mtp.models.cache import KVCacheWrapper
-from mtp.models.evabyte.multibyte_decoding_evabyte import (
-    multi_byte_pred_prepare_attn_mask,
-)
 from mtp.utils.model_types import get_model_type
-
-
-def prepare_encode_kwargs(input_ids, cache):
-
-    # Produce attention, position ids and past key values
-    if cache.model_type == "evabyte":
-        attn_mask = multi_byte_pred_prepare_attn_mask(
-            cache.config,
-            cache.seen_tokens,
-            input_ids.shape[1] - cache.seen_tokens,
-            device=input_ids.device,
-        )
-    else:
-        attn_mask = None
-    position_ids = get_position_ids(input_ids, cache.seen_tokens)
-    result = {
-        "attention_mask": attn_mask,
-        "past_key_values": cache.cache,
-        "position_ids": position_ids,
-    }
-    return result
-
-
-def get_position_ids(inputs, num_past_seen_tokens=0):
-    assert num_past_seen_tokens >= 0
-    # Construct input_ids
-    if num_past_seen_tokens == 0:
-        position_ids = torch.arange(
-            0, inputs.shape[1], device=inputs.device, dtype=torch.int
-        ).unsqueeze(dim=0)
-    else:
-        position_ids = torch.arange(
-            num_past_seen_tokens,
-            inputs.shape[1],
-            device=inputs.device,
-            dtype=torch.int,
-        ).unsqueeze(dim=0)
-    return position_ids
 
 
 def count_adapter_layers(lm):
@@ -217,7 +176,8 @@ class LoRASplitLM(torch.nn.Module):
     @torch.no_grad()
     def prefill(self, input_ids, circuit_n_token):
 
-        position_ids = get_position_ids(input_ids, num_past_seen_tokens=0)
+        assert self.shared_seen_tokens == 0
+        position_ids = self.shared_kv_cache.get_position_ids(input_ids)
 
         # ============ Prefill: Shared Encoder ========================
         shared_outputs = self.shared_encoder.model(
@@ -317,13 +277,11 @@ class LoRASplitLM(torch.nn.Module):
             if self.has_adapter:
                 assert self.shared_encoder_cache is not None, "Prefilling required"
                 assert self.draft_encoder_cache is not None, "Prefilling required"
-                draft_kvs = prepare_encode_kwargs(
+                draft_kvs = self.draft_kv_cache.get_encode_kwargs(
                     input_ids=input_ids,
-                    cache=self.draft_kv_cache,
                 )
-            shared_kvs = prepare_encode_kwargs(
+            shared_kvs = self.shared_kv_cache.get_encoder_kwargs(
                 input_ids=input_ids,
-                cache=self.shared_kv_cache,
             )
 
         # If our current hidden state is not up to date
@@ -376,13 +334,11 @@ class LoRASplitLM(torch.nn.Module):
             if self.has_adapter:
                 assert self.shared_encoder_cache is not None, "Prefilling required"
                 assert self.verifier_encoder_cache is not None, "Prefilling required"
-                verifier_kvs = prepare_encode_kwargs(
+                verifier_kvs = self.verifier_kv_cache.get_encode_kwargs(
                     input_ids=input_ids,
-                    cache=self.verifier_kv_cache,
                 )
-            shared_kvs = prepare_encode_kwargs(
+            shared_kvs = self.shared_kv_cache.get_encoder_kwargs(
                 input_ids=input_ids,
-                cache=self.shared_kv_cache,
             )
 
         # If our current hidden state is not up to date

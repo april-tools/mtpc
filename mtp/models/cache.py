@@ -2,8 +2,32 @@ import torch
 
 from transformers.cache_utils import DynamicCache
 
+from mtp.models.evabyte.multibyte_decoding_evabyte import (
+    multi_byte_pred_prepare_attn_mask,
+)
 from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.utils.model_types import get_model_type
+
+
+def prepare_encode_kwargs(input_ids, cache):
+
+    # Produce attention, position ids and past key values
+    if cache.model_type == "evabyte":
+        attn_mask = multi_byte_pred_prepare_attn_mask(
+            cache.config,
+            cache.seen_tokens,
+            input_ids.shape[1] - cache.seen_tokens,
+            device=input_ids.device,
+        )
+    else:
+        attn_mask = None
+    position_ids = get_position_ids(input_ids, cache.seen_tokens)
+    result = {
+        "attention_mask": attn_mask,
+        "past_key_values": cache.cache,
+        "position_ids": position_ids,
+    }
+    return result
 
 
 class KVCacheWrapper(object):
@@ -143,3 +167,39 @@ class KVCacheWrapper(object):
     def reset(self):
         """Reset the cache and seen tokens counter."""
         self.init()
+
+    # TBH the functions below do not belong here
+    # but they are convenient helpers - keep everything in one place
+    def get_position_ids(self, input_ids):
+        # Build position IDs for new tokens starting from seen_tokens
+        assert self.seen_tokens >= 0
+        assert self.seen_tokens <= input_ids.shape[1]
+        # Construct input_ids
+        position_ids = torch.arange(
+            self.seen_tokens,
+            input_ids.shape[1],
+            device=input_ids.device,
+            dtype=torch.int,
+        ).unsqueeze(dim=0)
+        return position_ids
+
+    def get_attn_mask(self, input_ids):
+        if self.model_type == "evabyte":
+            attn_mask = multi_byte_pred_prepare_attn_mask(
+                self.config,
+                self.seen_tokens,
+                input_ids.shape[1] - self.seen_tokens,
+                device=input_ids.device,
+            )
+        else:
+            attn_mask = None
+        return attn_mask
+
+    def get_encoder_kwargs(self, input_ids):
+        # Produce attention, position ids and past key values
+        kwargs = {
+            "attention_mask": self.get_attn_mask(input_ids),
+            "position_ids": self.get_position_ids(input_ids),
+            "past_key_values": self.cache,
+        }
+        return kwargs

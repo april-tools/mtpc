@@ -3,9 +3,7 @@ import torch
 from copy import deepcopy
 from torch import Tensor
 from peft import PeftModelForCausalLM
-from transformers.cache_utils import DynamicCache
 
-from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.models.cache import KVCacheWrapper
 from mtp.models.evabyte.multibyte_decoding_evabyte import (
     multi_byte_pred_prepare_attn_mask,
@@ -13,39 +11,25 @@ from mtp.models.evabyte.multibyte_decoding_evabyte import (
 from mtp.utils.model_types import get_model_type
 
 
-def prepare_encode_kwargs(input_ids, cache, encoder, num_past_seen_tokens, model_type):
+def prepare_encode_kwargs(input_ids, cache):
 
     # Produce attention, position ids and past key values
-    if model_type == "evabyte":
+    if cache.model_type == "evabyte":
         attn_mask = multi_byte_pred_prepare_attn_mask(
-            encoder.config,
-            num_past_seen_tokens,
-            input_ids.shape[1] - num_past_seen_tokens,
+            cache.config,
+            cache.seen_tokens,
+            input_ids.shape[1] - cache.seen_tokens,
             device=input_ids.device,
         )
     else:
         attn_mask = None
-    position_ids = get_position_ids(input_ids, num_past_seen_tokens)
+    position_ids = get_position_ids(input_ids, cache.seen_tokens)
     result = {
         "attention_mask": attn_mask,
-        "past_key_values": cache,
+        "past_key_values": cache.cache,
         "position_ids": position_ids,
     }
     return result
-
-
-def count_adapter_layers(lm):
-    """Count transformer layers that have LoRA adapters"""
-
-    count = 0
-    for layer in lm.layers:
-        # Check if this layer has any LoRA modules
-        for module in layer.modules():
-            if hasattr(module, "lora_A"):
-                count += 1
-                break  # Found adapter in this layer, move to next layer
-
-    return count
 
 
 def get_position_ids(inputs, num_past_seen_tokens=0):
@@ -63,6 +47,20 @@ def get_position_ids(inputs, num_past_seen_tokens=0):
             dtype=torch.int,
         ).unsqueeze(dim=0)
     return position_ids
+
+
+def count_adapter_layers(lm):
+    """Count transformer layers that have LoRA adapters"""
+
+    count = 0
+    for layer in lm.layers:
+        # Check if this layer has any LoRA modules
+        for module in layer.modules():
+            if hasattr(module, "lora_A"):
+                count += 1
+                break  # Found adapter in this layer, move to next layer
+
+    return count
 
 
 class LoRASplitLM(torch.nn.Module):
@@ -321,17 +319,11 @@ class LoRASplitLM(torch.nn.Module):
                 assert self.draft_encoder_cache is not None, "Prefilling required"
                 draft_kvs = prepare_encode_kwargs(
                     input_ids=input_ids,
-                    cache=self.draft_encoder_cache,
-                    encoder=self.draft_encoder,
-                    num_past_seen_tokens=self.draft_seen_tokens,
-                    model_type=self.model_type,
+                    cache=self.draft_kv_cache,
                 )
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
-                cache=self.shared_encoder_cache,
-                encoder=self.shared_encoder,
-                num_past_seen_tokens=self.shared_seen_tokens,
-                model_type=self.model_type,
+                cache=self.shared_kv_cache,
             )
 
         # If our current hidden state is not up to date
@@ -386,17 +378,11 @@ class LoRASplitLM(torch.nn.Module):
                 assert self.verifier_encoder_cache is not None, "Prefilling required"
                 verifier_kvs = prepare_encode_kwargs(
                     input_ids=input_ids,
-                    cache=self.verifier_encoder_cache,
-                    encoder=self.verifier_encoder,
-                    num_past_seen_tokens=self.verifier_seen_tokens,
-                    model_type=self.model_type,
+                    cache=self.verifier_kv_cache,
                 )
             shared_kvs = prepare_encode_kwargs(
                 input_ids=input_ids,
-                cache=self.shared_encoder_cache,
-                encoder=self.shared_encoder,
-                num_past_seen_tokens=self.shared_seen_tokens,
-                model_type=self.model_type,
+                cache=self.shared_kv_cache,
             )
 
         # If our current hidden state is not up to date

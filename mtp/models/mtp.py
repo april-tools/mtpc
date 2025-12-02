@@ -14,14 +14,14 @@ from mtp.models.evabyte.training_utils import (
     prepare_evabyte_mask_and_position,
     prepare_llama_mask_and_position,
     EVABYTE_EOS_TOKEN_ID,
-    LLAMA_EOS_TOKEN_ID
+    LLAMA_EOS_TOKEN_ID,
 )
 from mtp.utils.model_types import model_is_evabyte, model_is_llama
 from mtp.utils.profile import time_block
 from mtp.utils.sampling import truncate_logprobs_top_p
 from mtp.utils.packing import packed_targets_to_target_windows
-from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.models.lora_split_lm import LoRASplitLM
+from mtp.models.cache import KVCacheWrapper
 
 from .lm import LM
 
@@ -295,11 +295,15 @@ class MultiTokenLM(torch.nn.Module):
                 teacher_log_probs = teacher_log_probs.squeeze(-1)
 
                 # If we use packing make sure we don't leak predictions across example boundaries
-                if model_is_evabyte(self.lm.encoder) and is_evabyte_packed_sequence(input_ids):
+                if model_is_evabyte(self.lm.encoder) and is_evabyte_packed_sequence(
+                    input_ids
+                ):
                     teacher_log_probs[yy.permute(2, 0, 1) == IGNORE_TOKEN_ID] = (
                         -torch.inf
                     )
-                elif model_is_llama(self.lm.encoder) and is_llama_packed_sequence(input_ids):
+                elif model_is_llama(self.lm.encoder) and is_llama_packed_sequence(
+                    input_ids
+                ):
                     teacher_log_probs[yy.permute(2, 0, 1) == IGNORE_TOKEN_ID] = (
                         -torch.inf
                     )
@@ -501,65 +505,38 @@ class MultiTokenLM(torch.nn.Module):
         if use_cache:
             if past_key_values is None:
                 with time_block(inputs.device) as t:
-                    # LL: prepare Evabyte KV cache for multi-token prediction
-                    # LL: the below code is required for the first iteration, i.e., here's why check past_key_values is None here
-                    past_key_values = EvaStaticCacheForTriton(
-                        inputs.shape[0],
-                        self.lm.config.num_attention_heads,
-                        self.lm.config.window_size + self.circuit.n_token,
-                        self.lm.config.hidden_size
-                        // self.lm.config.num_attention_heads,
-                        self.lm.config.num_hidden_layers,
-                        torch.bfloat16,
-                        inputs.device,
-                    )
-                    position_ids = torch.arange(
-                        0, inputs.shape[1], device=inputs.device, dtype=torch.int
-                    ).unsqueeze(dim=0)
+                    # Monkey-patch self.lm to add kv-cache wrapper and keep
+                    # helper functions which produce pos_ids and attn mask
+                    # in one place.
+                    self.lm._cache = KVCacheWrapper.for_model(self.lm._lm)
+                    kwargs = self.lm._cache.get_encoder_kwargs(inputs)
+                    if self.lm._cache.model_type == "evabyte":
+                        kwargs["multibyte_decoding"] = False
                     outputs = self.lm.encoder(
-                        inputs,
+                        input_ids=inputs,
                         use_cache=True,
-                        past_key_values=past_key_values,
-                        position_ids=position_ids,
-                        multibyte_decoding=False,
+                        **kwargs,
                     )
-                    past_key_values = outputs["past_key_values"]
-                    past_key_values = self.lm.lm_model._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                        past_key_values
+                    past_key_values = self.lm._cache.prefill_update(
+                        outputs["past_key_values"]
                     )
                 prefill_time = t.elapsed_time
             else:
-                # LL: below I am reusing the code for multi token generation in Evabyte
-                # LL: the challenge is preparing all the masks and update the multi token KV cache accordingly
-                #     to the number of tokens we sample each time
                 past_seen_tokens = past_key_values.get_seq_length()
-                attn_mask = multi_byte_pred_prepare_attn_mask(
-                    self.lm.config,
-                    past_seen_tokens,
-                    inputs.shape[1] - past_seen_tokens,
-                    device=inputs.device,
-                )
-                position_ids = torch.arange(
-                    past_seen_tokens,
-                    inputs.shape[1],
-                    device=inputs.device,
-                    dtype=torch.int,
-                ).unsqueeze(dim=0)
+                kwargs = self.lm._cache.get_encoder_kwargs(inputs)
+                if self.lm._cache.model_type == "evabyte":
+                    kwargs["multibyte_decoding"] = True
+                # Need to pass full history for Llama to work with kv-cache
+                if self.lm._cache.model_type == "llama":
+                    kwargs["past_input_ids"] = inputs
                 outputs = self.lm.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
                     use_cache=True,
-                    attention_mask=attn_mask,
-                    past_key_values=past_key_values,
-                    position_ids=position_ids,
-                    multibyte_decoding=True,
+                    **kwargs,
                 )
-                past_key_values = outputs["past_key_values"]
-                past_key_values = self.lm.lm_model.multi_byte_pred_update_cache(
-                    past_key_values,
-                    torch.arange(
-                        self.circuit.n_token, device=inputs.device, dtype=torch.int
-                    ).unsqueeze(dim=0),
-                    0,
+                past_key_values = self.lm._cache.update(
+                    outputs["past_key_values"],
+                    self.circuit.n_token,
                     inputs.shape[1] - past_seen_tokens,
                 )
         else:
@@ -973,7 +950,7 @@ class MultiTokenLM(torch.nn.Module):
         # zz: (B, S + H, D) -> (B, H + 1, D)
         zz = outputs["last_hidden_state"]
         assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
-        zz = zz[:, -tokens.shape[1] - 1:]
+        zz = zz[:, -tokens.shape[1] - 1 :]
         # logits: (B, H + 1, V)
         logits = self.lm.head_logits(zz)
         if logit_processor is not None:
@@ -1133,7 +1110,7 @@ class MultiTokenLM(torch.nn.Module):
         # zz: (B, S + H, D) -> (B, H + 1, D)
         zz = v_hidden_states["verifier_last_hidden_state"]
         assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
-        zz = zz[:, -tokens.shape[1] - 1:]
+        zz = zz[:, -tokens.shape[1] - 1 :]
         # logits: (B, H + 1, V)
         logits = self.lm.head_logits(zz)
         if logit_processor is not None:
@@ -1353,7 +1330,7 @@ class MultiTokenLM(torch.nn.Module):
             # zz: (B, S + H, D) -> (B, H + 1, D)
             zz = outputs["last_hidden_state"]
             assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
-            zz = zz[:, -tokens.shape[1] - 1:]
+            zz = zz[:, -tokens.shape[1] - 1 :]
             # logits: (B, H + 1, V)
             logits = self.lm.head_logits(zz)
             if logit_processor is not None:

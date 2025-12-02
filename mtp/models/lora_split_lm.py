@@ -283,6 +283,9 @@ class LoRASplitLM(torch.nn.Module):
             shared_kvs = self.shared_kv_cache.get_encoder_kwargs(
                 input_ids=input_ids,
             )
+            # For Llama we need to pass in the whole history
+            if self.shared_kv_cache.model_type == "llama":
+                shared_kvs["past_input_ids"] = input_ids
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:
@@ -340,6 +343,9 @@ class LoRASplitLM(torch.nn.Module):
             shared_kvs = self.shared_kv_cache.get_encoder_kwargs(
                 input_ids=input_ids,
             )
+            # For Llama we need to pass in the whole history
+            if self.shared_kv_cache.model_type == "llama":
+                shared_kvs["past_input_ids"] = input_ids
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:

@@ -9,27 +9,6 @@ from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
 from mtp.utils.model_types import get_model_type
 
 
-def prepare_encode_kwargs(input_ids, cache):
-
-    # Produce attention, position ids and past key values
-    if cache.model_type == "evabyte":
-        attn_mask = multi_byte_pred_prepare_attn_mask(
-            cache.config,
-            cache.seen_tokens,
-            input_ids.shape[1] - cache.seen_tokens,
-            device=input_ids.device,
-        )
-    else:
-        attn_mask = None
-    position_ids = get_position_ids(input_ids, cache.seen_tokens)
-    result = {
-        "attention_mask": attn_mask,
-        "past_key_values": cache.cache,
-        "position_ids": position_ids,
-    }
-    return result
-
-
 class KVCacheWrapper(object):
     """This KVCacheWrapper implementation provides a unified interface for the
     kv-cache of all models we support in the codebase"""
@@ -159,6 +138,8 @@ class KVCacheWrapper(object):
         if self.model_type == "evabyte":
             self.cache = self._prefill_update_fn(past_key_values)
         # No special prefill update needed for llama
+        if self.model_type == "llama":
+            pass
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
         self.seen_tokens = self.cache.get_seq_length()
@@ -184,18 +165,17 @@ class KVCacheWrapper(object):
         return position_ids
 
     def get_attn_mask(self, input_ids):
-        if self.model_type == "evabyte":
+        attn_mask = None
+        if self.model_type == "evabyte" and self.seen_tokens > 0:
             attn_mask = multi_byte_pred_prepare_attn_mask(
                 self.config,
                 self.seen_tokens,
                 input_ids.shape[1] - self.seen_tokens,
                 device=input_ids.device,
             )
-        else:
-            attn_mask = None
         return attn_mask
 
-    def get_encoder_kwargs(self, input_ids):
+    def get_encoder_kwargs(self, input_ids, prefill=False):
         # Produce attention, position ids and past key values
         kwargs = {
             "attention_mask": self.get_attn_mask(input_ids),

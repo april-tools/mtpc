@@ -116,14 +116,14 @@ class LM(nn.Module):
         elif self.from_huggingface is not None:
             if "EvaByte" in self.from_huggingface:
                 # Set use_cache to false to avoid weird EvaByte behaviour during training
-                kwargs = {"trust_remote_code": True, "use_cache": False}
+                kwargs = {"trust_remote_code": True, "use_cache": False, "torch_dtype": torch.bfloat16}
             elif "Llama3-2-3B-IT-Byte" in self.from_huggingface:
-                kwargs = {"trust_remote_code": True}
+                # TODO: Assess impact of bfloat16 below
+                kwargs = {"trust_remote_code": True, "torch_dtype": torch.bfloat16}
             else:
                 kwargs = {"attn_implementation": "flash_attention_2"}
             lm = AutoModelForCausalLM.from_pretrained(
                 self.from_huggingface,
-                torch_dtype=torch.bfloat16,
                 # quantization_config=BitsAndBytesConfig(load_in_4bit=True),
                 **kwargs,
             )

@@ -138,7 +138,7 @@ class KVCacheWrapper(object):
         if self.model_type == "evabyte":
             self.cache = self._prefill_update_fn(past_key_values)
         # No special prefill update needed for llama
-        if self.model_type == "llama":
+        elif self.model_type == "llama":
             pass
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")

@@ -138,12 +138,10 @@ def profile_run(
 
     overrides = build_overrides(run.circuit, run.n_token, run.n_component, base_overrides)
     model, cfg = load_model_with_overrides(checkpoint=None, config_overrides=overrides)
-    if run.mode == "speculative" and not isinstance(model.lm, LoRASplitLM):
-        if getattr(model.lm, "has_adapter", False) and legacy_lora_speculative:
-            model.lm.enable_dual_model_inference()
-        else:
-            # Replace the lm with a split model to keep adapter and base paths
-            model.lm = LoRASplitLM.from_lm(model.lm._lm)
+
+    if not isinstance(model.lm, LoRASplitLM):
+        model.lm = LoRASplitLM.from_lm(model.lm)
+
     model.to(device)
     model.eval()
 

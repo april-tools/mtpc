@@ -1,5 +1,0 @@
-circuit,n_token,n_component,mode,peak_mem_gb,mem_after_load_gb,num_generated_tokens,prompt_length
-fully_factorized,8,1,mtp,13.177734375,12.134765625,1024,57
-fully_factorized,8,1,speculative,26.302734375,24.28515625,1024,57
-fully_factorized,16,1,mtp,13.216796875,12.193359375,1024,57
-fully_factorized,16,1,speculative,26.322265625,24.3046875,1024,57

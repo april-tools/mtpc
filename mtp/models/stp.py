@@ -37,6 +37,7 @@ class SingleTokenLM(torch.nn.Module):
         mode: str = "stp",
         use_cache: bool = False,
         past_key_values: Tensor = None,
+        draft_top_p: float = 1.0,
         logit_processor: Callable = None,
     ) -> Tensor:
         return self.lm.generate(
@@ -44,5 +45,6 @@ class SingleTokenLM(torch.nn.Module):
             use_argmax=use_argmax,
             mode=mode,
             use_cache=use_cache,
+            draft_top_p=draft_top_p,
             past_key_values=past_key_values,
         )

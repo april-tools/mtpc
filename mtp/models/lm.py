@@ -313,11 +313,14 @@ class LM(nn.Module):
         attention_mask: Tensor = None,
         past_key_values: Cache = None,
         position_ids: Tensor = None,
+        draft_top_p: float = 1.0,
         logit_processor: Callable = None,
     ) -> dict:
         self.eval()
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
+        if draft_top_p != 1.0:
+            raise NotImplementedError("Draft top p not implemented")
         prefill_time = 0
         first_run = past_key_values is None
         if use_cache:

@@ -140,7 +140,7 @@ def profile_run(
     model, cfg = load_model_with_overrides(checkpoint=None, config_overrides=overrides)
 
     if not isinstance(model.lm, LoRASplitLM):
-        model.lm = LoRASplitLM.from_lm(model.lm)
+        model.lm = LoRASplitLM.from_lm(model.lm._lm)
 
     model.to(device)
     model.eval()

@@ -139,7 +139,12 @@ def profile_run(
     overrides = build_overrides(run.circuit, run.n_token, run.n_component, base_overrides)
     model, cfg = load_model_with_overrides(checkpoint=None, config_overrides=overrides)
 
+    # if not isinstance(model.lm, LoRASplitLM):
+    #     model.lm = LoRASplitLM.from_lm(model.lm._lm)
+
     if not isinstance(model.lm, LoRASplitLM):
+        if getattr(model.lm, "has_adapter", False):
+            model.lm.enable_dual_model_inference()
         model.lm = LoRASplitLM.from_lm(model.lm._lm)
 
     model.to(device)

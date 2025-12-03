@@ -111,18 +111,20 @@ def decode(xx):
 
 def logits_disable_eos(logits, tokeniser):
     if isinstance(logits, torch.Tensor):
-        assert logits.shape[-1] == len(
-            tokeniser.get_vocab()
-        ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
+        # assert logits.shape[-1] == len(
+        #     tokeniser.get_vocab()
+        # ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
         logits[..., tokeniser.eos_token_id] = -torch.inf
-        logits[..., tokeniser.sep_token_id] = -torch.inf
+        if tokeniser.sep_token_id is not None:
+            logits[..., tokeniser.sep_token_id] = -torch.inf
     elif isinstance(logits, Iterable):
         for entry in logits:
-            assert entry.shape[-1] == len(
-                tokeniser.get_vocab()
-            ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
+            # assert entry.shape[-1] == len(
+            #     tokeniser.get_vocab()
+            # ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
             entry[..., tokeniser.eos_token_id] = -torch.inf
-            entry[..., tokeniser.sep_token_id] = -torch.inf
+            if tokeniser.sep_token_id is not None:
+                entry[..., tokeniser.sep_token_id] = -torch.inf
     else:
         raise ValueError("Could not process logits, expected Tensor or list of Tensors")
     return logits

@@ -574,6 +574,8 @@ class MultiTokenLM(torch.nn.Module):
 
         elif mode == "stp":
             logits = self.lm.head_logits(xx[:, -1:, :])
+            if logit_processor is not None:
+                logits = logit_processor(logits)
             # next_token_probs = torch.exp(self.compute_next_token_log_probs())
             if use_argmax:
                 tokens = torch.argmax(logits, dim=2)

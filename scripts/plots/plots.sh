@@ -52,6 +52,8 @@ do
 done
 
 
+## EvaByte results
+
 # Table 1
 python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file outputs/results/L40S/tmp/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/L40S/throughput-evabyte-sampling-no-lora-1024-250.jsonl
 python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file outputs/results/RTX-3090/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/RTX-3090/throughput-evabyte-sampling-no-lora-1024-250.jsonl
@@ -61,3 +63,18 @@ python mtp/tables/table_2_throughput_longer.py --raw-throughput-file outputs/res
 python mtp/tables/table_2_throughput_longer.py --raw-throughput-file outputs/results/L40S/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/L40S/throughput-evabyte-sampling-no-lora-1024-250.jsonl
 
 python mtp/tables/table_3_throughput_lora.py --raw-throughput-file outputs/results/L40S/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/L40S/throughput-evabyte-sampling-lora-continued-1024-250.jsonl
+
+
+## Llama results
+
+## Sampling
+# Table 1  #  TODO: Fix the STP passed in
+python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file outputs/results/L40S-03-12-2025/tmp/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/L40S/throughput-llama-sampling-no-lora-1024-250.jsonl
+# Table 2  #  TODO: Fix the STP passed in
+python mtp/tables/table_2_throughput_longer.py --raw-throughput-file outputs/results/L40S-03-12-2025/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/L40S/throughput-llama-sampling-no-lora-1024-250.jsonl
+
+## Greedy decoding
+# Table 1  #  TODO: Fix the STP passed in
+python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file outputs/results/L40S-03-12-2025/tmp/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/L40S/throughput-llama-argmax-no-lora-1024-250.jsonl
+# Table 2  #  TODO: Fix the STP passed in
+python mtp/tables/table_2_throughput_longer.py --raw-throughput-file outputs/results/L40S-03-12-2025/throughput_evabyte_full-run-100_100.jsonl --spec-throughput-file outputs/results/L40S/throughput-llama-argmax-no-lora-1024-250.jsonl

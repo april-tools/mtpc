@@ -5,9 +5,6 @@ from typing import Callable
 from torch import Tensor, LongTensor
 from transformers.cache_utils import Cache
 
-from mtp.models.evabyte.multibyte_decoding_evabyte import (
-    multi_byte_pred_prepare_attn_mask,
-)
 from mtp.models.evabyte.training_utils import (
     is_evabyte_packed_sequence,
     is_llama_packed_sequence,

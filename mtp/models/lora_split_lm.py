@@ -51,8 +51,6 @@ class LoRASplitLM(torch.nn.Module):
             self.draft_kv_cache = None
             self.verifier_kv_cache = None
 
-        self.reset_caches()
-
         self.arch_specific_prefill_kwargs = dict()
         self.arch_specific_inference_kwargs = dict()
         if self.model_type == "evabyte":
@@ -176,7 +174,7 @@ class LoRASplitLM(torch.nn.Module):
     @torch.no_grad()
     def prefill(self, input_ids, circuit_n_token):
 
-        assert self.shared_seen_tokens == 0
+        self.reset_caches()
         position_ids = self.shared_kv_cache.get_position_ids(input_ids)
 
         # ============ Prefill: Shared Encoder ========================

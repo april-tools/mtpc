@@ -4,199 +4,199 @@
     "n_token": 8,
     "n_component": 8,
     "mode": "mtp",
-    "peak_mem_gb": 13.30859375,
-    "mem_after_load_gb": 12.267578125,
+    "peak_mem_gb": 13.947265625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 8,
     "mode": "speculative",
-    "peak_mem_gb": 13.34765625,
-    "mem_after_load_gb": 12.306640625,
+    "peak_mem_gb": 13.966796875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 16,
     "mode": "mtp",
-    "peak_mem_gb": 13.484375,
-    "mem_after_load_gb": 12.462890625,
+    "peak_mem_gb": 14.103515625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 16,
     "mode": "speculative",
-    "peak_mem_gb": 13.484375,
-    "mem_after_load_gb": 12.462890625,
+    "peak_mem_gb": 14.123046875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 32,
     "mode": "mtp",
-    "peak_mem_gb": 13.796875,
-    "mem_after_load_gb": 12.775390625,
+    "peak_mem_gb": 14.416015625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 32,
     "mode": "speculative",
-    "peak_mem_gb": 13.796875,
-    "mem_after_load_gb": 12.775390625,
+    "peak_mem_gb": 14.435546875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 64,
     "mode": "mtp",
-    "peak_mem_gb": 14.421875,
-    "mem_after_load_gb": 13.400390625,
+    "peak_mem_gb": 15.041015625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 64,
     "mode": "speculative",
-    "peak_mem_gb": 14.421875,
-    "mem_after_load_gb": 13.400390625,
+    "peak_mem_gb": 15.060546875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 128,
     "mode": "mtp",
-    "peak_mem_gb": 15.671875,
-    "mem_after_load_gb": 14.65234375,
+    "peak_mem_gb": 16.291015625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 8,
     "n_component": 128,
     "mode": "speculative",
-    "peak_mem_gb": 15.671875,
-    "mem_after_load_gb": 14.65234375,
+    "peak_mem_gb": 16.310546875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 8,
     "mode": "mtp",
-    "peak_mem_gb": 13.484375,
-    "mem_after_load_gb": 12.462890625,
+    "peak_mem_gb": 14.103515625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 8,
     "mode": "speculative",
-    "peak_mem_gb": 13.50390625,
-    "mem_after_load_gb": 12.462890625,
+    "peak_mem_gb": 14.142578125,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 16,
     "mode": "mtp",
-    "peak_mem_gb": 13.796875,
-    "mem_after_load_gb": 12.775390625,
+    "peak_mem_gb": 14.416015625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 16,
     "mode": "speculative",
-    "peak_mem_gb": 13.81640625,
-    "mem_after_load_gb": 12.775390625,
+    "peak_mem_gb": 14.435546875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 32,
     "mode": "mtp",
-    "peak_mem_gb": 14.421875,
-    "mem_after_load_gb": 13.400390625,
+    "peak_mem_gb": 15.041015625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 32,
     "mode": "speculative",
-    "peak_mem_gb": 14.44140625,
-    "mem_after_load_gb": 13.400390625,
+    "peak_mem_gb": 15.080078125,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 64,
     "mode": "mtp",
-    "peak_mem_gb": 15.671875,
-    "mem_after_load_gb": 14.650390625,
+    "peak_mem_gb": 16.291015625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 64,
     "mode": "speculative",
-    "peak_mem_gb": 15.69140625,
-    "mem_after_load_gb": 14.650390625,
+    "peak_mem_gb": 16.310546875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 128,
     "mode": "mtp",
-    "peak_mem_gb": 18.171875,
-    "mem_after_load_gb": 17.15234375,
+    "peak_mem_gb": 18.810546875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "cp",
     "n_token": 16,
     "n_component": 128,
     "mode": "speculative",
-    "peak_mem_gb": 18.19140625,
-    "mem_after_load_gb": 17.15234375,
+    "peak_mem_gb": 18.830078125,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   }
 ]

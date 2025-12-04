@@ -1,3 +1,5 @@
 circuit,n_token,n_component,mode,peak_mem_gb,mem_after_load_gb,num_generated_tokens,prompt_length
-fully_factorized,8,1,mtp,13.177734375,12.134765625,1024,57
-fully_factorized,16,1,mtp,13.216796875,12.193359375,1024,57
+fully_factorized,8,1,mtp,13.81640625,0.0009765625,1024,4
+fully_factorized,8,1,speculative,14.259765625,0.0009765625,1024,4
+fully_factorized,16,1,mtp,13.8359375,0.0009765625,1024,4
+fully_factorized,16,1,speculative,14.279296875,0.0009765625,1024,4

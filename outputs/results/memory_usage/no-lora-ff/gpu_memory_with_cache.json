@@ -4,59 +4,59 @@
     "n_token": 8,
     "n_component": 1,
     "mode": "mtp",
-    "peak_mem_gb": 13.171875,
-    "mem_after_load_gb": 12.130859375,
+    "peak_mem_gb": 13.810546875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "fully_factorized",
     "n_token": 8,
     "n_component": 1,
     "mode": "speculative",
-    "peak_mem_gb": 13.2109375,
-    "mem_after_load_gb": 12.169921875,
+    "peak_mem_gb": 13.830078125,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "fully_factorized",
     "n_token": 16,
     "n_component": 1,
     "mode": "mtp",
-    "peak_mem_gb": 13.2109375,
-    "mem_after_load_gb": 12.189453125,
+    "peak_mem_gb": 13.830078125,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "fully_factorized",
     "n_token": 16,
     "n_component": 1,
     "mode": "speculative",
-    "peak_mem_gb": 13.23046875,
-    "mem_after_load_gb": 12.189453125,
+    "peak_mem_gb": 13.869140625,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "fully_factorized",
     "n_token": 32,
     "n_component": 1,
     "mode": "mtp",
-    "peak_mem_gb": 13.25,
-    "mem_after_load_gb": 12.228515625,
+    "peak_mem_gb": 13.888671875,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   },
   {
     "circuit": "fully_factorized",
     "n_token": 32,
     "n_component": 1,
     "mode": "speculative",
-    "peak_mem_gb": 13.26953125,
-    "mem_after_load_gb": 12.228515625,
+    "peak_mem_gb": 13.908203125,
+    "mem_after_load_gb": 0.0009765625,
     "num_generated_tokens": 1024,
-    "prompt_length": 57
+    "prompt_length": 4
   }
 ]

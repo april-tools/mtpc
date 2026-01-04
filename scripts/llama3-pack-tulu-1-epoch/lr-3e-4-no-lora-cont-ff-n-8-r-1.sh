@@ -18,4 +18,4 @@ torchrun --standalone \
     model.model.gamma=0.9 \
     data.val_bin=null \
     training.learning_rate=0.0003 \
-    training.expname=llama-lr-3e-4-lora-last-1-cont-ff-n-8-r-1
+    training.expname=llama-lr-3e-4-no-lora-cont-ff-n-8-r-1

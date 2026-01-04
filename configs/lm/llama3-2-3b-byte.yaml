@@ -1,6 +1,10 @@
 name: llama3-2-3b-byte
 n_embd: 3072
 n_head: 24
+num_layers: 28
+last_1_layers: [27]
+last_2_layers: [26, 27]
+last_4_layers: [24, 25, 26, 27]
 
 model:
     _target_: mtp.models.lm.LM

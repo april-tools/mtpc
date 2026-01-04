@@ -13,4 +13,4 @@ hyperparameters:
     - v_proj
     - k_proj
     - o_proj
-  layers_to_transform: [30, 31]
+  layers_to_transform: ${lm.last_2_layers}

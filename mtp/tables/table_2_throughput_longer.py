@@ -38,7 +38,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     # Read JSONL file into a DataFrame
     df_raw = pd.read_json(args.raw_throughput_file, lines=True)
-    stp_field = df_raw[df_raw["model"].str.contains("SingleTokenLM")].copy()
+    # stp_field = df_raw[df_raw["model"].str.contains("SingleTokenLM")].copy()
+    stp_field = df_raw[df_raw["mode"] == "stp"].copy()
     stp_field.loc[0, "circuit"] = "STP"
     stp_field.loc[0, "ncomponent"] = 1
     stp_field["speedup"] = [1]

@@ -275,7 +275,7 @@ class LoRASplitLM(torch.nn.Module):
             if self.has_adapter:
                 assert self.shared_encoder_cache is not None, "Prefilling required"
                 assert self.draft_encoder_cache is not None, "Prefilling required"
-                draft_kvs = self.draft_kv_cache.get_encode_kwargs(
+                draft_kvs = self.draft_kv_cache.get_encoder_kwargs(
                     input_ids=input_ids,
                 )
             shared_kvs = self.shared_kv_cache.get_encoder_kwargs(
@@ -335,7 +335,7 @@ class LoRASplitLM(torch.nn.Module):
             if self.has_adapter:
                 assert self.shared_encoder_cache is not None, "Prefilling required"
                 assert self.verifier_encoder_cache is not None, "Prefilling required"
-                verifier_kvs = self.verifier_kv_cache.get_encode_kwargs(
+                verifier_kvs = self.verifier_kv_cache.get_encoder_kwargs(
                     input_ids=input_ids,
                 )
             shared_kvs = self.shared_kv_cache.get_encoder_kwargs(

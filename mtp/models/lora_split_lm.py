@@ -35,18 +35,19 @@ class LoRASplitLM(torch.nn.Module):
     Note: we enforce that the verifier is always one token behind the draft.
     """
 
-    def __init__(self, shared_encoder, draft_encoder, verifier_encoder, lm_head):
+    def __init__(self, shared_encoder, draft_encoder, verifier_encoder, lm_head, device):
         super().__init__()
         self.shared_encoder = shared_encoder
         self.draft_encoder = draft_encoder
         self.verifier_encoder = verifier_encoder
         self.lm_head = lm_head
+        self.device = device
 
         # Create KVCacheWrapper instances
-        self.shared_kv_cache = KVCacheWrapper.for_model(shared_encoder)
+        self.shared_kv_cache = KVCacheWrapper.for_model(shared_encoder, device=self.device)
         if draft_encoder is not None:
-            self.draft_kv_cache = KVCacheWrapper.for_model(draft_encoder)
-            self.verifier_kv_cache = KVCacheWrapper.for_model(verifier_encoder)
+            self.draft_kv_cache = KVCacheWrapper.for_model(draft_encoder, device=self.device)
+            self.verifier_kv_cache = KVCacheWrapper.for_model(verifier_encoder, device=self.device)
         else:
             self.draft_kv_cache = None
             self.verifier_kv_cache = None
@@ -58,7 +59,7 @@ class LoRASplitLM(torch.nn.Module):
             self.arch_specific_inference_kwargs = {"multibyte_decoding": True}
 
     @classmethod
-    def from_lm(cls, lm):
+    def from_lm(cls, lm, device):
         """
         Create SplitLM from an existing LM instance. We detect the number of
         LoRA layers (if any) and split the LM into parts.
@@ -87,7 +88,7 @@ class LoRASplitLM(torch.nn.Module):
             draft_encoder = deepcopy(shared_encoder)
             verifier_encoder = deepcopy(shared_encoder)
 
-            shared_encoder.model.model.layers = deepcopy(all_layers[:split_layer_idx])
+            shared_encoder.model.model.layers = all_layers[:split_layer_idx]
             # NOTE: ! Important !
             # Monkey-patch norm since it would be applied to the last activation giving wrong result
             # Note: This works both for EvaByte and TPULlamaModel
@@ -114,7 +115,6 @@ class LoRASplitLM(torch.nn.Module):
                 verifier_encoder.model.layers
             )
 
-            del all_layers
         elif model_type in ("llama", "evabyte"):
             shared_encoder = lm
             draft_encoder = None
@@ -126,7 +126,7 @@ class LoRASplitLM(torch.nn.Module):
         else:
             raise ValueError(f"Unexpected LM of type: {lm.__class__}")
 
-        return cls(shared_encoder, draft_encoder, verifier_encoder, lm_head)
+        return cls(shared_encoder, draft_encoder, verifier_encoder, lm_head, device=device)
 
     @property
     def has_adapter(self):

@@ -463,7 +463,7 @@ if __name__ == "__main__":
                 model.lm.enable_dual_model_inference()
         else:
             # Replace the lm with a split model
-            model.lm = LoRASplitLM.from_lm(model.lm._lm)
+            model.lm = LoRASplitLM.from_lm(model.lm._lm, device=args.device)
 
     model.to(args.device)
     model.eval()

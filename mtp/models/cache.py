@@ -39,11 +39,12 @@ class KVCacheWrapper(object):
         self.init()
 
     @classmethod
-    def for_model(cls, encoder, batch_size=1):
+    def for_model(cls, encoder, device, batch_size=1):
         """Create a KVCacheWrapper for the given encoder model.
 
         Args:
             encoder: The encoder model to create cache for
+            device: The device to put the cache on
             batch_size: Batch size for cache allocation
 
         Returns:
@@ -51,10 +52,8 @@ class KVCacheWrapper(object):
         """
         model_type = get_model_type(encoder)
 
-        # Store config, device, and dtype
+        # Store config and dtype
         config = encoder.config
-        device = encoder.device
-
         dtype = encoder.config.torch_dtype
 
         # For EvaByte, store function references

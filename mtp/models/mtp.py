@@ -505,7 +505,7 @@ class MultiTokenLM(torch.nn.Module):
                     # Monkey-patch self.lm to add kv-cache wrapper and keep
                     # helper functions which produce pos_ids and attn mask
                     # in one place.
-                    self.lm._cache = KVCacheWrapper.for_model(self.lm._lm)
+                    self.lm._cache = KVCacheWrapper.for_model(self.lm._lm, device=inputs.device)
                     kwargs = self.lm._cache.get_encoder_kwargs(inputs)
                     if self.lm._cache.model_type == "evabyte":
                         kwargs["multibyte_decoding"] = False
@@ -855,7 +855,7 @@ class MultiTokenLM(torch.nn.Module):
                     # Monkey-patch self.lm to add kv-cache wrapper and keep
                     # helper functions which produce pos_ids and attn mask
                     # in one place.
-                    self.lm._cache = KVCacheWrapper.for_model(self.lm._lm)
+                    self.lm._cache = KVCacheWrapper.for_model(self.lm._lm, device=inputs.device)
                     kwargs = self.lm._cache.get_encoder_kwargs(inputs)
                     if self.lm._cache.model_type == "evabyte":
                         kwargs["multibyte_decoding"] = False

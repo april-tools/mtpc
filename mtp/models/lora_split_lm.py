@@ -194,7 +194,7 @@ class LoRASplitLM(torch.nn.Module):
         if self.has_adapter:
             # ============ Prefill: Draft Encoder ========================
             draft_outputs = self.draft_encoder.model(
-                input_ids=input_ids,
+                input_ids=None if self.model_type == "llama" else input_ids,
                 inputs_embeds=shared_last_hidden_state,
                 use_cache=True,
                 past_key_values=self.draft_encoder_cache,
@@ -209,7 +209,7 @@ class LoRASplitLM(torch.nn.Module):
             # ============ Prefill: Verifier Encoder ========================
             # NOTE: Verifier must stay one step behind Draft
             verifier_outputs = self.verifier_encoder.model(
-                input_ids=input_ids[:, :-1],
+                input_ids=None if self.model_type == "llama" else input_ids[:, :-1],
                 inputs_embeds=shared_last_hidden_state[:, :-1],
                 use_cache=True,
                 past_key_values=self.verifier_encoder_cache,
@@ -304,7 +304,7 @@ class LoRASplitLM(torch.nn.Module):
         if self.has_adapter:
             # Run draft_encoder
             draft_outputs = self.draft_encoder.model(
-                input_ids=input_ids[:, self.draft_seen_tokens :],
+                input_ids=None if self.model_type == "llama" else input_ids[:, self.draft_seen_tokens :],
                 inputs_embeds=shared_last_hidden_state[:, self.draft_seen_tokens :],
                 use_cache=use_cache,
                 **draft_kvs,
@@ -364,7 +364,7 @@ class LoRASplitLM(torch.nn.Module):
         if self.has_adapter:
             # Run verifier_encoder
             verifier_outputs = self.verifier_encoder.model(
-                input_ids=input_ids[:, self.verifier_seen_tokens :],
+                input_ids=None if self.model_type == "llama" else input_ids[:, self.verifier_seen_tokens :],
                 inputs_embeds=shared_last_hidden_state[:, self.verifier_seen_tokens :],
                 use_cache=use_cache,
                 **verifier_kvs,

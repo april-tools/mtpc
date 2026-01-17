@@ -1091,6 +1091,10 @@ class MultiTokenLM(torch.nn.Module):
 
         # zz: (B, S + H, D) -> (B, H + 1, D)
         zz = v_hidden_states["verifier_last_hidden_state"]
+        # NOTE: There is a corner case here
+        # If we did not accept any tokens previously, then we took one from the verifier.
+        # Since the verifier is one step behind draft we will get n+2 states.
+        # we drop the state for the token we took from the verifier as we accept that.
         assert not use_cache or zz.shape[1] == self.circuit.n_token + 1, zz.shape
         zz = zz[:, -tokens.shape[1] - 1 :]
         # logits: (B, H + 1, V)
@@ -1115,8 +1119,6 @@ class MultiTokenLM(torch.nn.Module):
             # we need another LLM evaluation
             tokens = tokens[:, :-1]
             num_accepted_tokens = tokens.shape[1]
-        # tokens = tokens[:, :-1]
-        # num_accepted_tokens = tokens.shape[1]
 
         # Update shared state to keep only states corresponding to
         # accepted tokens.
@@ -1134,7 +1136,9 @@ class MultiTokenLM(torch.nn.Module):
         self.lm.update_verifier_cache(
             v_hidden_states["verifier_past_key_values"],
             self.circuit.n_token,
-            num_accepted_tokens,
+            # If we accept zero tokens, we still move forward by one token
+            # because we generate a token from the current logits.
+            max(num_accepted_tokens, 1),
         )
 
         return dict(

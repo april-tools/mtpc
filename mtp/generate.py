@@ -218,6 +218,7 @@ def generate(
                     head_past_key_values = outputs["head_past_key_values"]
                 else:
                     assert args.mode == "stp"
+                    assert not model.lm.has_adapter
                     outputs = model.generate(
                         x,
                         mode="stp",
@@ -434,6 +435,10 @@ if __name__ == "__main__":
 
     assert "MTP_ROOT" in os.environ
 
+    if args.speculative:
+        if args.mode in ("stp", "stp-circuit"):
+            raise ValueError(f"Incompatible arguments: --speculative and --{args.mode}")
+
     exp_start = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
 
     set_deterministic(args.random_seed)
@@ -464,6 +469,11 @@ if __name__ == "__main__":
         else:
             # Replace the lm with a split model
             model.lm = LoRASplitLM.from_lm(model.lm._lm, device=args.device)
+
+    if args.mode == "stp":
+        if model.lm.has_adapter:
+            print("Running in stp mode, so removing adapter...")
+            model.lm._lm = model.lm._lm.unload()
 
     model.to(args.device)
     model.eval()

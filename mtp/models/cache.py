@@ -56,6 +56,7 @@ class KVCacheWrapper(object):
         config = encoder.config
         dtype = encoder.config.torch_dtype
 
+        # NOTE: For EvaByte prediction window is 256, see init
         # For EvaByte, store function references
         if model_type == "evabyte":
             update_fn = encoder.multi_byte_pred_update_cache
@@ -83,7 +84,10 @@ class KVCacheWrapper(object):
             self.cache = EvaStaticCacheForTriton(
                 self.batch_size,
                 self.config.num_attention_heads,
-                self.config.window_size,
+                # NOTE: We need to add additional tokens below otherwise cache
+                # crashes on boundaries near window_size
+                # below should work with prediction window of up to 256
+                self.config.window_size + 256,
                 self.config.hidden_size // self.config.num_attention_heads,
                 self.config.num_hidden_layers,
                 self.dtype,
@@ -114,6 +118,8 @@ class KVCacheWrapper(object):
                 torch.arange(
                     num_candidates, device=self.device, dtype=torch.int
                 ).unsqueeze(dim=0),
+                # NOTE: If below is not set to possible tokens predicted ahead
+                # The cache can fail when we reach window_size tokens (2048)
                 0,
                 num_valid,
             )

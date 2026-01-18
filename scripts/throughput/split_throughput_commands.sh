@@ -30,7 +30,25 @@ while IFS= read -r line; do
         step="${BASH_REMATCH[4]}"
         
         # Generate the output filename
-        output_file="throughput-${model}-${part}-${step}.sh"
+        output_file="throughput-argmax-${model}-${part}-${step}.sh"
+        
+        # Create the individual script file
+        cat > "$output_file" << EOF
+#!/bin/bash
+$line
+EOF
+        
+        # Make the generated script executable
+        chmod +x "$output_file"
+        
+        echo "Created: $output_file"
+    elif [[ "$line" =~ ./bin/compute_throughput_speculative[[:space:]]+outputs/models/([^[:space:]]+)[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+)[[:space:]]+([^[:space:]]+) ]]; then
+        model="${BASH_REMATCH[2]}"
+        part="${BASH_REMATCH[3]}"
+        step="${BASH_REMATCH[4]}"
+        
+        # Generate the output filename
+        output_file="throughput-sampling-${model}-${part}-${step}.sh"
         
         # Create the individual script file
         cat > "$output_file" << EOF

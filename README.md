@@ -354,23 +354,7 @@ where:
 * `--metric` is the metric we want to plot, e.g. `--metric kl_loss_at_1` for full kl loss at 1.
 
 
+
 # Notes
 
-In traininglog.txt you can find my training logs.
-
-Potential things to speed-up I haven't tried
-- Tune LR, LR Schedule, BS
-- Check betas = (0.8, 0.95) for Adam
-
-Things to keep in mind:
-- I lowered the number of eval tokens compared to original repo, therefore making it incomparable to the results from the original repo. One can increase it for the cost of longer execution.
-
-
-# Changes
-
-- Added scripts to train and check throughput of shakespeare_char models.
-- Monitor experiments using wandb.
-- Use Hydra everywhere (we can change the model via config using hydra.utils.instantiate).
-- Added Script to compute and plot throughput for MTP vs Default model as we change ntokens.
-- Adapted Scripts to train a character level model for sanity check
-- Serialised config to logs output dir and the model every eval iterations
+* While using `--mode stp --argmax` and `--mode mtp --speculative --argmax` with models of the same model family should generate the same output, quantised models may diverge between stp and mtp mode. One reason for this is that the transformer activations for the same input can be different if evaluated in a single forward pass, versus multiple forward passes one token at a time. This is especially true for quantised (bfloat16) models, see [this script for details](scripts/checks/test_multiple_vs_single.py).

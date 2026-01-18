@@ -22,14 +22,14 @@ gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $p
 # *same* amount of tokens. This is important as some of the models
 # are randomly initialised and have no reasonable EOS completion.
 
-# python -m mtp.generate \
-#   --mode stp \
-#   ${args[@]} \
-#   ${gen_args[@]} \
-#   lm=evabyte lm.model.encoder_only=False data.vocab_size=320 \
-#   --use-cache \
-#   --disable-eos \
-#   | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
+python -m mtp.generate \
+  --mode stp \
+  ${args[@]} \
+  ${gen_args[@]} \
+  lm=evabyte lm.model.encoder_only=False data.vocab_size=320 \
+  --use-cache \
+  --disable-eos \
+  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
 
 python -m mtp.generate \
   --mode stp \

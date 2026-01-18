@@ -140,9 +140,12 @@ def generate(
     disable_eos=False,
 ):
     # Init model in case loading takes additional time - do not use this output
-    # if warmup:
-    #     with ctx:
-    #         _ = model.generate(x, mode=args.mode, use_cache=False)
+    if warmup:
+        with ctx:
+            if args.speculative:
+                _ = model.lm.prefill(x, None)
+            else:
+                _ = model.generate(x, mode=args.mode, use_cache=False)
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
@@ -179,7 +182,6 @@ def generate(
                             past_num_tokens=past_num_tokens,
                             last_hidden_state=last_hidden_state,
                             logit_processor=logit_processor,
-                            legacy=args.legacy_lora_speculative,
                         )
                     else:
                         outputs = model.self_speculative_generate(
@@ -193,7 +195,6 @@ def generate(
                             draft_top_p=draft_top_p,
                             target_top_p=target_top_p,
                             logit_processor=logit_processor,
-                            legacy=args.legacy_lora_speculative,
                         )
                     tokens = outputs["tokens"]
                     acc_tokens = outputs["num_accepted_tokens"]
@@ -424,12 +425,6 @@ if __name__ == "__main__":
         help="Disable predicting eos so that we can guarantee that num-tokens "
         "tokens are generated per prompt.",
     )
-    parser.add_argument(
-        "--legacy-lora-speculative",
-        default=False,
-        action="store_true",
-        help="Use legacy inefficient algorithm for lora speculative decoding",
-    )
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
 
@@ -463,12 +458,8 @@ if __name__ == "__main__":
         model.lm.dequantize()
 
     if args.speculative:
-        if args.legacy_lora_speculative:
-            if model.lm.has_adapter:
-                model.lm.enable_dual_model_inference()
-        else:
-            # Replace the lm with a split model
-            model.lm = LoRASplitLM.from_lm(model.lm._lm, device=args.device)
+        # Replace the lm with a split model
+        model.lm = LoRASplitLM.from_lm(model.lm._lm, device=args.device)
 
     if args.mode == "stp":
         if model.lm.has_adapter:
@@ -646,7 +637,6 @@ if __name__ == "__main__":
     stats["exp_end"] = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
     stats["exp_host"] = socket.gethostname()
     stats["model"] = cfg.model.model._target_
-    stats["legacy_lora_speculative"] = args.legacy_lora_speculative
     stats["random_seed"] = args.random_seed
     stats["prompt_subset_index"] = args.prompt_subset_index
     stats["ntoken"] = n_token

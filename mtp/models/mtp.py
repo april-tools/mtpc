@@ -749,22 +749,12 @@ class MultiTokenLM(torch.nn.Module):
         draft_top_p: float = 1.0,
         target_top_p: float = 1.0,
         logit_processor: Callable = None,
-        legacy=False,
     ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
                 "Multi-batch self-speculative decoding not implemented yet"
             )
-        if self.lm.has_adapter:
-            if legacy:
-                func = self.self_speculative_generate_with_lora_legacy
-            else:
-                func = self.self_speculative_generate_unified
-        else:
-            if legacy:
-                func = self.self_speculative_generate_no_lora
-            else:
-                func = self.self_speculative_generate_unified
+        func = self.self_speculative_generate_unified
         return func(
             inputs,
             use_cache=use_cache,
@@ -794,22 +784,12 @@ class MultiTokenLM(torch.nn.Module):
         past_num_tokens: int = None,
         last_hidden_state: Tensor = None,
         logit_processor: Callable = None,
-        legacy=False,
     ) -> dict:
         if len(inputs.shape) != 2 or inputs.shape[0] != 1:
             raise NotImplementedError(
                 "Multi-batch self-speculative decoding not implemented yet"
             )
-        if self.lm.has_adapter:
-            if legacy:
-                func = self.self_speculative_generate_with_lora_legacy
-            else:
-                func = self.self_speculative_generate_unified
-        else:
-            if legacy:
-                func = self.self_speculative_generate_no_lora
-            else:
-                func = self.self_speculative_generate_unified
+        func = self.self_speculative_generate_unified
         return func(
             inputs,
             use_cache=use_cache,

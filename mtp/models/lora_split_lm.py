@@ -283,7 +283,8 @@ class LoRASplitLM(torch.nn.Module):
             )
             # For Llama we need to pass in the whole history
             if self.shared_kv_cache.model_type == "llama":
-                shared_kvs["past_input_ids"] = input_ids
+                expand_max = self.shared_encoder.config.expand_input_ids_maxlen
+                shared_kvs["past_input_ids"] = input_ids[:, max(self.shared_seen_tokens - expand_max, 0) :]
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:
@@ -343,7 +344,8 @@ class LoRASplitLM(torch.nn.Module):
             )
             # For Llama we need to pass in the whole history
             if self.shared_kv_cache.model_type == "llama":
-                shared_kvs["past_input_ids"] = input_ids
+                expand_max = self.shared_encoder.config.expand_input_ids_maxlen
+                shared_kvs["past_input_ids"] = input_ids[:, max(self.shared_seen_tokens - expand_max, 0) :]
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:

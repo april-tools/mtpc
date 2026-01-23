@@ -10,11 +10,12 @@ from typing import Callable
 from transformers import AutoModelForCausalLM
 
 # from transformers import BitsAndBytesConfig
-from transformers.cache_utils import Cache
+from transformers.cache_utils import Cache, DynamicCache
 
 from mtp.utils.profile import time_block
 from mtp.utils.distributed import get_local_device
 from mtp.utils.checkpoint import Checkpoint
+from mtp.utils.model_types import get_model_type
 from mtp.models.loss import IGNORE_TOKEN_ID
 
 
@@ -326,10 +327,10 @@ class LM(nn.Module):
         if use_cache:
             with time_block(inputs.device) as t:
                 # We only pass in the unseen inputs, because we are using cache
-                if isinstance(past_key_values, tuple) and len(past_key_values) > 0:
-                    past_seen_tokens = past_key_values[0][0].shape[2]
-                elif past_key_values is None:
+                if past_key_values is None:
                     past_seen_tokens = 0
+                    if get_model_type(self.encoder) == "llama":
+                        past_key_values = DynamicCache()
                 else:
                     past_seen_tokens = past_key_values.get_seq_length()
                 if position_ids is None:
@@ -348,6 +349,10 @@ class LM(nn.Module):
                         position_ids = position_ids.unsqueeze(dim=0).expand(
                             inputs.shape[0], -1
                         )
+                kwargs = {}
+                if get_model_type(self.encoder) == "llama":
+                    expand_max = self.encoder.config.expand_input_ids_maxlen
+                    kwargs["past_input_ids"] = inputs[:, max(past_seen_tokens - expand_max, 0) :]
                 # Evaluate the encoder
                 outputs = self.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
@@ -355,6 +360,7 @@ class LM(nn.Module):
                     attention_mask=attention_mask,
                     past_key_values=past_key_values,
                     position_ids=position_ids,
+                    **kwargs,
                 )
                 # token embeddings of shape (b, t, n_embd)
                 xx = outputs["last_hidden_state"]

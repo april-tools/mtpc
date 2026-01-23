@@ -25,7 +25,7 @@ def get_model_type(model):
 
     if class_name == "EvaByteForCausalLM":
         return "evabyte"
-    elif class_name == "TPULlamaForCausalLM":
+    elif class_name in ("TPULlamaForCausalLM", "TPULlamaModel"):
         return "llama"
     else:
         raise ValueError(f"Unsupported model type: {class_name}")

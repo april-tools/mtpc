@@ -525,7 +525,9 @@ class MultiTokenLM(torch.nn.Module):
                     kwargs["multibyte_decoding"] = True
                 # Need to pass full history for Llama to work with kv-cache
                 if self.lm._cache.model_type == "llama":
-                    kwargs["past_input_ids"] = inputs
+                    # kwargs["past_input_ids"] = inputs
+                    expand_max = self.lm.encoder.config.expand_input_ids_maxlen
+                    kwargs["past_input_ids"] = inputs[:, max(past_seen_tokens - expand_max, 0) :]
                 outputs = self.lm.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
                     use_cache=True,
@@ -895,7 +897,9 @@ class MultiTokenLM(torch.nn.Module):
                 kwargs["multibyte_decoding"] = True
             # Need to pass full history for Llama to work with kv-cache
             if self.lm._cache.model_type == "llama":
-                kwargs["past_input_ids"] = inputs
+                # kwargs["past_input_ids"] = inputs
+                expand_max = self.lm.encoder.config.expand_input_ids_maxlen
+                kwargs["past_input_ids"] = inputs[:, max(past_seen_tokens - expand_max, 0) :]
             outputs = self.lm.encoder(
                 input_ids=inputs[:, past_seen_tokens:],
                 use_cache=True,

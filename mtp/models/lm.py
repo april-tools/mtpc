@@ -326,11 +326,12 @@ class LM(nn.Module):
         if use_cache:
             with time_block(inputs.device) as t:
                 # We only pass in the unseen inputs, because we are using cache
-                past_seen_tokens = (
-                    past_key_values.get_seq_length()
-                    if past_key_values is not None
-                    else 0
-                )
+                if isinstance(past_key_values, tuple) and len(past_key_values) > 0:
+                    past_seen_tokens = past_key_values[0][0].shape[2]
+                elif past_key_values is None:
+                    past_seen_tokens = 0
+                else:
+                    past_seen_tokens = past_key_values.get_seq_length()
                 if position_ids is None:
                     if attention_mask is not None:
                         # This is the default position_ids initialization from HF's generate()

@@ -54,10 +54,15 @@
 ## Evabyte
 
 
-for model in evabyte
+for model in evabyte llama
 do
-	PATH_TO_RAW="outputs/results/bkp/L40S-03-12-2025/tmp/throughput_${model}_full-run-100_100.jsonl"
-	echo $model
+	PATH_TO_RAW="outputs/results/L40S/throughput-${model}-raw-1024-10.jsonl"
+	echo -e "#####################################################################################"
+	echo -e "##################################  $model   ########################################"
+	echo -e "#####################################################################################"
+	echo -e "*************************************************************************************"
+	echo -e "############################      Sampling         ##################################"
+	echo -e "*************************************************************************************"
 	## Table 1 (Sampling)
 
 	python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-sampling-$model-no-lora-1024-250.jsonl
@@ -70,6 +75,10 @@ do
 
 	python mtp/tables/table_3_throughput_lora.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-sampling-$model-lora-continued-1024-250.jsonl
 
+	echo -e "#####################################################################################"
+	echo -e "*************************************************************************************"
+	echo -e "#################################   Greedy   ########################################"
+	echo -e "*************************************************************************************"
 
 	## Table 1 (Greedy)
 

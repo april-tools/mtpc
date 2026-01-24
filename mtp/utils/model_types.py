@@ -23,7 +23,7 @@ def model_is_llama(model):
 def get_model_type(model):
     class_name = get_model_class_name(model)
 
-    if class_name == "EvaByteForCausalLM":
+    if class_name in ("EvaByteForCausalLM", "EvaByteModel"):
         return "evabyte"
     elif class_name in ("TPULlamaForCausalLM", "TPULlamaModel"):
         return "llama"

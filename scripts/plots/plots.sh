@@ -56,7 +56,8 @@
 
 for model in evabyte llama
 do
-	PATH_TO_RAW="outputs/results/L40S/throughput-${model}-raw-1024-10.jsonl"
+	MODE="sampling"
+	PATH_TO_RAW="outputs/results/L40S/throughput-${MODE}-${model}-raw-1024-100.jsonl"
 	echo -e "#####################################################################################"
 	echo -e "##################################  $model   ########################################"
 	echo -e "#####################################################################################"
@@ -75,6 +76,8 @@ do
 
 	python mtp/tables/table_3_throughput_lora.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-sampling-$model-lora-continued-1024-250.jsonl
 
+	MODE="argmax"
+	PATH_TO_RAW="outputs/results/L40S/throughput-${MODE}-${model}-raw-1024-100.jsonl"
 	echo -e "#####################################################################################"
 	echo -e "*************************************************************************************"
 	echo -e "#################################   Greedy   ########################################"

@@ -9,6 +9,7 @@ prompt_subset_index="${2:-0}"
 model="${3:-evabyte}"
 num_tokens=${4:-1024}
 subsample_prompts=${5:-10}
+mode=${6:sampling}
 seed=42
 
 if [ "$model" = "llama" ]; then
@@ -23,7 +24,11 @@ export GPUS=1
 export GPU=1
 
 args=( --device $device --num-tokens $num_tokens --random-seed $seed --prompt-subset-index $prompt_subset_index )
-gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source --use-cache --disable-eos data=$data lm=$lm lm.model.encoder_only=False)
+if [ "$mode" = "sampling" ]; then
+	gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source --use-cache --disable-eos data=$data lm=$lm lm.model.encoder_only=False)
+elif [ "$mode" = "argmax" ]; then
+	gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source --use-cache --disable-eos --argmax data=$data lm=$lm lm.model.encoder_only=False)
+fi
 
 # For the models below we do not stop generating on EOS
 # as we just want to check how much time it takes to run them on the
@@ -34,7 +39,7 @@ python -m mtp.generate \
   --mode stp \
   ${args[@]} \
   ${gen_args[@]} \
-  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${lm}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
+  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${lm}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
 
 for circuit in fully_factorized cp hmm btree;
 do
@@ -54,7 +59,7 @@ do
       python -m mtp.generate \
         --mode mtp \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
-        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${lm}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
+        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${lm}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
     done
   done
 done

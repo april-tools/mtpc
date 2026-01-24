@@ -39,7 +39,7 @@ python -m mtp.generate \
   --mode stp \
   ${args[@]} \
   ${gen_args[@]} \
-  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${lm}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
+  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${model}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
 
 for circuit in fully_factorized cp hmm btree;
 do
@@ -59,7 +59,7 @@ do
       python -m mtp.generate \
         --mode mtp \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
-        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${lm}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
+        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${model}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
     done
   done
 done

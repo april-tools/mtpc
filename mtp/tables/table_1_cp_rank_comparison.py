@@ -77,8 +77,8 @@ if __name__ == "__main__":
     result = pd.merge(df_collapsed, df_raw, on='ncomponent', how='inner')
     result = result.rename(columns={
         'ncomponent': '$r$',
-        'avg_accepted_tokens': '\\meanacc~\\incfield',
         'avg_time_per_call': '\\meanlat~\\decfield',
+        'avg_accepted_tokens': '\\meanacc~\\incfield',
         'tokens_per_second': '\\meantoks~\\incfield',
         'tokens_per_second_no_spec': '\\maxtoks',
     })
@@ -92,8 +92,11 @@ if __name__ == "__main__":
         },
         multirow=True,
         index_names=False,
-        label=f"tab:throughput-{parts['gpu']}-{parts['mode']}-{parts['model']}-{parts['subset']}"
+        label=f"tab:throughput-cp-{parts['subset']}-{parts['gpu']}-{parts['mode']}-{parts['model']}"
     )
     latex_table = latex_table.replace(r'\multirow[t]{', r'\multirow[c]{')
     latex_table = latex_table.replace('\\begin{table}\n', '\\begin{table}\n\\centering\n')
+    latex_table = latex_table.replace('FF', r'\ref{eq:n-indep-prob}')
+    latex_table = latex_table.replace('CP', r'\ref{eq:r-cp}')
+    latex_table = latex_table.replace('\\midrule\n', '\\midrule\n\\rowcolor{gray!15}')
     print(latex_table)

@@ -101,7 +101,7 @@ if __name__ == "__main__":
         'speedup': 'speed-up',
     }
     result = result.rename(columns=colmap)
-    result = result[["$n$", "circuit", "\\# LoRA", "\\meanacc~\\incfield", "\\meanlat~\\decfield", "\\meantoks~\\incfield", "speed-up"]]
+    result = result[["$n$", "circuit", "\\# LoRA", "\\meanlat~\\decfield", "\\meanacc~\\incfield", "\\meantoks~\\incfield", "speed-up"]]
 
     result = result.set_index(["$n$", "circuit", "\\# LoRA"])
 
@@ -115,10 +115,15 @@ if __name__ == "__main__":
         # index=False,
         multirow=True,
         index_names=False,
-        label=f"tab:throughput-{parts['gpu']}-{parts['mode']}-{parts['model']}-{parts['subset']}"
+        label=f"tab:throughput-{parts['subset']}-{parts['gpu']}-{parts['mode']}-{parts['model']}"
     )
     latex_table = latex_table.replace(r'\multirow[t]{', r'\multirow[c]{')
     latex_table = latex_table.replace('\\begin{table}\n', '\\begin{table}\n\\centering\n')
     latex_table = latex_table.replace('NaN', '---')
     latex_table = latex_table.replace('speed-up', '\\speedup')
+    latex_table = latex_table.replace('FF', r'\ref{eq:n-indep-prob}')
+    latex_table = latex_table.replace('CP', r'\ref{eq:r-cp}')
+    latex_table = latex_table.replace('BTREE', r'\ref{eq:btree}')
+    latex_table = latex_table.replace('HMM', r'\ref{eq:r-hmm}')
+    latex_table = latex_table.replace('\\midrule\n', '\\midrule\n\\rowcolor{gray!15}')
     print(latex_table)

@@ -95,4 +95,5 @@ if __name__ == "__main__":
         label=f"tab:throughput-{parts['gpu']}-{parts['mode']}-{parts['model']}-{parts['subset']}"
     )
     latex_table = latex_table.replace(r'\multirow[t]{', r'\multirow[c]{')
+    latex_table = latex_table.replace('\\begin{table}\n', '\\begin{table}\n\\centering\n')
     print(latex_table)

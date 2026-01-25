@@ -110,4 +110,5 @@ if __name__ == "__main__":
     )
     latex_table = latex_table.replace('NaN', '---')
     latex_table = latex_table.replace(r'\multirow[t]{', r'\multirow[c]{')
+    latex_table = latex_table.replace('\\begin{table}\n', '\\begin{table}\n\\centering\n')
     print(latex_table)

@@ -94,9 +94,9 @@ if __name__ == "__main__":
     result = pd.merge(df_collapsed, df_raw, on='ncomponent', how='inner')
     result = result.rename(columns={
         'ncomponent': '$r$',
-        'avg_accepted_tokens': '\\meanacc',
-        'avg_time_per_call': '\\meanlat',
-        'tokens_per_second': '\\meantoks',
+        'avg_accepted_tokens': '\\meanacc~\\incfield',
+        'avg_time_per_call': '\\meanlat~\\decfield',
+        'tokens_per_second': '\\meantoks~\\incfield',
         'tokens_per_second_no_spec': '\\maxtoks',
     })
 

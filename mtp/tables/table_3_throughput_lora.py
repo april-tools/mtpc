@@ -106,13 +106,14 @@ if __name__ == "__main__":
         'ncomponent': '$r$',
         'ntoken': '$n$',
         'adaptor': '\\# LoRA',
-        'avg_accepted_tokens': '\\meanacc',
-        'avg_time_per_call': '\\meanlat',
-        'tokens_per_second': '\\meantoks',
+        'avg_accepted_tokens': '\\meanacc~\\incfield',
+        'avg_time_per_call': '\\meanlat~\\decfield',
+        'tokens_per_second': '\\meantoks~\\incfield',
         'tokens_per_second_no_spec': '\\maxtoks',
+        'speedup': 'speed-up',
     }
     result = result.rename(columns=colmap)
-    result = result[["$n$", "circuit", "\\# LoRA", "\\meanacc", "\\meanlat", "\\meantoks", "speedup"]]
+    result = result[["$n$", "circuit", "\\# LoRA", "\\meanacc~\\incfield", "\\meanlat~\\decfield", "\\meantoks~\\incfield", "speed-up"]]
 
     latex_table = result.to_latex(
         float_format="%4.2f",

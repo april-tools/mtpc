@@ -88,7 +88,7 @@ if __name__ == "__main__":
     result = df_collapsed
     result = pd.concat([df_collapsed, stp_field[["circuit", "ntoken", "adaptor", "ncomponent", "avg_time_per_call", "tokens_per_second", "speedup"]]])
 
-    result.sort_values(["ntoken", "circuit", "adaptor", "speedup"], inplace=True)
+    result.sort_values(["ntoken", "circuit", "adaptor", "speedup"], ascending=[True, False, True, True], inplace=True)
     result["circuit"] = result["circuit"].str.upper()
     colmap = {
         'ncomponent': '$r$',

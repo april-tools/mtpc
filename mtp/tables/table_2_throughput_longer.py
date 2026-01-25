@@ -2,26 +2,7 @@ import pandas as pd
 
 from argparse import ArgumentParser
 
-
-def add_step_column(df, column_name, new_column_name="step"):
-    """
-    Extract the step value from entries containing 'model@{number}.pt'
-
-    Parameters:
-    df: pandas DataFrame
-    column_name: name of the column containing the model strings
-    new_column_name: name for the new column (default: 'step')
-
-    Returns:
-    pandas DataFrame with new column containing step values
-    """
-    # Use regex to find 'model@' followed by digits
-    pattern = r"@(\d+)"
-    df[new_column_name] = (
-        df[column_name].str.extract(pattern, expand=False).astype("Int64")
-    )
-
-    return df
+from utils import parse_filename, add_step_column
 
 
 if __name__ == "__main__":
@@ -36,6 +17,9 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    parts = parse_filename(args.spec_throughput_file)
+
     # Read JSONL file into a DataFrame
     df_raw = pd.read_json(args.raw_throughput_file, lines=True)
     # stp_field = df_raw[df_raw["model"].str.contains("SingleTokenLM")].copy()
@@ -111,6 +95,8 @@ if __name__ == "__main__":
     result = result.rename(columns=colmap)
     result = result[["$n$", "$r$", "circuit", "\\meanacc~\\incfield", "\\meanlat~\\decfield", "\\meantoks~\\incfield", "speed-up"]]
 
+    result = result.set_index(["$n$", "$r$", "circuit"])
+
     latex_table = result.to_latex(
         float_format="%4.2f",
         formatters={
@@ -118,7 +104,10 @@ if __name__ == "__main__":
             ("$n$"): lambda x: f"{x:<4d}",
             ("circuit"): lambda x: f"{x:<5s}",
         },
-        index=False,
-        label="tab:no-lora-stats"
+        multirow=True,
+        index_names=False,
+        label=f"tab:throughput-{parts['gpu']}-{parts['mode']}-{parts['model']}-{parts['subset']}"
     )
+    latex_table = latex_table.replace('NaN', '---')
+    latex_table = latex_table.replace(r'\multirow[t]{', r'\multirow[c]{')
     print(latex_table)

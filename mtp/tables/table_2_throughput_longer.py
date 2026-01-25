@@ -70,12 +70,12 @@ if __name__ == "__main__":
             decimals = 1
             stp_field[metric] = stp_field[metric].map(lambda x: f"{x:.{decimals}f}")
 
-
         # Create mean±std column
         df_collapsed[metric] = (
             df_spec_best_agg[mean_col].map(lambda x: f"{x:.{decimals}f}")
-            + " \\scriptsize$\\pm$ "
+            + "{\\scriptsize$\\pm$"
             + df_spec_best_agg[std_col].map(lambda x: f"{x:.{decimals}f}")
+            + "}"
         )
 
         # # Keep count
@@ -100,6 +100,7 @@ if __name__ == "__main__":
     result = result.set_index(["$n$", "$r$", "circuit"])
 
     latex_table = result.to_latex(
+        column_format='llllllr',
         float_format="%4.2f",
         formatters={
             ("$r$"): lambda x: f"{x:<4d}",
@@ -119,4 +120,5 @@ if __name__ == "__main__":
     latex_table = latex_table.replace('BTREE', r'\ref{eq:btree}')
     latex_table = latex_table.replace('HMM', r'\ref{eq:r-hmm}')
     latex_table = latex_table.replace('\\midrule\n', '\\midrule\n\\rowcolor{gray!15}')
+    latex_table = latex_table.replace('\\cline{1-7} \\cline{2-7}\n\\bottomrule', '\\bottomrule')
     print(latex_table)

@@ -106,6 +106,7 @@ if __name__ == "__main__":
     result = result.set_index(["$n$", "circuit", "\\# LoRA"])
 
     latex_table = result.to_latex(
+        column_format='llclllr',
         float_format="%4.2f",
         formatters={
             ("$r$"): lambda x: f"{x:<4d}",
@@ -126,4 +127,5 @@ if __name__ == "__main__":
     latex_table = latex_table.replace('BTREE', r'\ref{eq:btree}')
     latex_table = latex_table.replace('HMM', r'\ref{eq:r-hmm}')
     latex_table = latex_table.replace('\\midrule\n', '\\midrule\n\\rowcolor{gray!15}')
+    latex_table = latex_table.replace('\\cline{1-7} \\cline{2-7}\n\\bottomrule', '\\bottomrule')
     print(latex_table)

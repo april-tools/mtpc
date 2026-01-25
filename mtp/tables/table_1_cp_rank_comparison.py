@@ -63,12 +63,12 @@ if __name__ == "__main__":
         else:
             decimals = 1
 
-
         # Create mean±std column
         df_collapsed[metric] = (
             df_spec_best_agg[mean_col].map(lambda x: f"{x:.{decimals}f}")
-            + " \\scriptsize$\\pm$ "
+            + "{\\scriptsize$\\pm$"
             + df_spec_best_agg[std_col].map(lambda x: f"{x:.{decimals}f}")
+            + "}"
         )
 
         # # Keep count
@@ -83,9 +83,11 @@ if __name__ == "__main__":
         'tokens_per_second_no_spec': '\\maxtoks',
     })
 
+    result = result[["$r$", "circuit", "\\meanlat~\\decfield", "\\meanacc~\\incfield", "\\meantoks~\\incfield", "\\maxtoks"]]
     result = result.set_index(["circuit", "$r$"])
 
     latex_table = result.to_latex(
+        column_format='lllllr',
         float_format="%4.2f",
         formatters={
             ("$r$"): lambda x: f"{x:<4d}",
@@ -99,4 +101,5 @@ if __name__ == "__main__":
     latex_table = latex_table.replace('FF', r'\ref{eq:n-indep-prob}')
     latex_table = latex_table.replace('CP', r'\ref{eq:r-cp}')
     latex_table = latex_table.replace('\\midrule\n', '\\midrule\n\\rowcolor{gray!15}')
+    latex_table = latex_table.replace('\\cline{1-6}\n\\bottomrule', '\\bottomrule')
     print(latex_table)

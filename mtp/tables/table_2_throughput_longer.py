@@ -65,8 +65,10 @@ if __name__ == "__main__":
             decimals = 2
         elif metric == "avg_time_per_call":
             decimals = 4
+            stp_field[metric] = stp_field[metric].map(lambda x: f"{x:.{decimals}f}")
         else:
             decimals = 1
+            stp_field[metric] = stp_field[metric].map(lambda x: f"{x:.{decimals}f}")
 
 
         # Create mean±std column

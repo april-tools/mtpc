@@ -68,8 +68,10 @@ if __name__ == "__main__":
             decimals = 2
         elif metric == "avg_time_per_call":
             decimals = 4
+            stp_field[metric] = stp_field[metric].map(lambda x: f"{x:.{decimals}f}")
         else:
             decimals = 1
+            stp_field[metric] = stp_field[metric].map(lambda x: f"{x:.{decimals}f}")
 
 
         # Create mean±std column
@@ -85,6 +87,7 @@ if __name__ == "__main__":
 
     result = df_collapsed
     result = pd.concat([df_collapsed, stp_field[["circuit", "ntoken", "adaptor", "ncomponent", "avg_time_per_call", "tokens_per_second", "speedup"]]])
+
     result.sort_values(["ntoken", "circuit", "adaptor", "speedup"], inplace=True)
     result["circuit"] = result["circuit"].str.upper()
     colmap = {

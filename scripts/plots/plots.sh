@@ -48,6 +48,8 @@
 # 	done
 # done
 
+python mtp/plots/plot_accepted_tokens_over_window.py outputs/results/L40S/throughput-sampling-evabyte-no-lora-1024-250.jsonl outputs/results/L40S/throughput-sampling-llama-no-lora-1024-250.jsonl --ntokens 8 16 --ncomponents 1 32 --decoding sampling --circuits ff cp hmm btree --id acc-rate-$GPU-no-lora-cp-comparison
+
 
 ### Final scripts: TODO: re-run STP and update PATH_TO_RAW paths
 

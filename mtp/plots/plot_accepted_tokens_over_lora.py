@@ -154,6 +154,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    assert len(args.ntokens) == 1
+
     rows = []
     for f in args.results:
         arch = parse_filename(f)["model"]
@@ -209,9 +211,9 @@ if __name__ == "__main__":
     ax2.set_xticks([0, 1, 2, 4])
     if args.decoding == "sampling":
         ax2.legend()
-        plt.suptitle("Speculative Sampling", fontsize=20, y=0.92)
+        plt.suptitle(f"Speculative Sampling (n={args.ntokens[0]})", fontsize=20, y=0.92)
     else:
-        plt.suptitle("Greedy Speculative Decoding", fontsize=20, y=0.92)
+        plt.suptitle(f"Greedy Speculative Decoding (n={args.ntokens[0]})", fontsize=20, y=0.92)
 
 
     if args.save:

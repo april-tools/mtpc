@@ -63,44 +63,50 @@ python mtp/plots/plot_accepted_tokens_over_lora.py outputs/results/L40S/throughp
 ## Evabyte
 
 
-for model in evabyte llama
+for GPU in L40S 3090RTX
 do
-	MODE="sampling"
-	PATH_TO_RAW="outputs/results/L40S/throughput-${MODE}-${model}-raw-1024-100.jsonl"
 	echo -e "%#####################################################################################"
-	echo -e "%##################################  $model   ########################################"
+	echo -e "%##################################  $GPU   ##########################################"
 	echo -e "%#####################################################################################"
-	echo -e "%*************************************************************************************"
-	echo -e "%############################      Sampling         ##################################"
-	echo -e "%*************************************************************************************"
-	## Table 1 (Sampling)
+	for model in evabyte llama
+	do
+		MODE="sampling"
+		PATH_TO_RAW="outputs/results/$GPU/throughput-${MODE}-${model}-raw-1024-100.jsonl"
+		echo -e "%#####################################################################################"
+		echo -e "%##################################  $model   ########################################"
+		echo -e "%#####################################################################################"
+		echo -e "%*************************************************************************************"
+		echo -e "%############################      Sampling         ##################################"
+		echo -e "%*************************************************************************************"
+		## Table 1 (Sampling)
 
-	python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-sampling-$model-no-lora-1024-250.jsonl
+		python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/$GPU/throughput-sampling-$model-no-lora-1024-250.jsonl
 
-	## Table 2 (Sampling)
+		## Table 2 (Sampling)
 
-	python mtp/tables/table_2_throughput_longer.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-sampling-$model-no-lora-1024-250.jsonl
+		python mtp/tables/table_2_throughput_longer.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/$GPU/throughput-sampling-$model-no-lora-1024-250.jsonl
 
-	## Table 3 (Sampling)
+		## Table 3 (Sampling)
 
-	python mtp/tables/table_3_throughput_lora.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-sampling-$model-lora-continued-1024-250.jsonl
+		python mtp/tables/table_3_throughput_lora.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/$GPU/throughput-sampling-$model-lora-continued-1024-250.jsonl
 
-	MODE="argmax"
-	PATH_TO_RAW="outputs/results/L40S/throughput-${MODE}-${model}-raw-1024-100.jsonl"
-	echo -e "%#####################################################################################"
-	echo -e "%*************************************************************************************"
-	echo -e "%#################################   Greedy   ########################################"
-	echo -e "%*************************************************************************************"
+		MODE="argmax"
+		PATH_TO_RAW="outputs/results/$GPU/throughput-${MODE}-${model}-raw-1024-100.jsonl"
+		echo -e "%#####################################################################################"
+		echo -e "%*************************************************************************************"
+		echo -e "%#################################   Greedy   ########################################"
+		echo -e "%*************************************************************************************"
 
-	## Table 1 (Greedy)
+		## Table 1 (Greedy)
 
-	python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-argmax-$model-no-lora-1024-250.jsonl
+		python mtp/tables/table_1_cp_rank_comparison.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/$GPU/throughput-argmax-$model-no-lora-1024-250.jsonl
 
-	## Table 2 (Greedy)
+		## Table 2 (Greedy)
 
-	python mtp/tables/table_2_throughput_longer.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-argmax-$model-no-lora-1024-250.jsonl
+		python mtp/tables/table_2_throughput_longer.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/$GPU/throughput-argmax-$model-no-lora-1024-250.jsonl
 
-	## Table 3 (Greedy)
+		## Table 3 (Greedy)
 
-	python mtp/tables/table_3_throughput_lora.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/L40S/throughput-argmax-$model-lora-continued-1024-250.jsonl
+		python mtp/tables/table_3_throughput_lora.py --raw-throughput-file $PATH_TO_RAW --spec-throughput-file outputs/results/$GPU/throughput-argmax-$model-lora-continued-1024-250.jsonl
+	done
 done

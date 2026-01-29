@@ -5,6 +5,7 @@ from mtp.data.sharegpt import ShareGPTDataLoader
 from mtp.data.tuluv3 import TuluDataLoader
 from mtp.data.tuluv3_evabyte import EvaByteTuluDataLoader
 from mtp.data.tuluv3_evabyte_packed import EvaByteTuluPackedDataLoader
+from mtp.data.tuluv3_llama3_packed import Llama3TuluPackedDataLoader
 
 
 class DistributedDataLoader:
@@ -77,3 +78,4 @@ DistributedDataLoader.register("allenai/tulu-3-sft-mixture", TuluDataLoader)
 DistributedDataLoader.register("agrv/tulu-v3-sft-evabyte-seq-len-8192", EvaByteTuluDataLoader)
 DistributedDataLoader.register("agrv/tulu-v3-sft-evabyte-padded-seq-len-8192", EvaByteTuluDataLoader)
 DistributedDataLoader.register("agrv/tulu-v3-sft-evabyte-packed-seq-len-8192", EvaByteTuluPackedDataLoader)
+DistributedDataLoader.register("agrv/tulu-v3-sft-llama3-packed-seq-len-8192", Llama3TuluPackedDataLoader)

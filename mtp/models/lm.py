@@ -10,11 +10,12 @@ from typing import Callable
 from transformers import AutoModelForCausalLM
 
 # from transformers import BitsAndBytesConfig
-from transformers.cache_utils import Cache
+from transformers.cache_utils import Cache, DynamicCache
 
 from mtp.utils.profile import time_block
 from mtp.utils.distributed import get_local_device
 from mtp.utils.checkpoint import Checkpoint
+from mtp.utils.model_types import get_model_type
 from mtp.models.loss import IGNORE_TOKEN_ID
 
 
@@ -116,12 +117,14 @@ class LM(nn.Module):
         elif self.from_huggingface is not None:
             if "EvaByte" in self.from_huggingface:
                 # Set use_cache to false to avoid weird EvaByte behaviour during training
-                kwargs = {"trust_remote_code": True, "use_cache": False}
+                kwargs = {"trust_remote_code": True, "use_cache": False, "torch_dtype": torch.bfloat16}
+            elif "Llama3-2-3B-IT-Byte" in self.from_huggingface:
+                # TODO: Assess impact of bfloat16 below
+                kwargs = {"trust_remote_code": True, "torch_dtype": torch.bfloat16}
             else:
                 kwargs = {"attn_implementation": "flash_attention_2"}
             lm = AutoModelForCausalLM.from_pretrained(
                 self.from_huggingface,
-                torch_dtype=torch.bfloat16,
                 # quantization_config=BitsAndBytesConfig(load_in_4bit=True),
                 **kwargs,
             )
@@ -311,21 +314,25 @@ class LM(nn.Module):
         attention_mask: Tensor = None,
         past_key_values: Cache = None,
         position_ids: Tensor = None,
+        draft_top_p: float = 1.0,
         logit_processor: Callable = None,
     ) -> dict:
         self.eval()
         if mode != "stp":
             raise ValueError("Only single token generation is supported")
+        if draft_top_p != 1.0:
+            raise NotImplementedError("Draft top p not implemented")
         prefill_time = 0
         first_run = past_key_values is None
         if use_cache:
             with time_block(inputs.device) as t:
                 # We only pass in the unseen inputs, because we are using cache
-                past_seen_tokens = (
-                    past_key_values.get_seq_length()
-                    if past_key_values is not None
-                    else 0
-                )
+                if past_key_values is None:
+                    past_seen_tokens = 0
+                    if get_model_type(self.encoder) == "llama":
+                        past_key_values = DynamicCache()
+                else:
+                    past_seen_tokens = past_key_values.get_seq_length()
                 if position_ids is None:
                     if attention_mask is not None:
                         # This is the default position_ids initialization from HF's generate()
@@ -342,6 +349,10 @@ class LM(nn.Module):
                         position_ids = position_ids.unsqueeze(dim=0).expand(
                             inputs.shape[0], -1
                         )
+                kwargs = {}
+                if get_model_type(self.encoder) == "llama":
+                    expand_max = self.encoder.config.expand_input_ids_maxlen
+                    kwargs["past_input_ids"] = inputs[:, max(past_seen_tokens - expand_max, 0) :]
                 # Evaluate the encoder
                 outputs = self.encoder(
                     input_ids=inputs[:, past_seen_tokens:],
@@ -349,6 +360,7 @@ class LM(nn.Module):
                     attention_mask=attention_mask,
                     past_key_values=past_key_values,
                     position_ids=position_ids,
+                    **kwargs,
                 )
                 # token embeddings of shape (b, t, n_embd)
                 xx = outputs["last_hidden_state"]

@@ -31,6 +31,13 @@ BATCH_SIZE = 1
 DetectorFactory.seed = 0
 
 
+def get_peak_memory_gb() -> float:
+    GB = 1024**3
+    torch.cuda.synchronize()
+    torch.cuda.synchronize('cuda')
+    return torch.cuda.max_memory_reserved() / GB
+
+
 def get_huggingface_model(cfg):
     hf_model = None
     if "lm" in cfg:
@@ -104,18 +111,20 @@ def decode(xx):
 
 def logits_disable_eos(logits, tokeniser):
     if isinstance(logits, torch.Tensor):
-        assert logits.shape[-1] == len(
-            tokeniser.get_vocab()
-        ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
+        # assert logits.shape[-1] == len(
+        #     tokeniser.get_vocab()
+        # ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {logits.shape[-1]}"
         logits[..., tokeniser.eos_token_id] = -torch.inf
-        logits[..., tokeniser.sep_token_id] = -torch.inf
+        if tokeniser.sep_token_id is not None:
+            logits[..., tokeniser.sep_token_id] = -torch.inf
     elif isinstance(logits, Iterable):
         for entry in logits:
-            assert entry.shape[-1] == len(
-                tokeniser.get_vocab()
-            ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
+            # assert entry.shape[-1] == len(
+            #     tokeniser.get_vocab()
+            # ), f"Expected logits last dim to be {tokeniser.vocab_size}, got {entry.shape[-1]}"
             entry[..., tokeniser.eos_token_id] = -torch.inf
-            entry[..., tokeniser.sep_token_id] = -torch.inf
+            if tokeniser.sep_token_id is not None:
+                entry[..., tokeniser.sep_token_id] = -torch.inf
     else:
         raise ValueError("Could not process logits, expected Tensor or list of Tensors")
     return logits
@@ -131,9 +140,12 @@ def generate(
     disable_eos=False,
 ):
     # Init model in case loading takes additional time - do not use this output
-    # if warmup:
-    #     with ctx:
-    #         _ = model.generate(x, mode=args.mode, use_cache=False)
+    if warmup:
+        with ctx:
+            if args.speculative:
+                _ = model.lm.prefill(x, None)
+            else:
+                _ = model.generate(x, mode=args.mode, use_cache=False)
 
     assert x.shape[0] == 1
     init_length = x.shape[1]
@@ -170,7 +182,6 @@ def generate(
                             past_num_tokens=past_num_tokens,
                             last_hidden_state=last_hidden_state,
                             logit_processor=logit_processor,
-                            legacy=args.legacy_lora_speculative,
                         )
                     else:
                         outputs = model.self_speculative_generate(
@@ -184,7 +195,6 @@ def generate(
                             draft_top_p=draft_top_p,
                             target_top_p=target_top_p,
                             logit_processor=logit_processor,
-                            legacy=args.legacy_lora_speculative,
                         )
                     tokens = outputs["tokens"]
                     acc_tokens = outputs["num_accepted_tokens"]
@@ -193,10 +203,10 @@ def generate(
                     head_past_key_values = outputs["head_past_key_values"]
                     past_num_tokens = outputs["past_num_tokens"]
                     last_hidden_state = outputs["last_hidden_state"]
-                elif args.mode == "mtp":
+                elif args.mode in ("mtp", "stp-circuit"):
                     outputs = model.generate(
                         x,
-                        mode="mtp",
+                        mode=args.mode,
                         use_argmax=args.argmax,
                         use_cache=args.use_cache,
                         past_key_values=past_key_values,
@@ -209,11 +219,14 @@ def generate(
                     head_past_key_values = outputs["head_past_key_values"]
                 else:
                     assert args.mode == "stp"
+                    assert not model.lm.has_adapter
                     outputs = model.generate(
                         x,
                         mode="stp",
+                        use_argmax=args.argmax,
                         use_cache=args.use_cache,
                         past_key_values=past_key_values,
+                        draft_top_p=draft_top_p,
                         logit_processor=logit_processor,
                     )
                     tokens = outputs["tokens"]
@@ -350,9 +363,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["stp", "mtp"],
-        help="Single Token Prediction (stp) is available both for MTP and autoregressive models. "
-        "MTP is available only for MTP models",
+        choices=["stp", "stp-circuit", "mtp"],
+        help="Single Token Prediction (stp) uses the original prediction head "
+        "autoregressively. (stp-circuit) uses the head learned by the circuit "
+        "at position 1 autoregressively. Multi Token Prediction (mtp) uses "
+        "the circuit to predict n tokens at a time with no guarantees.\n"
+        "(stp-circuit) and (mtp) is only available for MTP models."
     )
     parser.add_argument(
         "--task",
@@ -409,16 +425,14 @@ if __name__ == "__main__":
         help="Disable predicting eos so that we can guarantee that num-tokens "
         "tokens are generated per prompt.",
     )
-    parser.add_argument(
-        "--legacy-lora-speculative",
-        default=False,
-        action="store_true",
-        help="Use legacy inefficient algorithm for lora speculative decoding",
-    )
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args()
 
     assert "MTP_ROOT" in os.environ
+
+    if args.speculative:
+        if args.mode in ("stp", "stp-circuit"):
+            raise ValueError(f"Incompatible arguments: --speculative and --{args.mode}")
 
     exp_start = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
 
@@ -433,8 +447,10 @@ if __name__ == "__main__":
     # Initialize training context
     ctx = autocast(device_type=args.device, dtype=torch.bfloat16)
 
-    if args.speculative:
-        args.overrides.append("lm.model.encoder_only=false")
+    args.overrides.append("lm.model.encoder_only=false")
+    # if args.speculative:
+    #     args.overrides.append("lm.model.encoder_only=false")
+
     # If args.checkpoint=None, load random initialised model with overrides
     model, cfg = load_model_with_overrides(args.checkpoint, args.overrides)
 
@@ -442,11 +458,13 @@ if __name__ == "__main__":
         model.lm.dequantize()
 
     if args.speculative:
-        if model.lm.has_adapter and args.legacy_lora_speculative:
-            model.lm.enable_dual_model_inference()
-        else:
-            # Replace the lm with a split model
-            model.lm = LoRASplitLM.from_lm(model.lm._lm)
+        # Replace the lm with a split model
+        model.lm = LoRASplitLM.from_lm(model.lm._lm, device=args.device)
+
+    if args.mode == "stp":
+        if model.lm.has_adapter:
+            print("Running in stp mode, so removing adapter...")
+            model.lm._lm = model.lm._lm.unload()
 
     model.to(args.device)
     model.eval()
@@ -454,6 +472,8 @@ if __name__ == "__main__":
     if args.compile:
         # Enable verbose logging
         model = torch.compile(model)
+
+    gpu_base_memory = get_peak_memory_gb() if args.device == "cuda" else None
 
     # Load the tokeniser once, if needed
     # Otherwise, load the vocabulary (shakespeare models)
@@ -473,7 +493,8 @@ if __name__ == "__main__":
                 )
             else:
                 tokeniser = AutoTokenizer.from_pretrained("EvaByte/EvaByte", **kwargs)
-        tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
+        else:
+            tokeniser = AutoTokenizer.from_pretrained(hf_model, **kwargs)
         vocabs = None
 
     # Load prompts from prompt_source if specific prompt not given
@@ -608,13 +629,14 @@ if __name__ == "__main__":
 
     my_uuid = unique_timestamp()
 
+    gpu_max_memory_use = get_peak_memory_gb() if args.device == "cuda" else None
+
     stats = dict()
     stats["uuid"] = my_uuid
     stats["exp_start"] = exp_start
     stats["exp_end"] = datetime.datetime.now().strftime("%Y-%m-%d:%H:%M:%S")
     stats["exp_host"] = socket.gethostname()
     stats["model"] = cfg.model.model._target_
-    stats["legacy_lora_speculative"] = args.legacy_lora_speculative
     stats["random_seed"] = args.random_seed
     stats["prompt_subset_index"] = args.prompt_subset_index
     stats["ntoken"] = n_token
@@ -644,6 +666,8 @@ if __name__ == "__main__":
     stats["device"] = args.device
     stats["cpu"] = cpuinfo.get_cpu_info()["brand_raw"]
     stats["gpu"] = torch.cuda.get_device_name(torch.cuda.current_device())
+    stats["gpu_model_mem_usage"] = gpu_base_memory
+    stats["gpu_max_mem_usage_during_inference"] = gpu_max_memory_use
     stats["batch_size"] = BATCH_SIZE
     stats["num_generated_tokens"] = total_num_generated_tokens
     stats["elapsed_time"] = total_elapsed_time
@@ -689,13 +713,13 @@ if __name__ == "__main__":
         for i in range(len(prompts)):
             log = dict()
             log["total_generated_tokens"] = sum(all_num_generated_tokens[i])
-            log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i])
             log["elapsed_time"] = [round(t, 6) for t in all_elapsed_times[i]]
             log["prefill_time"] = round(prefill_times[i], 6)
             log["prompt"] = prompts[i]
             log["num_generated_tokens"] = all_num_generated_tokens[i]
-            log["num_accepted_tokens"] = all_num_accepted_tokens[i]
             log["generated_tokens"] = all_generated_tokens[i]
+            log["avg_accepted_tokens"] = np.mean(all_num_accepted_tokens[i]) if args.speculative else None
+            log["num_accepted_tokens"] = all_num_accepted_tokens[i] if args.speculative else None
             log_entries.append("%s\n" % json.dumps(log))
         with open(file_path, "w") as f:
             f.writelines(log_entries)

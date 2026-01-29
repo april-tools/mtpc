@@ -2,26 +2,7 @@ import pandas as pd
 
 from argparse import ArgumentParser
 
-
-def add_step_column(df, column_name, new_column_name="step"):
-    """
-    Extract the step value from entries containing 'model@{number}.pt'
-
-    Parameters:
-    df: pandas DataFrame
-    column_name: name of the column containing the model strings
-    new_column_name: name for the new column (default: 'step')
-
-    Returns:
-    pandas DataFrame with new column containing step values
-    """
-    # Use regex to find 'model@' followed by digits
-    pattern = r"@(\d+)"
-    df[new_column_name] = (
-        df[column_name].str.extract(pattern, expand=False).astype("Int64")
-    )
-
-    return df
+from utils import parse_filename, add_step_column
 
 
 if __name__ == "__main__":
@@ -36,9 +17,15 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    parts = parse_filename(args.spec_throughput_file)
+
     # Read JSONL file into a DataFrame
     df_raw = pd.read_json(args.raw_throughput_file, lines=True)
-    stp_field = df_raw[df_raw["model"].str.contains("SingleTokenLM")].copy()
+    # stp_field = df_raw[df_raw["model"].str.contains("SingleTokenLM")].copy()
+    stp_field = df_raw[df_raw["mode"] == "stp"].copy()
+    stp_field = stp_field.reset_index(drop=True)
+    assert len(stp_field) == 1
     stp_field.loc[0, "circuit"] = "STP"
     stp_field.loc[0, "ncomponent"] = 1
     stp_field["speedup"] = [1]
@@ -78,15 +65,17 @@ if __name__ == "__main__":
             decimals = 2
         elif metric == "avg_time_per_call":
             decimals = 4
+            stp_field[metric] = stp_field[metric].map(lambda x: f"{x:.{decimals}f}")
         else:
             decimals = 1
-
+            stp_field[metric] = stp_field[metric].map(lambda x: f"{x:.{decimals}f}")
 
         # Create mean±std column
         df_collapsed[metric] = (
             df_spec_best_agg[mean_col].map(lambda x: f"{x:.{decimals}f}")
-            + " \\scriptsize$\\pm$ "
+            + "{\\scriptsize$\\pm$"
             + df_spec_best_agg[std_col].map(lambda x: f"{x:.{decimals}f}")
+            + "}"
         )
 
         # # Keep count
@@ -99,22 +88,44 @@ if __name__ == "__main__":
     colmap = {
         'ncomponent': '$r$',
         'ntoken': '$n$',
-        'avg_accepted_tokens': '\\meanacc',
-        'avg_time_per_call': '\\meanlat',
-        'tokens_per_second': '\\meantoks',
+        'avg_accepted_tokens': '\\meanacc~\\incfield',
+        'avg_time_per_call': '\\meanlat~\\decfield',
+        'tokens_per_second': '\\meantoks~\\incfield',
         'tokens_per_second_no_spec': '\\maxtoks',
+        'speedup': 'speed-up',
     }
     result = result.rename(columns=colmap)
-    result = result[["$n$", "$r$", "circuit", "\\meanacc", "\\meanlat", "\\meantoks", "speedup"]]
+    result = result[["$n$", "$r$", "circuit", "\\meanlat~\\decfield", "\\meanacc~\\incfield", "\\meantoks~\\incfield", "speed-up"]]
+
+    figure_output = result.copy()
+    figure_output["LoRA"] = 0
+    print("###################################################")
+    print("########### Output to use for Figure 3 ############")
+    print(figure_output[["$n$", "$r$", "circuit", "LoRA", "\\meanacc~\\incfield", "\\meanlat~\\decfield"]].to_csv(index=False))
+    print("###################################################")
+
+    result = result.set_index(["$n$", "$r$", "circuit"])
 
     latex_table = result.to_latex(
+        column_format='llllllr',
         float_format="%4.2f",
         formatters={
             ("$r$"): lambda x: f"{x:<4d}",
             ("$n$"): lambda x: f"{x:<4d}",
             ("circuit"): lambda x: f"{x:<5s}",
         },
-        index=False,
-        label="tab:no-lora-stats"
+        multirow=True,
+        index_names=False,
+        label=f"tab:throughput-{parts['subset']}-{parts['gpu']}-{parts['mode']}-{parts['model']}"
     )
+    latex_table = latex_table.replace(r'\multirow[t]{', r'\multirow[c]{')
+    latex_table = latex_table.replace('\\begin{table}\n', '\\begin{table}\n\\centering\n')
+    latex_table = latex_table.replace('NaN', '---')
+    latex_table = latex_table.replace('speed-up', '\\speedup')
+    latex_table = latex_table.replace('FF', r'\ref{eq:n-indep-prob}')
+    latex_table = latex_table.replace('CP', r'\ref{eq:r-cp}')
+    latex_table = latex_table.replace('BTREE', r'\ref{eq:btree}')
+    latex_table = latex_table.replace('HMM', r'\ref{eq:r-hmm}')
+    latex_table = latex_table.replace('\\midrule\n', '\\midrule\n\\rowcolor{gray!15}')
+    latex_table = latex_table.replace('\\cline{1-7} \\cline{2-7}\n\\bottomrule', '\\bottomrule')
     print(latex_table)

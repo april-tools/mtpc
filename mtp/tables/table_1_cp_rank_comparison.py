@@ -1,27 +1,7 @@
 import pandas as pd
 
 from argparse import ArgumentParser
-
-
-def add_step_column(df, column_name, new_column_name="step"):
-    """
-    Extract the step value from entries containing 'model@{number}.pt'
-
-    Parameters:
-    df: pandas DataFrame
-    column_name: name of the column containing the model strings
-    new_column_name: name for the new column (default: 'step')
-
-    Returns:
-    pandas DataFrame with new column containing step values
-    """
-    # Use regex to find 'model@' followed by digits
-    pattern = r"@(\d+)"
-    df[new_column_name] = (
-        df[column_name].str.extract(pattern, expand=False).astype("Int64")
-    )
-
-    return df
+from utils import parse_filename, add_step_column
 
 
 if __name__ == "__main__":
@@ -36,6 +16,9 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+
+    parts = parse_filename(args.spec_throughput_file)
+
     # Read JSONL file into a DataFrame
     df_raw = pd.read_json(args.raw_throughput_file, lines=True)
     df_spec = pd.read_json(args.spec_throughput_file, lines=True)
@@ -80,12 +63,12 @@ if __name__ == "__main__":
         else:
             decimals = 1
 
-
         # Create mean±std column
         df_collapsed[metric] = (
             df_spec_best_agg[mean_col].map(lambda x: f"{x:.{decimals}f}")
-            + " \\scriptsize$\\pm$ "
+            + "{\\scriptsize$\\pm$"
             + df_spec_best_agg[std_col].map(lambda x: f"{x:.{decimals}f}")
+            + "}"
         )
 
         # # Keep count
@@ -94,19 +77,29 @@ if __name__ == "__main__":
     result = pd.merge(df_collapsed, df_raw, on='ncomponent', how='inner')
     result = result.rename(columns={
         'ncomponent': '$r$',
-        'avg_accepted_tokens': '\\meanacc',
-        'avg_time_per_call': '\\meanlat',
-        'tokens_per_second': '\\meantoks',
+        'avg_time_per_call': '\\meanlat~\\decfield',
+        'avg_accepted_tokens': '\\meanacc~\\incfield',
+        'tokens_per_second': '\\meantoks~\\incfield',
         'tokens_per_second_no_spec': '\\maxtoks',
     })
 
+    result = result[["$r$", "circuit", "\\meanlat~\\decfield", "\\meanacc~\\incfield", "\\meantoks~\\incfield", "\\maxtoks"]]
+    result = result.set_index(["circuit", "$r$"])
+
     latex_table = result.to_latex(
+        column_format='lllllr',
         float_format="%4.2f",
         formatters={
             ("$r$"): lambda x: f"{x:<4d}",
         },
-        # multirow=False,
-        index=False,
-        label="tab:cp-vary-stats"
+        multirow=True,
+        index_names=False,
+        label=f"tab:throughput-cp-{parts['subset']}-{parts['gpu']}-{parts['mode']}-{parts['model']}"
     )
+    latex_table = latex_table.replace(r'\multirow[t]{', r'\multirow[c]{')
+    latex_table = latex_table.replace('\\begin{table}\n', '\\begin{table}\n\\centering\n')
+    latex_table = latex_table.replace('FF', r'\ref{eq:n-indep-prob}')
+    latex_table = latex_table.replace('CP', r'\ref{eq:r-cp}')
+    latex_table = latex_table.replace('\\midrule\n', '\\midrule\n\\rowcolor{gray!15}')
+    latex_table = latex_table.replace('\\cline{1-6}\n\\bottomrule', '\\bottomrule')
     print(latex_table)

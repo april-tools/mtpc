@@ -2,8 +2,6 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 
-from transformers import DataCollatorWithFlattening
-from itertools import chain
 from more_itertools import peekable
 
 
@@ -87,3 +85,54 @@ def pack_by_length(ds, max_len=8192, num_bins=5, num_proc=1, pad_id=0, ignore_to
                 packed_dataset.append(packed)
                 break
     return packed_dataset
+
+
+def build_attention_mask(position_ids: torch.LongTensor, dtype):
+    bs, seq_len = position_ids.shape
+    device = position_ids.device
+
+    min_dtype = torch.finfo(dtype).min
+
+    attention_mask = torch.full((bs, 1, seq_len, seq_len), fill_value=min_dtype, dtype=dtype, device=device)
+
+    for b in range(bs):
+
+        batch_position_ids = position_ids[b]
+
+        start_idxs = torch.where(batch_position_ids == 0)[0]
+        start_idxs_right = start_idxs.roll(-1)
+        start_idxs_right[-1] = batch_position_ids.shape[0]
+
+        example_lengths = start_idxs_right - start_idxs
+
+        offsets = torch.cumsum(example_lengths, dim=0) - example_lengths
+
+        for off_idx, block_size in zip(offsets, example_lengths):
+            block_contents = torch.full((block_size, block_size), fill_value=min_dtype, dtype=dtype, device=device)
+            block = torch.triu(block_contents, diagonal=1)
+            attention_mask[b, :, off_idx: off_idx + block_size, off_idx: off_idx + block_size] = block
+
+    return attention_mask
+
+
+def build_position_ids(input_ids: torch.LongTensor, eos_token_id: int):
+    bs, seq_len = input_ids.shape
+
+    position_ids = []
+
+    for b in range(bs):
+        position_id = torch.arange(0, seq_len, dtype=torch.long, device=input_ids.device)
+        # Find indecies where EOD token is.
+        eos_ind = position_id[input_ids[b] == eos_token_id]
+
+        # Loop through EOD indecies:
+        prev_index = 0
+        for j in range(eos_ind.shape[0]):
+            i = eos_ind[j]
+            # Reset positions.
+            position_id[(i + 1):] -= (i + 1 - prev_index)
+            prev_index = i + 1
+
+        position_ids.append(position_id)
+    position_ids = torch.stack(position_ids, dim=0)
+    return position_ids

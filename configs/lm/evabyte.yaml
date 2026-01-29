@@ -1,6 +1,10 @@
 name: evabyte
 n_embd: 4096
 n_head: 32
+num_layers: 32
+last_1_layers: [31]
+last_2_layers: [30, 31]
+last_4_layers: [28, 29, 30, 31]
 
 model:
     _target_: mtp.models.lm.LM

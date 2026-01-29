@@ -4,27 +4,8 @@ from copy import deepcopy
 from torch import Tensor
 from peft import PeftModelForCausalLM
 
-from mtp.models.evabyte.eva_cache import EvaStaticCacheForTriton
-from mtp.models.evabyte.multibyte_decoding_evabyte import (
-    multi_byte_pred_prepare_attn_mask,
-)
-
-
-def prepare_encode_kwargs(input_ids, cache, encoder, num_past_seen_tokens):
-    # Produce attention, position ids and past key values
-    attn_mask = multi_byte_pred_prepare_attn_mask(
-        encoder.config,
-        num_past_seen_tokens,
-        input_ids.shape[1] - num_past_seen_tokens,
-        device=input_ids.device,
-    )
-    position_ids = get_position_ids(input_ids, num_past_seen_tokens)
-    result = {
-        "attention_mask": attn_mask,
-        "past_key_values": cache,
-        "position_ids": position_ids,
-    }
-    return result
+from mtp.models.cache import KVCacheWrapper
+from mtp.utils.model_types import get_model_type
 
 
 def count_adapter_layers(lm):
@@ -41,23 +22,6 @@ def count_adapter_layers(lm):
     return count
 
 
-def get_position_ids(inputs, num_past_seen_tokens=0):
-    assert num_past_seen_tokens >= 0
-    # Construct input_ids
-    if num_past_seen_tokens == 0:
-        position_ids = torch.arange(
-            0, inputs.shape[1], device=inputs.device, dtype=torch.int
-        ).unsqueeze(dim=0)
-    else:
-        position_ids = torch.arange(
-            num_past_seen_tokens,
-            inputs.shape[1],
-            device=inputs.device,
-            dtype=torch.int,
-        ).unsqueeze(dim=0)
-    return position_ids
-
-
 class LoRASplitLM(torch.nn.Module):
     """
     LM split into three components for efficient speculative decoding:
@@ -71,21 +35,31 @@ class LoRASplitLM(torch.nn.Module):
     Note: we enforce that the verifier is always one token behind the draft.
     """
 
-    def __init__(self, shared_encoder, draft_encoder, verifier_encoder, lm_head):
+    def __init__(self, shared_encoder, draft_encoder, verifier_encoder, lm_head, device):
         super().__init__()
         self.shared_encoder = shared_encoder
         self.draft_encoder = draft_encoder
         self.verifier_encoder = verifier_encoder
         self.lm_head = lm_head
+        self.device = device
 
-        self.shared_seen_tokens = 0
-        self.draft_seen_tokens = 0
-        self.verifier_seen_tokens = 0
+        # Create KVCacheWrapper instances
+        self.shared_kv_cache = KVCacheWrapper.for_model(shared_encoder, device=self.device)
+        if draft_encoder is not None:
+            self.draft_kv_cache = KVCacheWrapper.for_model(draft_encoder, device=self.device)
+            self.verifier_kv_cache = KVCacheWrapper.for_model(verifier_encoder, device=self.device)
+        else:
+            self.draft_kv_cache = None
+            self.verifier_kv_cache = None
 
-        self.reset_caches()
+        self.arch_specific_prefill_kwargs = dict()
+        self.arch_specific_inference_kwargs = dict()
+        if self.model_type == "evabyte":
+            self.arch_specific_prefill_kwargs = {"multibyte_decoding": False}
+            self.arch_specific_inference_kwargs = {"multibyte_decoding": True}
 
     @classmethod
-    def from_lm(cls, lm):
+    def from_lm(cls, lm, device):
         """
         Create SplitLM from an existing LM instance. We detect the number of
         LoRA layers (if any) and split the LM into parts.
@@ -94,15 +68,9 @@ class LoRASplitLM(torch.nn.Module):
             lm: The original LM instance
         """
 
-        if type(lm).__name__ == "EvaByteForCausalLM":
-            shared_encoder = lm
-            draft_encoder = None
-            verifier_encoder = None
-            print("Found no adapter layers..")
+        model_type = get_model_type(lm)
 
-            lm_head = deepcopy(lm.lm_head)
-            del lm.lm_head
-        elif isinstance(lm, PeftModelForCausalLM):
+        if isinstance(lm, PeftModelForCausalLM):
             lm_head = deepcopy(lm.model.lm_head)
             del lm.model.lm_head
 
@@ -120,9 +88,10 @@ class LoRASplitLM(torch.nn.Module):
             draft_encoder = deepcopy(shared_encoder)
             verifier_encoder = deepcopy(shared_encoder)
 
-            shared_encoder.model.model.layers = deepcopy(all_layers[:split_layer_idx])
+            shared_encoder.model.model.layers = all_layers[:split_layer_idx]
             # NOTE: ! Important !
             # Monkey-patch norm since it would be applied to the last activation giving wrong result
+            # Note: This works both for EvaByte and TPULlamaModel
             shared_encoder.model.model.norm = torch.nn.Identity()
             shared_encoder = shared_encoder.unload()
             shared_encoder.config.num_hidden_layers = len(shared_encoder.model.layers)
@@ -146,99 +115,117 @@ class LoRASplitLM(torch.nn.Module):
                 verifier_encoder.model.layers
             )
 
-            del all_layers
+        elif model_type in ("llama", "evabyte"):
+            shared_encoder = lm
+            draft_encoder = None
+            verifier_encoder = None
+            print("Found no adapter layers..")
+
+            lm_head = deepcopy(lm.lm_head)
+            del lm.lm_head
         else:
             raise ValueError(f"Unexpected LM of type: {lm.__class__}")
 
-        return cls(shared_encoder, draft_encoder, verifier_encoder, lm_head)
+        return cls(shared_encoder, draft_encoder, verifier_encoder, lm_head, device=device)
 
     @property
     def has_adapter(self):
         return self.draft_encoder is not None
 
+    @property
+    def head(self):
+        return getattr(self, "lm_head")
+
+    @property
+    def model_type(self):
+        """Detect model type from shared_encoder."""
+        return get_model_type(self.shared_encoder)
+
+    @property
+    def shared_seen_tokens(self):
+        """Access shared cache's seen tokens counter."""
+        return self.shared_kv_cache.seen_tokens
+
+    @property
+    def draft_seen_tokens(self):
+        """Access draft cache's seen tokens counter."""
+        return self.draft_kv_cache.seen_tokens if self.draft_kv_cache else self.shared_kv_cache.seen_tokens
+
+    @property
+    def verifier_seen_tokens(self):
+        """Access verifier cache's seen tokens counter."""
+        return self.verifier_kv_cache.seen_tokens if self.verifier_kv_cache else self.shared_kv_cache.seen_tokens - 1
+
+    @property
+    def shared_encoder_cache(self):
+        """Access shared cache's underlying cache object."""
+        return self.shared_kv_cache.cache
+
+    @property
+    def draft_encoder_cache(self):
+        """Access draft cache's underlying cache object."""
+        return self.draft_kv_cache.cache if self.draft_kv_cache else None
+
+    @property
+    def verifier_encoder_cache(self):
+        """Access verifier cache's underlying cache object."""
+        return self.verifier_kv_cache.cache if self.verifier_kv_cache else None
+
     @torch.no_grad()
     def prefill(self, input_ids, circuit_n_token):
-        use_cache = True
 
-        # Initialises the cache
-        self.init_caches(circuit_n_token, batch_size=input_ids.shape[0])
+        self.reset_caches()
+        position_ids = self.shared_kv_cache.get_position_ids(input_ids)
 
-        position_ids = get_position_ids(input_ids, num_past_seen_tokens=0)
-
-        # NOTE: No need to update cache as multibyte_decoding=False
-        # appends to the cache in the forward pass
         # ============ Prefill: Shared Encoder ========================
         shared_outputs = self.shared_encoder.model(
             input_ids=input_ids,
-            use_cache=use_cache,
+            use_cache=True,
             position_ids=position_ids,
             past_key_values=self.shared_encoder_cache,
-            multibyte_decoding=False,
+            **self.arch_specific_prefill_kwargs,
         )
         shared_last_hidden_state = shared_outputs["last_hidden_state"]
         shared_past_key_values = shared_outputs["past_key_values"]
 
-        # Update kv cache
-        shared_outputs["past_key_values"] = (
-            self.shared_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                shared_outputs["past_key_values"]
-            )
-        )
+        # Update kv cache using wrapper's prefill_update
+        shared_past_key_values = self.shared_kv_cache.prefill_update(shared_past_key_values)
 
         if self.has_adapter:
             # ============ Prefill: Draft Encoder ========================
             draft_outputs = self.draft_encoder.model(
-                input_ids=input_ids,
+                input_ids=None if self.model_type == "llama" else input_ids,
                 inputs_embeds=shared_last_hidden_state,
-                use_cache=use_cache,
+                use_cache=True,
                 past_key_values=self.draft_encoder_cache,
                 position_ids=position_ids,
-                multibyte_decoding=False,
+                **self.arch_specific_prefill_kwargs,
             )
             draft_last_hidden_state = draft_outputs["last_hidden_state"]
             draft_past_key_values = draft_outputs["past_key_values"]
 
-            # Update kv cache
-            draft_outputs["past_key_values"] = (
-                self.draft_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                    draft_past_key_values
-                )
-            )
+            # Update kv cache using wrapper's prefill_update
+            draft_past_key_values = self.draft_kv_cache.prefill_update(draft_past_key_values)
             # ============ Prefill: Verifier Encoder ========================
             # NOTE: Verifier must stay one step behind Draft
             verifier_outputs = self.verifier_encoder.model(
-                input_ids=input_ids[:, :-1],
+                input_ids=None if self.model_type == "llama" else input_ids[:, :-1],
                 inputs_embeds=shared_last_hidden_state[:, :-1],
-                use_cache=use_cache,
+                use_cache=True,
                 past_key_values=self.verifier_encoder_cache,
                 position_ids=position_ids[:, :-1],
-                multibyte_decoding=False,
+                **self.arch_specific_prefill_kwargs,
             )
             verifier_last_hidden_state = verifier_outputs["last_hidden_state"]
             verifier_past_key_values = verifier_outputs["past_key_values"]
 
-            # Update kv cache
-            verifier_outputs["past_key_values"] = (
-                self.verifier_encoder._multi_byte_pred_update_cache_when_prefil_len_eq_window_size(
-                    verifier_past_key_values
-                )
-            )
+            # Update kv cache using wrapper's prefill_update
+            verifier_past_key_values = self.verifier_kv_cache.prefill_update(verifier_past_key_values)
         else:
             draft_last_hidden_state = shared_last_hidden_state
             draft_past_key_values = shared_past_key_values
             verifier_last_hidden_state = None
             verifier_past_key_values = None
-
-        self.set_caches(
-            shared_cache=shared_past_key_values,
-            draft_cache=draft_past_key_values,
-            verifier_cache=verifier_past_key_values,
-        )
-        # Update sequence trackers
-        seq_len = input_ids.shape[1]
-        self.shared_seen_tokens = seq_len
-        self.draft_seen_tokens = seq_len
-        self.verifier_seen_tokens = seq_len - 1  # One token behind!
 
         results = dict(
             shared_last_hidden_state=shared_last_hidden_state,
@@ -249,10 +236,6 @@ class LoRASplitLM(torch.nn.Module):
             verifier_past_key_values=verifier_past_key_values,
         )
         return results
-
-    @property
-    def head(self):
-        return getattr(self, "lm_head")
 
     def head_logits(self, xx: Tensor) -> Tensor:
         # Compute the logits with the head
@@ -292,18 +275,16 @@ class LoRASplitLM(torch.nn.Module):
             if self.has_adapter:
                 assert self.shared_encoder_cache is not None, "Prefilling required"
                 assert self.draft_encoder_cache is not None, "Prefilling required"
-                draft_kvs = prepare_encode_kwargs(
+                draft_kvs = self.draft_kv_cache.get_encoder_kwargs(
                     input_ids=input_ids,
-                    cache=self.draft_encoder_cache,
-                    encoder=self.draft_encoder,
-                    num_past_seen_tokens=self.draft_seen_tokens,
                 )
-            shared_kvs = prepare_encode_kwargs(
+            shared_kvs = self.shared_kv_cache.get_encoder_kwargs(
                 input_ids=input_ids,
-                cache=self.shared_encoder_cache,
-                encoder=self.shared_encoder,
-                num_past_seen_tokens=self.shared_seen_tokens,
             )
+            # For Llama we need to pass in the whole history
+            if self.shared_kv_cache.model_type == "llama":
+                expand_max = self.shared_encoder.config.expand_input_ids_maxlen
+                shared_kvs["past_input_ids"] = input_ids[:, max(self.shared_seen_tokens - expand_max, 0) :]
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:
@@ -311,8 +292,8 @@ class LoRASplitLM(torch.nn.Module):
             shared_outputs = self.shared_encoder.model(
                 input_ids=input_ids[:, self.shared_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **shared_kvs,
+                **self.arch_specific_inference_kwargs,
             )
             shared_last_hidden_state = torch.cat(
                 [shared_last_hidden_state, shared_outputs["last_hidden_state"]], axis=1
@@ -324,11 +305,11 @@ class LoRASplitLM(torch.nn.Module):
         if self.has_adapter:
             # Run draft_encoder
             draft_outputs = self.draft_encoder.model(
-                input_ids=input_ids[:, self.draft_seen_tokens :],
+                input_ids=None if self.model_type == "llama" else input_ids[:, self.draft_seen_tokens :],
                 inputs_embeds=shared_last_hidden_state[:, self.draft_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **draft_kvs,
+                **self.arch_specific_inference_kwargs,
             )
             draft_last_hidden_state = draft_outputs["last_hidden_state"]
             draft_past_key_values = draft_outputs["past_key_values"]
@@ -355,18 +336,16 @@ class LoRASplitLM(torch.nn.Module):
             if self.has_adapter:
                 assert self.shared_encoder_cache is not None, "Prefilling required"
                 assert self.verifier_encoder_cache is not None, "Prefilling required"
-                verifier_kvs = prepare_encode_kwargs(
+                verifier_kvs = self.verifier_kv_cache.get_encoder_kwargs(
                     input_ids=input_ids,
-                    cache=self.verifier_encoder_cache,
-                    encoder=self.verifier_encoder,
-                    num_past_seen_tokens=self.verifier_seen_tokens,
                 )
-            shared_kvs = prepare_encode_kwargs(
+            shared_kvs = self.shared_kv_cache.get_encoder_kwargs(
                 input_ids=input_ids,
-                cache=self.shared_encoder_cache,
-                encoder=self.shared_encoder,
-                num_past_seen_tokens=self.shared_seen_tokens,
             )
+            # For Llama we need to pass in the whole history
+            if self.shared_kv_cache.model_type == "llama":
+                expand_max = self.shared_encoder.config.expand_input_ids_maxlen
+                shared_kvs["past_input_ids"] = input_ids[:, max(self.shared_seen_tokens - expand_max, 0) :]
 
         # If our current hidden state is not up to date
         if shared_last_hidden_state.shape[1] != input_ids.shape[1]:
@@ -374,8 +353,8 @@ class LoRASplitLM(torch.nn.Module):
             shared_outputs = self.shared_encoder.model(
                 input_ids=input_ids[:, self.shared_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **shared_kvs,
+                **self.arch_specific_inference_kwargs,
             )
             shared_last_hidden_state = torch.cat(
                 [shared_last_hidden_state, shared_outputs["last_hidden_state"]], axis=1
@@ -387,18 +366,18 @@ class LoRASplitLM(torch.nn.Module):
         if self.has_adapter:
             # Run verifier_encoder
             verifier_outputs = self.verifier_encoder.model(
-                input_ids=input_ids[:, self.verifier_seen_tokens :],
+                input_ids=None if self.model_type == "llama" else input_ids[:, self.verifier_seen_tokens :],
                 inputs_embeds=shared_last_hidden_state[:, self.verifier_seen_tokens :],
                 use_cache=use_cache,
-                multibyte_decoding=use_cache,
                 **verifier_kvs,
+                **self.arch_specific_inference_kwargs,
             )
             verifier_last_hidden_state = verifier_outputs["last_hidden_state"]
             verifier_past_key_values = verifier_outputs["past_key_values"]
         else:
             # In this case shared = verifier
             verifier_last_hidden_state = shared_last_hidden_state[
-                :, self.verifier_seen_tokens:
+                :, self.verifier_seen_tokens :
             ]
             verifier_past_key_values = shared_past_key_values
 
@@ -410,103 +389,19 @@ class LoRASplitLM(torch.nn.Module):
         )
         return results
 
-    def init_caches(self, num_tokens_speculate, batch_size=1):
-        self.shared_encoder_cache = EvaStaticCacheForTriton(
-            batch_size,
-            self.shared_encoder.config.num_attention_heads,
-            self.shared_encoder.config.window_size + num_tokens_speculate,
-            self.shared_encoder.config.hidden_size
-            // self.shared_encoder.config.num_attention_heads,
-            self.shared_encoder.config.num_hidden_layers,
-            torch.bfloat16,
-            self.shared_encoder.device,
-        )
+    def reset_caches(self):
+        self.shared_kv_cache.reset()
         if self.has_adapter:
-            self.draft_encoder_cache = EvaStaticCacheForTriton(
-                batch_size,
-                self.draft_encoder.config.num_attention_heads,
-                self.draft_encoder.config.window_size + num_tokens_speculate,
-                self.draft_encoder.config.hidden_size
-                // self.draft_encoder.config.num_attention_heads,
-                self.draft_encoder.config.num_hidden_layers,
-                torch.bfloat16,
-                self.draft_encoder.device,
-            )
-            self.verifier_encoder_cache = EvaStaticCacheForTriton(
-                batch_size,
-                self.verifier_encoder.config.num_attention_heads,
-                self.verifier_encoder.config.window_size + num_tokens_speculate,
-                self.verifier_encoder.config.hidden_size
-                // self.verifier_encoder.config.num_attention_heads,
-                self.verifier_encoder.config.num_hidden_layers,
-                torch.bfloat16,
-                self.verifier_encoder.device,
-            )
-        else:
-            self.draft_encoder_cache = None
-            self.verifier_encoder_cache = None
-
-    def set_caches(self, shared_cache=None, draft_cache=None, verifier_cache=None):
-        if shared_cache is not None:
-            self.shared_encoder_cache = shared_cache
-        if draft_cache is not None:
-            self.draft_encoder_cache = draft_cache
-        if verifier_cache is not None:
-            self.verifier_encoder_cache = verifier_cache
+            self.draft_kv_cache.reset()
+            self.verifier_kv_cache.reset()
 
     def update_shared_cache(self, past_key_values, num_candidates, num_valid):
-        assert num_valid <= num_candidates
-        self.shared_seen_tokens += num_valid
-        self.shared_encoder_cache = self.shared_encoder.multi_byte_pred_update_cache(
-            past_key_values,
-            torch.arange(
-                num_candidates, device=self.shared_encoder.device, dtype=torch.int
-            ).unsqueeze(dim=0),
-            0,
-            num_valid,
-        )
-        assert self.shared_seen_tokens == self.shared_encoder_cache.get_seq_length()
+        self.shared_kv_cache.update(past_key_values, num_candidates, num_valid)
 
     def update_draft_cache(self, past_key_values, num_candidates, num_valid):
-        assert num_valid <= num_candidates
-        self.draft_seen_tokens += num_valid
         if self.has_adapter:
-            self.draft_encoder_cache = self.draft_encoder.multi_byte_pred_update_cache(
-                past_key_values,
-                torch.arange(
-                    num_candidates, device=self.draft_encoder.device, dtype=torch.int
-                ).unsqueeze(dim=0),
-                0,
-                num_valid,
-            )
-            assert self.draft_seen_tokens == self.draft_encoder_cache.get_seq_length()
+            self.draft_kv_cache.update(past_key_values, num_candidates, num_valid)
 
     def update_verifier_cache(self, past_key_values, num_candidates, num_valid):
-        assert num_valid <= num_candidates
-        self.verifier_seen_tokens += num_valid
         if self.has_adapter:
-            self.verifier_encoder_cache = (
-                self.verifier_encoder.multi_byte_pred_update_cache(
-                    past_key_values,
-                    torch.arange(
-                        num_candidates,
-                        device=self.verifier_encoder.device,
-                        dtype=torch.int,
-                    ).unsqueeze(dim=0),
-                    0,
-                    num_valid,
-                )
-            )
-            assert (
-                self.verifier_seen_tokens
-                == self.verifier_encoder_cache.get_seq_length()
-            )
-
-    def reset_caches(self):
-        self.shared_encoder_cache = None
-        self.draft_encoder_cache = None
-        self.verifier_encoder_cache = None
-
-        self.shared_seen_tokens = 0
-        self.draft_seen_tokens = 0
-        self.verifier_seen_tokens = 0
+            self.verifier_kv_cache.update(past_key_values, num_candidates, num_valid)

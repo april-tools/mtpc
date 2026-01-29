@@ -2,6 +2,7 @@ import torch
 
 from torch import Tensor
 from typing import Callable
+from transformers.cache_utils import Cache
 
 from .lm import LM
 
@@ -36,7 +37,8 @@ class SingleTokenLM(torch.nn.Module):
         use_argmax: bool = False,
         mode: str = "stp",
         use_cache: bool = False,
-        past_key_values: Tensor = None,
+        past_key_values: Cache = None,
+        draft_top_p: float = 1.0,
         logit_processor: Callable = None,
     ) -> Tensor:
         return self.lm.generate(
@@ -44,5 +46,7 @@ class SingleTokenLM(torch.nn.Module):
             use_argmax=use_argmax,
             mode=mode,
             use_cache=use_cache,
+            draft_top_p=draft_top_p,
             past_key_values=past_key_values,
+            logit_processor=logit_processor,
         )

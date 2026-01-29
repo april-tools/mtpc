@@ -3,19 +3,32 @@
 mkdir -p $MTP_ROOT/outputs/results
 
 device=cuda
-num_tokens=1024
-subsample_prompts=100
 prompt_source="tulu-valid"
 filetag="${1:-unspecified}"
 prompt_subset_index="${2:-0}"
+model="${3:-evabyte}"
+num_tokens=${4:-1024}
+subsample_prompts=${5:-10}
+mode=${6:sampling}
 seed=42
+
+if [ "$model" = "llama" ]; then
+    lm="llama3-2-3b-byte"
+    data="tulu3-llama3-packed"
+elif [ "$model" = "evabyte" ]; then
+    lm="evabyte"
+    data="tulu3-evabyte-packed"
+fi
 
 export GPUS=1
 export GPU=1
 
 args=( --device $device --num-tokens $num_tokens --random-seed $seed --prompt-subset-index $prompt_subset_index )
-gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source )
-
+if [ "$mode" = "sampling" ]; then
+	gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source --use-cache --disable-eos data=$data lm=$lm lm.model.encoder_only=False)
+elif [ "$mode" = "argmax" ]; then
+	gen_args=( --task chat --subsample-prompts $subsample_prompts --prompt-source $prompt_source --use-cache --disable-eos --argmax data=$data lm=$lm lm.model.encoder_only=False)
+fi
 
 # For the models below we do not stop generating on EOS
 # as we just want to check how much time it takes to run them on the
@@ -26,12 +39,7 @@ python -m mtp.generate \
   --mode stp \
   ${args[@]} \
   ${gen_args[@]} \
-  lm=evabyte lm.model.encoder_only=False data.vocab_size=320 \
-  --use-cache \
-  --disable-eos \
-  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
-
-adaptor=none
+  | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${model}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
 
 for circuit in fully_factorized cp hmm btree;
 do
@@ -43,7 +51,7 @@ do
       n_components="8 16 32 64 128"
     fi
 
-    mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=$adaptor data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )
+    mtp_lm_args=( model=mtp adaptor=none mt_head=linear-evabyte )
 
     for n_component in $n_components;
     do
@@ -51,36 +59,7 @@ do
       python -m mtp.generate \
         --mode mtp \
         ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
-        --use-cache \
-        --disable-eos \
-        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
-    done
-  done
-done
-
-adaptor=lora-last-16
-
-for circuit in fully_factorized cp hmm btree;
-do
-  for n_token in 8 16;
-  do
-    if [[ $circuit == "fully_factorized" ]]; then
-      n_components="1"
-    else
-      n_components="8 16 32 64 128"
-    fi
-
-    mtp_lm_args=( model=mtp lm=evabyte lm.model.encoder_only=False adaptor=$adaptor data=tulu3 data.vocab_size=320 mt_head=linear-evabyte )
-
-    for n_component in $n_components;
-    do
-      circuit_args=( circuit=$circuit circuit.n_token=$n_token circuit.n_component=$n_component )
-      python -m mtp.generate \
-        --mode mtp \
-        ${args[@]} ${gen_args[@]} ${mtp_lm_args[@]} ${circuit_args[@]} \
-        --use-cache \
-        --disable-eos \
-        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput_evabyte_${filetag}_${subsample_prompts}.jsonl"
+        | tail -n 1 >> "$MTP_ROOT/outputs/results/throughput-${mode}-${model}-${filetag}-${num_tokens}-${subsample_prompts}.jsonl"
     done
   done
 done

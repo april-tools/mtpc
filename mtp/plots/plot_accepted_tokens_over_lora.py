@@ -16,6 +16,12 @@ import matplotlib.font_manager as fm
 # Add the font
 fm.fontManager.addfont('/usr/share/fonts/truetype/msttcorefonts/times.ttf')
 
+# Get current colors
+colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+# Remove the second color (index 1)
+colors_modified = colors[:1] + colors[2:]
+
 
 def get_label(row):
     r = row["ncomponent"]
@@ -202,6 +208,8 @@ if __name__ == "__main__":
     # metric = "tokens_per_second"
 
     fig, (ax1, ax2) = plt.subplots(figsize=(6, 3.3), nrows=1, ncols=2)
+    ax1.set_prop_cycle(plt.cycler(color=colors_modified))
+    ax2.set_prop_cycle(plt.cycler(color=colors_modified))
 
     plot_metric(ax1, rows, "avg_accepted_tokens")
     plot_metric(ax2, rows, "tokens_per_second")

@@ -17,6 +17,9 @@ sns.set_theme(style='white', rc={"font.family": "Times New Roman", "mathtext.fon
 
 df = pd.read_csv('mtpc2.csv')
 
+# Make sure colors are consistent
+df = df.sort_values("Model")
+
 # Example: df has columns 'acceptance_rate' (x) and 'latency' (y)
 ax = sns.scatterplot(data=df, x='acceptance_rate', y='latency', hue='Model', style='LoRA Layers',
     s=200,            # increase dot size (area)

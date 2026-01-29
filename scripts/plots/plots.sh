@@ -1,52 +1,15 @@
 #!/bin/bash
 
 
-# TODO: Revisit below and see if needed
+cd mtp/plots
+python figure1.py
+cd ../..
 
-# # Create baseline files
-# for GPU in L40S RTX-3090
-# do
-# 	cd $MTP_ROOT/outputs/results/$GPU
-# 	cat throughput_evabyte_full-run-100_100.jsonl | grep 'adaptor": "none"' > throughput-raw-no-lora-100-100.jsonl
-# 	cat throughput_evabyte_full-run-100_100.jsonl | grep 'stp-evabyte' >> throughput-raw-no-lora-100-100.jsonl
-#
-# 	cat throughput_evabyte_full-run-100_100.jsonl | grep 'stp-evabyte' > throughput-sampling-no-lora.jsonl
-# 	cat *-sampling-no-lora-*.jsonl >> throughput-sampling-no-lora.jsonl
-#
-# done
-#
-#
-# cd $MTP_ROOT
-#
-# mkdir -p outputs/tables
-#
-#
-# for GPU in L40S RTX-3090
-# do
-# 	python mtp/plots/plot_accepted_tokens.py "outputs/results/$GPU/throughput-evabyte-sampling-no-lora-1024-250.jsonl" --ntokens 8 --ncomponents 1 8 16 32 64 128 --decoding sampling --circuits cp --id acc-rate-$GPU-no-lora-cp-comparison --save
-# done
-#
-#
-# for model in "lora-continued" "no-lora"
-# do
-# 	for GPU in L40S RTX-3090
-# 	do
-# 		echo -e "Processing ${model}:${GPU} accepted tokens and throughput tables"
-# 		python mtp/plots/plot_accepted_tokens.py "outputs/results/$GPU/throughput-sampling-$model.jsonl" --step 900 --ntokens 8 16 --ncomponents 1 32 --decoding sampling --id dummy --save > "outputs/tables/acc-rate-$GPU-$model-1024-250.txt"
-# 		python mtp/plots/plot_throughput_speculative.py "outputs/results/$GPU/throughput-sampling-$model.jsonl" --step 900 --ntokens 1 8 16 --ncomponent 1 32 --decoding sampling --id dummy --save > "outputs/tables/throughput-$GPU-$model-1024-250.txt"
-#
-# 		echo -e "Processing ${model}:${GPU} raw throughput"
-# 		# The raw throughput plots
-# 		python mtp/plots/plot_throughput_speculative.py "outputs/results/$GPU/throughput_evabyte_full-run-100_100.jsonl"  --ntokens 1 8 16 --ncomponent 1 32  --adaptor $model --decoding sampling --id raw-throughput-$GPU-$model --save
-#
-# 		echo -e "Processing ${model}:${GPU} accepted token plots"
-# 		python mtp/plots/plot_accepted_tokens.py "outputs/results/$GPU/throughput-sampling-$model.jsonl" --ntokens 8 --ncomponents 1 32 --decoding sampling --id acc-rate-$GPU-$model-n-8 --save
-# 		python mtp/plots/plot_accepted_tokens.py "outputs/results/$GPU/throughput-sampling-$model.jsonl" --ntokens 16 --ncomponents 1 32 --decoding sampling --id acc-rate-$GPU-$model-n-16 --save
-#
-# 		echo -e "Processing ${model}:${GPU} throughput plots"
-# 		python mtp/plots/plot_throughput_speculative.py "outputs/results/$GPU/throughput-sampling-$model.jsonl" --step 900 --ntokens 1 8 16 --ncomponent 1 32 --decoding sampling --id throughput-$GPU-$model --save > /dev/null
-# 	done
-# done
+python mtp/plots/figure3.py --csv mtp/plots/mtpc3-evabyte-sampling-nolora.csv
+python mtp/plots/figure3.py --csv mtp/plots/mtpc3-evabyte-argmax-nolora.csv
+python mtp/plots/figure3.py --csv mtp/plots/mtpc3-llama-sampling-nolora.csv
+python mtp/plots/figure3.py --csv mtp/plots/mtpc3-llama-argmax-nolora.csv
+
 
 python mtp/plots/plot_accepted_tokens_over_window.py outputs/results/L40S/throughput-argmax-evabyte-no-lora-1024-250.jsonl outputs/results/L40S/throughput-argmax-llama-no-lora-1024-250.jsonl --ntokens 8 16 --ncomponents 1 32 --decoding argmax --circuits ff cp hmm btree --id rq2-argmax --save
 python mtp/plots/plot_accepted_tokens_over_window.py outputs/results/L40S/throughput-sampling-evabyte-no-lora-1024-250.jsonl outputs/results/L40S/throughput-sampling-llama-no-lora-1024-250.jsonl --ntokens 8 16 --ncomponents 1 32 --decoding sampling --circuits ff cp hmm btree --id rq2-sampling --save
@@ -57,10 +20,6 @@ python mtp/plots/plot_accepted_tokens_over_lora.py outputs/results/L40S/throughp
 python mtp/plots/plot_accepted_tokens_over_lora.py outputs/results/L40S/throughput-argmax-evabyte-lora-continued-1024-250.jsonl outputs/results/L40S/throughput-argmax-llama-lora-continued-1024-250.jsonl --ntokens 16 --ncomponents 1 32 --decoding argmax --circuits ff btree --id rq3-argmax-n-16 --save
 python mtp/plots/plot_accepted_tokens_over_lora.py outputs/results/L40S/throughput-sampling-evabyte-lora-continued-1024-250.jsonl outputs/results/L40S/throughput-sampling-llama-lora-continued-1024-250.jsonl --ntokens 16 --ncomponents 1 32 --decoding sampling --circuits ff btree --id rq3-sampling-n-16 --save
 
-
-### Final scripts: TODO: re-run STP and update PATH_TO_RAW paths
-
-## Evabyte
 
 
 for GPU in L40S 3090RTX

@@ -97,6 +97,13 @@ if __name__ == "__main__":
     result = result.rename(columns=colmap)
     result = result[["$n$", "$r$", "circuit", "\\meanlat~\\decfield", "\\meanacc~\\incfield", "\\meantoks~\\incfield", "speed-up"]]
 
+    figure_output = result.copy()
+    figure_output["LoRA"] = 0
+    print("###################################################")
+    print("########### Output to use for Figure 3 ############")
+    print(figure_output[["$n$", "$r$", "circuit", "LoRA", "\\meanacc~\\incfield", "\\meanlat~\\decfield"]].to_csv(index=False))
+    print("###################################################")
+
     result = result.set_index(["$n$", "$r$", "circuit"])
 
     latex_table = result.to_latex(

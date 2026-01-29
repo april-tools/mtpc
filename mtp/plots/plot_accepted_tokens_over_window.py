@@ -196,16 +196,14 @@ if __name__ == "__main__":
     metric = "avg_accepted_tokens"
     # metric = "tokens_per_second"
 
-    fig, (ax1, ax2) = plt.subplots(figsize=(6, 4), nrows=1, ncols=2)
+    fig, (ax1, ax2) = plt.subplots(figsize=(6, 3.5), nrows=1, ncols=2)
 
     plot_metric(ax1, rows, "avg_accepted_tokens")
     plot_metric(ax2, rows, "tokens_per_second")
 
     ax1.set_ylabel("Mean Accepted Tokens")
-    ax1.set_xlabel("MTP Window size (n)")
     ax1.set_xticks(args.ntokens)
     ax2.set_ylabel("Throughput (Bytes/s)")
-    ax2.set_xlabel("MTP Window size (n)")
     ax2.set_xticks(args.ntokens)
     if args.decoding == "sampling":
         custom_lines = [Line2D([0], [0], color='black', linestyle='-', lw=2),
@@ -214,6 +212,8 @@ if __name__ == "__main__":
         ax2.legend(bbox_to_anchor=(0, -0.05, 1, 1))
         plt.suptitle("Speculative Sampling", fontsize=20, y=0.92)
     else:
+        ax1.set_xlabel("MTP Window size (n)")
+        ax2.set_xlabel("MTP Window size (n)")
         plt.suptitle("Greedy Speculative Decoding", fontsize=20, y=0.92)
 
 

@@ -17,5 +17,5 @@ tueplots
 wandb
 transformers
 more_itertools
-hugginface_hub
+huggingface_hub
 hf_xet

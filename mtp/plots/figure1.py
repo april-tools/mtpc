@@ -23,9 +23,10 @@ df = df.sort_values("Model")
 # Example: df has columns 'acceptance_rate' (x) and 'latency' (y)
 ax = sns.scatterplot(data=df, x='acceptance_rate', y='latency', hue='Model', style='LoRA Layers',
     s=200,            # increase dot size (area)
-    alpha=0.8,        # optional: transparency helps with overlap
+    alpha=0.0,        # optional: transparency helps with overlap
     # edgecolor="black",
-    linewidth=0.5
+    linewidth=0.5,
+    legend=False,
 )
 
 ax.text(1.0, 1.02, 'Throughput',
@@ -65,42 +66,42 @@ for c_lo, c_hi in zip(cs[:-1], cs[1:]):
             clip_on=False  # allow drawing outside the Axes
         )
 
-# Label each point (slight offset to avoid covering the marker)
-# Create text objects first
-texts = []
-for _, r in df.iterrows():
-    if not(r["Model"] == "HMM" and r['n'] == 16) and not (r["Model"] == "BTree" and r['n'] == 16):
-        t = ax.text(
-            r["acceptance_rate"],
-            r["latency"],
-            r["Model"] + " " + str(r['n']),
-            fontsize=14,
-            fontfamily="Times New Roman"
-        )
-    if (r["Model"] == "BTree" and r['n'] == 16):
-        t = ax.text(
-            r["acceptance_rate"],
-            r["latency"],
-            r["Model"] + " " + str(r['n']),
-            fontsize=14,
-            fontfamily="Times New Roman"
-        )
-    if (r["Model"] == "HMM" and r['n'] == 16):
-        t = ax.text(
-            r["acceptance_rate"],
-            r["latency"],
-            r["Model"] + " " + str(r['n']),
-            fontsize=14,
-            fontfamily="Times New Roman"
-        )
-    texts.append(t)
-
-# Adjust to reduce collisions; add faint leader lines
-adjust_text(
-    texts, ax=ax,
-    arrowprops=dict(arrowstyle="-", color="0.5", lw=0.5),
-    only_move={"texts":"xy"}  # optional: constrain movement
-)
+# # Label each point (slight offset to avoid covering the marker)
+# # Create text objects first
+# texts = []
+# for _, r in df.iterrows():
+#     if not(r["Model"] == "HMM" and r['n'] == 16) and not (r["Model"] == "BTree" and r['n'] == 16):
+#         t = ax.text(
+#             r["acceptance_rate"],
+#             r["latency"],
+#             r["Model"] + " " + str(r['n']),
+#             fontsize=14,
+#             fontfamily="Times New Roman"
+#         )
+#     if (r["Model"] == "BTree" and r['n'] == 16):
+#         t = ax.text(
+#             r["acceptance_rate"],
+#             r["latency"],
+#             r["Model"] + " " + str(r['n']),
+#             fontsize=14,
+#             fontfamily="Times New Roman"
+#         )
+#     if (r["Model"] == "HMM" and r['n'] == 16):
+#         t = ax.text(
+#             r["acceptance_rate"],
+#             r["latency"],
+#             r["Model"] + " " + str(r['n']),
+#             fontsize=14,
+#             fontfamily="Times New Roman"
+#         )
+#     texts.append(t)
+#
+# # Adjust to reduce collisions; add faint leader lines
+# adjust_text(
+#     texts, ax=ax,
+#     arrowprops=dict(arrowstyle="-", color="0.5", lw=0.5),
+#     only_move={"texts":"xy"}  # optional: constrain movement
+# )
 
 # 1) Build a diagonal gradient in Axes coordinates (0..1 by 0..1)
 nx = ny = 512
@@ -129,7 +130,7 @@ G = (X + (1 - Y)) / 2.0  # 0 at top-left, 1 at bottom-right
 ax.set_xlim(x0, x1)
 ax.set_ylim(y0, y1)
 ax.set_aspect('auto')
-ax.legend()
+# ax.legend()
 
 ax.tick_params(axis='both', which='major', labelsize=14)
 ax.tick_params(axis='both', which='minor', labelsize=14)

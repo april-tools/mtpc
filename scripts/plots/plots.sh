@@ -14,6 +14,10 @@ python mtp/plots/figure3.py --csv mtp/plots/mtpc3-llama-argmax-nolora.csv
 python mtp/plots/plot_accepted_tokens_over_window.py outputs/results/L40S/throughput-argmax-evabyte-no-lora-1024-250.jsonl outputs/results/L40S/throughput-argmax-llama-no-lora-1024-250.jsonl --ntokens 8 16 --ncomponents 1 32 --decoding argmax --circuits ff cp hmm btree --id rq2-argmax --save
 python mtp/plots/plot_accepted_tokens_over_window.py outputs/results/L40S/throughput-sampling-evabyte-no-lora-1024-250.jsonl outputs/results/L40S/throughput-sampling-llama-no-lora-1024-250.jsonl --ntokens 8 16 --ncomponents 1 32 --decoding sampling --circuits ff cp hmm btree --id rq2-sampling --save
 
+python mtp/plots/plot_accepted_tokens_over_window_for_pres.py outputs/results/L40S/throughput-sampling-evabyte-no-lora-1024-250.jsonl outputs/results/L40S/throughput-sampling-llama-no-lora-1024-250.jsonl --ntokens 8 16 --ncomponents 1 32 --decoding sampling --circuits hmm btree --id rq2-sampling-pres --save
+python mtp/plots/plot_accepted_tokens_over_window_for_pres.py outputs/results/L40S/throughput-argmax-evabyte-no-lora-1024-250.jsonl outputs/results/L40S/throughput-argmax-llama-no-lora-1024-250.jsonl --ntokens 8 16 --ncomponents 1 32 --decoding argmax --circuits hmm btree --id rq2-argmax-pres --save
+
+
 python mtp/plots/plot_accepted_tokens_over_lora.py outputs/results/L40S/throughput-argmax-evabyte-lora-continued-1024-250.jsonl outputs/results/L40S/throughput-argmax-llama-lora-continued-1024-250.jsonl --ntokens 8 --ncomponents 1 32 --decoding argmax --circuits ff btree --id rq3-argmax-n-8 --save
 python mtp/plots/plot_accepted_tokens_over_lora.py outputs/results/L40S/throughput-sampling-evabyte-lora-continued-1024-250.jsonl outputs/results/L40S/throughput-sampling-llama-lora-continued-1024-250.jsonl --ntokens 8 --ncomponents 1 32 --decoding sampling --circuits ff btree --id rq3-sampling-n-8 --save
 

@@ -424,7 +424,9 @@ The model checkpoints will be saved in a timestamped folder under `logs`.
 One reason for this is that the transformer activations for the same input can be different if evaluated in a single forward pass, versus multiple forward passes one token at a time.
 This is especially true for quantised (bfloat16) models, see [this script for details](scripts/checks/check_multiple_vs_single.py).
 
-The code is extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
+# Acknowledgements
+
+The code above has been extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt), which is still used when training the nanogpt models on Shakespeare.
 
 # Citation
 

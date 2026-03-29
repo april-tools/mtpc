@@ -1,4 +1,4 @@
-# Overview:
+# [Fast and Expressive Multi-Byte Prediction with Probabilistic Circuits](https://arxiv.org/abs/2511.11346)
 
 MTPC (Multi-Token Prediction with Circuits) is a framework for training [probabilistic circuit](https://github.com/april-tools/cirkit)-based MTP heads on top of frozen byte-level LLMs (EvaByte, Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model.
 

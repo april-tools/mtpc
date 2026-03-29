@@ -1,6 +1,6 @@
 # Overview:
-This project contains our implementation of Multi-Token Prediction (MTP) with circuits.
-The code is based on the [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
+This project contains our implementation of Multi-Token Prediction with circuits (MTPC).
+The code is extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
 
 
 # Setup:
@@ -8,7 +8,7 @@ The code is based on the [KellerJordan/modded-nanogpt](https://github.com/Keller
 ## Download code
 
 ```bash
-git clone git@github.com:PiotrNawrot/nanoGPT.git && cd nanoGPT
+git clone GITHUB_URL && cd mtpc
 ```
 
 ### Prepare package installation
@@ -23,8 +23,8 @@ export CUDA_HOME=/opt/cuda-12.6.0
 uv venv --python 3.10
 source .venv/bin/activate
 uv pip install --upgrade pip setuptools wheel psutil
+uv pip install flash-attn==2.5.8 --no-build-isolation
 uv pip install -r requirements.txt
-uv pip install flash-attn --no-build-isolation
 ```
 
 ### Environment installation using pip
@@ -33,7 +33,7 @@ python3.10 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip setuptools wheel psutil
 pip install -r requirements.txt
-pip install flash-attn --no-build-isolation
+pip install flash-attn==2.5.8 --no-build-isolation
 ```
 
 ## Environment Variables
@@ -61,32 +61,108 @@ export PYTHONPATH=.
 pytest
 ```
 
-## Download data
-```
-# Download first 10 chunks of fineweb train dataset
-./bin/download_data --numchunks 10 --dataset fineweb
-# Download all chunks of fineweb-edu train dataset
-./bin/download_data --dataset fineweb-edu
-```
+
+# Generate from Trained Models
+
+## Pretrained Models
+
+We tabulate our pre-trained models in the tables below, where the headings are:
+
+- **PC** — the Probabilistic Circuit structure: `ff` = fully-factorised (cond. indep. assumption), `cp` = Mixture Model, `hmm` = Hidden Markov Model, `btree` = Binary Tree.
+- **n** — the number of tokens predicted simultaneously (the MTP window size).
+- **r** — the number of mixture coefficients.
+- **LoRA layers** — (RQ3 table only) how many of the draft model's final transformer layers have LoRA adapters applied; 0 means no LoRA (the continued-training baseline).
+- **Llama / EvaByte** — links to the corresponding model on HuggingFace, which have an Byte-Level LLM backbone that is [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte) and [EvaByte-SFT](https://huggingface.co/EvaByte/EvaByte-SFT) respectively.
+
+
+### No-LoRA Models (RQ1 & RQ2)
+
+| PC | n | r | Llama | EvaByte |
+|---|---|---|---|---|
+| ff | 8 | 1 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-ff-n-8-r-1) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-ff-n-8-r-1) |
+| ff | 16 | 1 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-ff-n-16-r-1) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-ff-n-16-r-1) |
+| ff | 32 | 1 | — | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-ff-n-32-r-1) |
+| cp | 8 | 8 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cp-n-8-r-8) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-cp-n-8-r-8) |
+| cp | 8 | 16 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cp-n-8-r-16) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-cp-n-8-r-16) |
+| cp | 8 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cp-n-8-r-32) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-cp-n-8-r-32) |
+| cp | 8 | 64 | — | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-cp-n-8-r-64) |
+| cp | 8 | 128 | — | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-cp-n-8-r-128) |
+| cp | 16 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cp-n-16-r-32) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-cp-n-16-r-32) |
+| hmm | 8 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-hmm-n-8-r-32) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-hmm-n-8-r-32) |
+| hmm | 16 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-hmm-n-16-r-32) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-hmm-n-16-r-32) |
+| btree | 8 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-btree-n-8-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-btree-n-8-r-32-s-1) |
+| btree | 16 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-btree-n-16-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-btree-n-16-r-32-s-1) |
+
+### LoRA-continued Models (RQ3)
+
+| PC | n | r | LoRA layers | Llama | EvaByte |
+|---|---|---|---|---|---|
+| ff | 8 | 1 | 0 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cont-ff-n-8-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-no-lora-cont-ff-n-8-r-1) |
+| ff | 8 | 1 | 1 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-1-cont-ff-n-8-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-1-cont-ff-n-8-r-1) |
+| ff | 8 | 1 | 2 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-2-cont-ff-n-8-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-2-cont-ff-n-8-r-1) |
+| ff | 8 | 1 | 4 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-4-cont-ff-n-8-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-4-cont-ff-n-8-r-1) |
+| ff | 16 | 1 | 0 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cont-ff-n-16-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-no-lora-cont-ff-n-16-r-1) |
+| ff | 16 | 1 | 1 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-1-cont-ff-n-16-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-1-cont-ff-n-16-r-1) |
+| ff | 16 | 1 | 2 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-2-cont-ff-n-16-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-2-cont-ff-n-16-r-1) |
+| ff | 16 | 1 | 4 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-4-cont-ff-n-16-r-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-4-cont-ff-n-16-r-1) |
+| btree | 8 | 32 | 0 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cont-btree-n-8-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-no-lora-cont-btree-n-8-r-32-s-1) |
+| btree | 8 | 32 | 1 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-1-cont-btree-n-8-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-1-cont-btree-n-8-r-32-s-1) |
+| btree | 8 | 32 | 2 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-2-cont-btree-n-8-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-2-cont-btree-n-8-r-32-s-1) |
+| btree | 8 | 32 | 4 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-4-cont-btree-n-8-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-4-cont-btree-n-8-r-32-s-1) |
+| btree | 16 | 32 | 0 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-cont-btree-n-16-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-no-lora-cont-btree-n-16-r-32-s-1) |
+| btree | 16 | 32 | 1 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-1-cont-btree-n-16-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-1-cont-btree-n-16-r-32-s-1) |
+| btree | 16 | 32 | 2 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-2-cont-btree-n-16-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-2-cont-btree-n-16-r-32-s-1) |
+| btree | 16 | 32 | 4 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-lora-last-4-cont-btree-n-16-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-lora-continued-lr-3e-4-lora-last-4-cont-btree-n-16-r-32-s-1) |
+
+---
 
 ## Download models
+
+The following script will download all models.
+
 ```
 ./bin/download_models
 ```
 
-## Wandb
+# Text Generation
 
-The training script is setup to use wandb to track metrics.
-You will need to create an account and login to track metrics remotely.
+**`python -m mtp.generate`** — Generates text using the model specified for checkpoint.
+
+- **`--mode mtp`** — Sets the generation mode to multi-token prediction, as opposed to standard autoregressive generation.
+- **`--checkpoint path-to-model@X.pt`** — Path to the model checkpoint at training step X.
+- **`--prompt "Who was Albert Einstein?"`** — The input text to condition generation on.
+- **`--print`** — Prints the generated output to stdout rather than only saving it or returning metrics.
+- **`--argmax`** — Uses greedy decoding (argmax over logits at each step) instead of sampling, giving deterministic output. Combined with `--speculative`, this makes speculative decoding lossless.
+- **`--num-tokens 1000`** — Generate up to 1000 tokens.
+- **`--device cuda`** — Run inference on GPU.
+- **`--task chat`** — Wraps the prompt in the chat template expected by EvaByte (e.g., special tokens for user/assistant turns).
+- **`--use-cache`** — Enables KV-cache during generation so attention over the full prefix isn't recomputed at every step.
+- **`--speculative`** — Enables speculative decoding, where the MTP heads act as the draft model: n heads propose candidate continuations in parallel and the base model's verifier head accepts or rejects them, yielding multi-token parallelism without a separate draft model.
+
+For example:
+
+```python
+python -m mtp.generate \
+    --mode mtp \
+    --checkpoint outputs/models/evabyte-mtpc-no-lora/evabyte-no-lora-lr-3e-4-no-lora-ff-n-8-r-1/model@900.pt \
+    --prompt "Who was Albert Einstein?" \
+    --print \
+    --argmax \
+    --num-tokens 1000 \
+    --device cuda \
+    --task chat \
+    --use-cache \
+    --speculative
+```
+
+# Reproducing Results (Throughput Evaluation)
+
+See the [evaluation scripts](scripts/throughput).
+
+# Train Models
 
 
-# Running things
-
-
-## Train Models:
-
-
-### Smol (Start here)
+## Smol (Start here)
 
 #### Fit a NTP model
 Fits a small transformer from scratch on Shakespeare char.
@@ -209,10 +285,10 @@ python -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pt --mo
 ```
 
 
-### Large
+## Large
 
 Here, instead of training our NTP LM from scratch, we take EvaByte-SFT which has been pretrained on a large corpus and fine-tuned on a data mix which includes Tulu 3.
-#### Option 1: Distill EvaByte-SFT-NTP into MTP-CP by training on Tulu 3 using a cross-entropy loss.
+#### Distill EvaByte-SFT-NTP into MTP-CP by training on Tulu 3 using a cross-entropy loss.
 
 ```bash
 torchrun --standalone \
@@ -238,29 +314,6 @@ Our current acceptance rates and throughputs have been computed on models like t
 See [this script](scripts/evabyte-lora-tulu-2k/eval.sh) for details on the eval scripts.
 
 
-#### Option 2: Distill EvaByte-SFT-NTP into MTP-CP by matching the NTP model via a KL loss.
-
-```bash
-torchrun --standalone \
-    --nproc_per_node=$GPUS \
-    -m mtp.train \
-    data=tulu3-evabyte \
-    training=tulu3-evabyte-long \
-    lm=evabyte \
-    model=mtp \
-    circuit=cp \
-    adaptor=lora-last-8 \
-    mt_head=linear-evabyte \
-    circuit.n_token=8 \
-    circuit.n_component=2 \
-    data.vocab_size=320 \
-    model.model.beta=1 \
-    model.model.gamma=0.9 \
-	lm.model.encoder_only=false \
-    training.device_batch_size=2 \
-    training.expname=full-tulu-kl-evabyte-lora-last-8-cp-n-8-r-2
-```
-
 
 ## Visualise Metrics
 
@@ -270,91 +323,22 @@ Assuming you have access to wandb, you can use the `plots.plot_wandb_metric` scr
 python mtp/plots/plot_wandb_metric.py --run-ids pd39py1e c8o44gf0 384rukjw --train-metrics --metrics ce_loss_at_2 ce_loss_at_4 ce_loss_at_6 ce_loss_at_8 --filepath outputs/plots/evabyte-tulu-2k/train.pdf --n-token 8 --smoothing .1 --share-y-all --n-rows 1
 ```
 
-
-# Old Sections (below needs revision)
-
-
-## Shakespeare Char-Level Model
-
-
-### Throughput Evaluation (Untrained Models)
-
-A first question is what generation throughput we can get with MTP.
-We can get an upper bound on the throughput (without speculative decoding) even if we use an untrained model.
-We measure throughput in tokens per sec (tps) using a batch size of one.
-
-```bash
-source env.sh
-./bin/compute_throughput
-python -m plots.plot_throughput --device cuda --results outputs/results/throughput.jsonl
-```
-
-The command above will append a json line of throughput stats for each model to `$MTP_ROOT/outputs/results/throughput_models.jsonl`
-
-NOTE: tps will decrease as we increase the sequence length we are conditioning on, since the context increases.
-
-### Train the models
-
-To keep experiments in the example here fast, we train models on the `shakespeare_char` dataset.
-```bash
-./bin/train-shakespeare-char
-```
-
-### Plot the metrics
-
-```bash
-python -m plots.plot_wandb_metric --models autoregressive mtp-s=1-r=3 mtp-s=2-r=3 mtp-s=3-r=3 mtp-s=4-r=3 mtp-s=5-r=3 --metric valid/stp_loss --dataset shakespeare_char
-```
-
-### Throughput Evaluation (Trained Models)
-
-While we keep track of validation metrics during training, we only compute those that we are tracking during training.
-To get full validation results for checkpointed models, run:
-
-#### Compute throughput for all models in a folder
-```bash
-./bin/validate_models /path/to/experiment/folder
-```
-
-The command above will append a json line of stats for each model to `$MTP_ROOT/outputs/results/throughput_models.jsonl`
-
-
-### Metrics Evaluation (Trained Models)
-
-While we keep track of validation metrics during training, we only compute those that we are tracking during training.
-To get full validation results for checkpointed models, run:
-
-#### Compute metrics for all models in a folder
-```bash
-./bin/validate_models /path/to/experiment/folder
-```
-
-The command above will append a json line of metrics for each model to `$MTP_ROOT/outputs/results/validate_models.jsonl`
-
-#### Plot validation metrics
-```bash
-python mtp/plots/plot_metrics_compare.py --metric-results $MTP_ROOT/outputs/results/validate_models.jsonl --experiment your-expname --metrics kl_loss_at_1 kl_loss_ba_at_1
-```
-where:
-
-* `--experiment`  is the experiment name you assigned via `training.expname` in the config or command line arguments.
-* `--metrics` are metric we want to plot/compare, e.g. `--metrics kl_loss_at_1 ce_loss_at_1` to plot full kl vs cross-entropy for the next token
-
-### Metric vs Throughput
-
-Putting the above together, we have:
-
-```bash
-python mtp/plots/plot_throughput_vs_metric.py --metric-results $MTP_ROOT/outputs/results/validate_models.jsonl --throughput-results $MTP_ROOT/outputs/results/throughput_models.jsonl --experiment your-expname --metric kl_loss_at_1
-```
-
-where:
-
-* `--experiment`  is the experiment name you assigned via `training.expname` in the config or command line arguments.
-* `--metric` is the metric we want to plot, e.g. `--metric kl_loss_at_1` for full kl loss at 1.
-
-
-
 # Notes
 
 * While using `--mode stp --argmax` and `--mode mtp --speculative --argmax` with models of the same model family should generate the same output, quantised models may diverge between stp and mtp mode. One reason for this is that the transformer activations for the same input can be different if evaluated in a single forward pass, versus multiple forward passes one token at a time. This is especially true for quantised (bfloat16) models, see [this script for details](scripts/checks/test_multiple_vs_single.py).
+
+
+# Citation
+
+Please cite our paper as:
+```
+@misc{grivas2025fastexpressivemultitokenprediction,
+      title={Fast and Expressive Multi-Token Prediction with Probabilistic Circuits}, 
+      author={Andreas Grivas and Lorenzo Loconte and Emile van Krieken and Piotr Nawrot and Yu Zhao and Euan Wielewski and Pasquale Minervini and Edoardo Ponti and Antonio Vergari},
+      year={2025},
+      eprint={2511.11346},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2511.11346}, 
+}
+```

@@ -13,13 +13,17 @@ assert "MTP_ROOT" in os.environ, "MTP_ROOT environment variable must be set"
 MTP_ROOT = os.environ["MTP_ROOT"]
 
 api = HfApi()
-collection_ids = ["agrv/evabyte-mtpc-no-lora", "agrv/evabyte-mtpc-lora-continued"]
+collection_ids = [
+    "agrv/evabyte-mtpc-no-lora",
+    "agrv/evabyte-mtpc-lora-continued",
+    "agrv/llama-mtpc-no-lora",
+    "agrv/llama-mtpc-lora-continued",
+]
 
 for collection_id in collection_ids:
     collection = api.get_collection(collection_id)
     collection_slug = collection_id.split("/")[-1]
-    folder_name = collection_slug.removeprefix("evabyte-mtpc-")
-    base_dir = os.path.join(MTP_ROOT, "outputs", "models", folder_name)
+    base_dir = os.path.join(MTP_ROOT, "outputs", "models", collection_slug)
 
     models = [item for item in collection.items if item.item_type == "model"]
 
@@ -29,7 +33,7 @@ for collection_id in collection_ids:
     print(f"Models: {len(models)}")
     print(f"{'='*60}")
 
-    for item in tqdm(models, desc=folder_name):
+    for item in tqdm(models, desc=collection_slug):
         model_name = item.item_id.split("/")[-1]
         dest = os.path.join(base_dir, model_name)
         tqdm.write(f"  → {model_name}")

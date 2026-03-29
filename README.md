@@ -62,7 +62,7 @@ Running the tests can take up to one hour depending on the hardware.
 
 ```bash
 export PYTHONPATH=.
-pytest
+pytest tests
 ```
 
 # Development Notes

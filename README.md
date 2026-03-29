@@ -159,14 +159,37 @@ python -m mtp.generate \
 
 See the [evaluation scripts](scripts/throughput).
 
-# Train Models
+### Configuration System (Hydra)
 
+All configuration is managed via Hydra YAML configs in `configs/`:
+
+- `configs/config.yaml`: Main config with defaults
+- `configs/model/`: Model architectures (stp, mtp)
+- `configs/lm/`: Language model configs (nanogpt, evabyte, llama)
+- `configs/circuit/`: Circuit structures (cp, hmm, btree)
+- `configs/mt_head/`: Multi-token head architectures
+- `configs/data/`: Dataset configurations
+- `configs/training/`: Training hyperparameters
+- `configs/adaptor/`: LoRA and adaptation configs
+
+**Override configs on command line:**
+
+```bash
+# Override nested config values
+torchrun -m mtp.train \
+    lm=evabyte \
+    lm.n_layer=8 \
+    training.learning_rate=0.001 \
+    model.beta=0.5
+```
+
+# Train Models
 
 ## Smol (Start here)
 
-#### Fit a NTP model
+### Fit a NTP model
 Fits a small transformer from scratch on Shakespeare char.
-Useful for sanity checks as model trains in a few minutes.
+Useful for sanity checks as model trains in a few minutes on low-end GPUs.
 
 ```bash
 # Train the default nanogpt model on shakespeare_char (see mtp/config/model/default.yaml)
@@ -207,8 +230,8 @@ Running the above should give:
 [2025-05-22 16:25:13,605] - step:500/2000 Saved model to /disk/scratch/agrivas/nanoGPT/logs/2025-05-22/16-23-29/model@500.pt...
 ```
 
-#### Distill NTP to MTP
-Now, to distill the above NTP model into a MTP model, change `lm.model.from_checkpoint` below to point to your generated .pt checkpoint, and run:
+### Distil NTP to MTP
+Now, to distil the above NTP model into a MTP model, change `lm.model.from_checkpoint` below to point to your generated .pt checkpoint, and run:
 
 ```bash
 # Train the mtp model on shakespeare_char (see mtp/config/model/mtp.yaml)
@@ -271,8 +294,7 @@ Logs acts like a draft folder, to save a model under a folder named `outputs/mod
 
 where you can replace * by any path match.
 
-
-#### Generate text from the Models
+### Generate text from the Models
 
 You can specify `--mode stp` to force single token prediction (even for mtp models).
 For mtp models, use `--mode mtp` to generate `s` characters at a time and pass `--speculative` to enable speculative decoding.
@@ -285,48 +307,82 @@ python -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pt --mo
 ```
 
 
-## Large
+## Large: Retrofitting EvaByte and Llama Byte
 
 Here, instead of training our NTP LM from scratch, we take EvaByte-SFT which has been pretrained on a large corpus and fine-tuned on a data mix which includes Tulu 3.
-#### Distill EvaByte-SFT-NTP into MTP-CP by training on Tulu 3 using a cross-entropy loss.
+Our current acceptance rates and throughputs have been computed on models like the above trained for approx 1-2 days without LoRA and 2-3 days with LoRA on an NVIDIA L40S GPU.
+
+`NOTE: Some training scripts require > 40 GB GPU RAM (Especially when using LoRA)`.
+
+#### Distil EvaByte-SFT-NTP into MTP-CP by training on Tulu 3 using a cross-entropy loss.
+
+The CP model below with n=8, r=8 and no LoRA can be trained on an NVIDIA GeForce RTX 3090 GPU with 24 GB RAM:
 
 ```bash
 torchrun --standalone \
     --nproc_per_node=$GPUS \
     -m mtp.train \
-    data=tulu3-evabyte \
-    training=tulu3-evabyte-long \
+    data=tulu3-evabyte-packed \
+    training=tulu3-evabyte-1epoch \
     lm=evabyte \
     model=mtp \
     circuit=cp \
-    adaptor=lora-last-8 \
+    adaptor=none \
     mt_head=linear-evabyte \
     circuit.n_token=8 \
     circuit.n_component=8 \
     data.vocab_size=320 \
     model.model.beta=0 \
     model.model.gamma=0.9 \
-    training.device_batch_size=2 \
-    training.expname=full-tulu-ce-evabyte-lora-last-8-cp-n-8-r-8
+    training.device_batch_size=1 \
+    training.expname=evabyte-no-lora-cp-n-8-r-8
 ```
 
-Our current acceptance rates and throughputs have been computed on models like the above trained for 2-3 days.
-See [this script](scripts/evabyte-lora-tulu-2k/eval.sh) for details on the eval scripts.
+Which should output:
 
+```
+Loading checkpoint shards: 100%|███████████████████████████████████████████████████████| 3/3 [00:07<00:00,  2.34s/it]
+[2026-03-29 22:34:59,415] - Setting up model... compile=True...
+[2026-03-29 22:35:02,062] - Saving config and checkpoints to /home/grv/Playground/nanoGPT/logs/2026-03-29/22-34-42...
+[2026-03-29 22:35:02,062] - Save model: True...
+[2026-03-29 22:35:02,062] - Save optimizer: True...
+[2026-03-29 22:35:02,065] - Training on agrv/tulu-v3-sft-evabyte-packed-seq-len-8192...
+...
+[2026-03-29 22:46:07,611] - step:1/900 train_loss:0.5687 lr:0.0003000000 time/step:595.68s
+[2026-03-29 22:55:33,151] - step:2/900 train_loss:0.5481 lr:0.0003000000 time/step:565.54s
+[2026-03-29 23:04:00,776] - step:3/900 train_loss:0.5220 lr:0.0003000000 time/step:507.62s
+```
 
-
-## Visualise Metrics
-
-Assuming you have access to wandb, you can use the `plots.plot_wandb_metric` script to filter by wandb `--run-ids` and plot the metrics locally:
+The model checkpoints will be saved in a timestamped folder under `logs`.
+`logs` acts like a draft folder, to save a model under a folder named `outputs/models/<dataset>/<expname>`), run:
 
 ```bash
-python mtp/plots/plot_wandb_metric.py --run-ids pd39py1e c8o44gf0 384rukjw --train-metrics --metrics ce_loss_at_2 ce_loss_at_4 ce_loss_at_6 ce_loss_at_8 --filepath outputs/plots/evabyte-tulu-2k/train.pdf --n-token 8 --smoothing .1 --share-y-all --n-rows 1
+./bin/save_experiment --experiments logs/date/time/
 ```
+
+# Important Development Notes
+
+## Checkpoint Management
+
+- Training creates checkpoints in `logs/YYYY-MM-DD/HH-MM-SS/`
+- Checkpoints are named `model@<step>.pt`
+- Config is saved alongside as `config.yaml`
+- Use `./bin/save_experiment` to move from logs to permanent storage
+
+
+## Wandb Tracking
+
+Training metrics are logged to wandb:
+- Control with `$WANDB_MODE` environment variable
+- Set to `disabled` for no logging (default in env.sh)
+- Set to `online` to enable tracking
+
 
 # Notes
 
-* While using `--mode stp --argmax` and `--mode mtp --speculative --argmax` with models of the same model family should generate the same output, quantised models may diverge between stp and mtp mode. One reason for this is that the transformer activations for the same input can be different if evaluated in a single forward pass, versus multiple forward passes one token at a time. This is especially true for quantised (bfloat16) models, see [this script for details](scripts/checks/test_multiple_vs_single.py).
-
+* While using `--mode stp --argmax` and `--mode mtp --speculative --argmax` with models of the same model family should generate the same output, quantised models may diverge between stp and mtp mode.
+One reason for this is that the transformer activations for the same input can be different if evaluated in a single forward pass, versus multiple forward passes one token at a time.
+This is especially true for quantised (bfloat16) models, see [this script for details](scripts/checks/check_multiple_vs_single.py).
 
 # Citation
 

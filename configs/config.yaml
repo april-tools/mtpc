@@ -6,7 +6,7 @@ defaults:
   - mt_head: null
   - adaptor: none
   - lm: nanogpt
-  - data: fineweb10B
+  - data: shakespeare_char
   - generate: default
 
 compile: true

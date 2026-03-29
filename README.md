@@ -1,7 +1,11 @@
 # Overview:
-This project contains our implementation of Multi-Token Prediction with circuits (MTPC).
-The code is extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
 
+MTPC (Multi-Token Prediction with Circuits) is a framework for training [probabilistic circuit](https://github.com/april-tools/cirkit)-based MTP heads on top of frozen byte-level LLMs (EvaByte, Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model.
+
+- **MTPC (Multi-Token Prediction with Circuits)** is a framework for training and using probabilistic circuit-based MTP heads on top of frozen byte-level LLMs (EvaByte, Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model. The code is extended from modded-nanogpt.
+- **Circuit architectures** include fully-factorised (ff), mixture models (cp), Hidden Markov Models (hmm), and binary tree (btree). These are parametrised by window size n and number of mixture components r. Pre-trained models for various configurations are available on HuggingFace (see [No-LoRA models](#no-lora-models) and [LoRA-continued models](#lora-models)).
+- **Text Generation supports three modes**: i) Single-token prediction (stp), multi-token prediction (mtp), and speculative decoding (mtp + `--speculative`), where the MTP heads draft candidates verified by the base model. Speculative decoding is either greedy decoding, if the flag `--argmax` is passed, or sampling otherwise.
+- **Training follows a distillation workflow**: We retrofit an NTP model into an MTP model by training on the same data. A small Shakespeare example is provided for quick sanity checks, and larger runs retrofit EvaByte/Llama on Tulu 3 data.
 
 # Setup:
 
@@ -61,6 +65,79 @@ export PYTHONPATH=.
 pytest
 ```
 
+# Development Notes
+
+## Architecture Overview
+
+### Models
+
+The codebase is organized into three main model types:
+
+1. **STP (Single Token Prediction)** - `mtp/models/stp.py`
+   - Standard autoregressive language model wrapper
+
+2. **MTP (Multi-Token Prediction)** - `mtp/models/mtp.py`
+   - Composed of three parts:
+     - **LM encoder**: Provides contextual embeddings, and should allow plug and play with hf LLMs (tested for EvaByte and Llama)
+     - **mt_head**: Expands embeddings into circuit parameters
+     - **Circuit**: Probabilistic model over multiple output tokens
+
+3. **Circuits** - `mtp/models/circuits.py`
+   - Implements structured probabilistic models:
+     - `cp`: CP (CANDECOMP/PARAFAC) decomposition - tensor factorization
+     - `hmm`: Hidden Markov Model structure
+     - `btree`: Binary tree factorization
+   - Uses the `cirkit` library for probabilistic circuit operations
+
+### Data Loading
+
+Two main data loader types in `mtp/data/`:
+
+1. **LocalDataLoader** - For `.bin` files (e.g., Shakespeare)
+2. **HFDataLoader** - For HuggingFace datasets
+
+Data is loaded via `DistributedDataLoader.resolve()` which selects the appropriate loader based on file type.
+
+
+## Configuration System (Hydra)
+
+All configuration is managed via Hydra YAML configs in `configs/`:
+
+- `configs/config.yaml`: Main config with defaults
+- `configs/model/`: Model architectures (stp, mtp)
+- `configs/lm/`: Language model configs (nanogpt, evabyte, llama)
+- `configs/circuit/`: Circuit structures (cp, hmm, btree)
+- `configs/mt_head/`: Multi-token head architectures
+- `configs/data/`: Dataset configurations
+- `configs/training/`: Training hyperparameters
+- `configs/adaptor/`: LoRA and adaptation configs
+
+**Override configs on command line:**
+
+```bash
+# Override nested config values
+torchrun -m mtp.train \
+    lm=evabyte \
+    lm.n_layer=8 \
+    training.learning_rate=0.001 \
+    model.beta=0.5
+```
+
+## Checkpoint Management
+
+- Training creates checkpoints in `logs/YYYY-MM-DD/HH-MM-SS/`
+- Checkpoints are named `model@<step>.pt`
+- Config is saved alongside as `config.yaml`
+- Use `./bin/save_experiment` to move from logs to permanent storage
+
+
+## Wandb Tracking
+
+Training metrics are logged to wandb:
+- Control with `$WANDB_MODE` environment variable
+- Set to `disabled` for no logging (default in env.sh)
+- Set to `online` to enable tracking
+
 
 # Generate from Trained Models
 
@@ -75,7 +152,7 @@ We tabulate our pre-trained models in the tables below, where the headings are:
 - **Llama / EvaByte** — links to the corresponding model on HuggingFace, which have an Byte-Level LLM backbone that is [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte) and [EvaByte-SFT](https://huggingface.co/EvaByte/EvaByte-SFT) respectively.
 
 
-### No-LoRA Models (RQ1 & RQ2)
+### <a id="no-lora-models"></a>No-LoRA Models (RQ1 & RQ2)
 
 | PC | n | r | Llama | EvaByte |
 |---|---|---|---|---|
@@ -93,7 +170,7 @@ We tabulate our pre-trained models in the tables below, where the headings are:
 | btree | 8 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-btree-n-8-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-btree-n-8-r-32-s-1) |
 | btree | 16 | 32 | [🤗](https://huggingface.co/agrv/llama-lr-3e-4-no-lora-btree-n-16-r-32-s-1) | [🤗](https://huggingface.co/agrv/evabyte-no-lora-lr-3e-4-no-lora-btree-n-16-r-32-s-1) |
 
-### LoRA-continued Models (RQ3)
+### <a id="lora-models"></a>LoRA-continued Models (RQ3)
 
 | PC | n | r | LoRA layers | Llama | EvaByte |
 |---|---|---|---|---|---|
@@ -123,6 +200,7 @@ The following script will download all models.
 ```
 ./bin/download_models
 ```
+
 
 # Text Generation
 
@@ -159,29 +237,6 @@ python -m mtp.generate \
 
 See the [evaluation scripts](scripts/throughput).
 
-### Configuration System (Hydra)
-
-All configuration is managed via Hydra YAML configs in `configs/`:
-
-- `configs/config.yaml`: Main config with defaults
-- `configs/model/`: Model architectures (stp, mtp)
-- `configs/lm/`: Language model configs (nanogpt, evabyte, llama)
-- `configs/circuit/`: Circuit structures (cp, hmm, btree)
-- `configs/mt_head/`: Multi-token head architectures
-- `configs/data/`: Dataset configurations
-- `configs/training/`: Training hyperparameters
-- `configs/adaptor/`: LoRA and adaptation configs
-
-**Override configs on command line:**
-
-```bash
-# Override nested config values
-torchrun -m mtp.train \
-    lm=evabyte \
-    lm.n_layer=8 \
-    training.learning_rate=0.001 \
-    model.beta=0.5
-```
 
 # Train Models
 
@@ -360,29 +415,14 @@ The model checkpoints will be saved in a timestamped folder under `logs`.
 ./bin/save_experiment --experiments logs/date/time/
 ```
 
-# Important Development Notes
-
-## Checkpoint Management
-
-- Training creates checkpoints in `logs/YYYY-MM-DD/HH-MM-SS/`
-- Checkpoints are named `model@<step>.pt`
-- Config is saved alongside as `config.yaml`
-- Use `./bin/save_experiment` to move from logs to permanent storage
-
-
-## Wandb Tracking
-
-Training metrics are logged to wandb:
-- Control with `$WANDB_MODE` environment variable
-- Set to `disabled` for no logging (default in env.sh)
-- Set to `online` to enable tracking
-
 
 # Notes
 
 * While using `--mode stp --argmax` and `--mode mtp --speculative --argmax` with models of the same model family should generate the same output, quantised models may diverge between stp and mtp mode.
 One reason for this is that the transformer activations for the same input can be different if evaluated in a single forward pass, versus multiple forward passes one token at a time.
 This is especially true for quantised (bfloat16) models, see [this script for details](scripts/checks/check_multiple_vs_single.py).
+
+The code is extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt).
 
 # Citation
 

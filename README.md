@@ -1,9 +1,9 @@
 # [Fast and Expressive Multi-Byte Prediction with Probabilistic Circuits](https://arxiv.org/abs/2511.11346)
 
-MTPC (Multi-Token Prediction with Circuits) is a framework for training [probabilistic circuit](https://github.com/april-tools/cirkit)-based MTP heads on top of frozen byte-level LLMs (EvaByte, Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model.
+MTPC (Multi-Token Prediction with Circuits) is a framework for training [probabilistic circuit](https://github.com/april-tools/cirkit)-based MTP heads on top of frozen byte-level LLMs, such as [EvaByte](https://huggingface.co/EvaByte/EvaByte-SFT) and [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model.
 
 - **MTPC (Multi-Token Prediction with Circuits)** is a framework for training and using probabilistic circuit-based MTP heads on top of frozen byte-level LLMs (EvaByte, Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model. The code is extended from modded-nanogpt.
-- **Circuit architectures** include fully-factorised (ff), mixture models (cp), Hidden Markov Models (hmm), and binary tree (btree). These are parametrised by window size n and number of mixture components r. Pre-trained models for various configurations are available on HuggingFace (see [No-LoRA models](#no-lora-models) and [LoRA-continued models](#lora-models)).
+- **Circuit architectures** include fully-factorised (ff), mixture models (cp), Hidden Markov Models (hmm), and binary tree (btree). These are parametrised by window size n and number of mixture components r. Pre-trained models for various configurations are available on HuggingFace (see [No-LoRA models](#no-lora-models) and [LoRA models](#lora-models)).
 - **Text Generation supports three modes**: i) Single-token prediction (stp), multi-token prediction (mtp), and speculative decoding (mtp + `--speculative`), where the MTP heads draft candidates verified by the base model. Speculative decoding is either greedy decoding, if the flag `--argmax` is passed, or sampling otherwise.
 - **Training follows a distillation workflow**: We retrofit an NTP model into an MTP model by training on the same data. A small Shakespeare example is provided for quick sanity checks, and larger runs retrofit EvaByte/Llama on Tulu 3 data.
 
@@ -56,7 +56,7 @@ You may want to adapt/change:
 2. Whether to use wandb or not (currently `disabled`, change to `online` for logging)
 
 
-# Run Unit Tests
+## Run Unit Tests
 
 Running the tests can take up to one hour depending on the hardware.
 
@@ -143,13 +143,13 @@ Training metrics are logged to wandb:
 
 ## Pretrained Models
 
-We tabulate our pre-trained models in the tables below, where the headings are:
+We tabulate the models we trained for the paper in the tables below, where the headings are:
 
 - **PC** — the Probabilistic Circuit structure: `ff` = fully-factorised (cond. indep. assumption), `cp` = Mixture Model, `hmm` = Hidden Markov Model, `btree` = Binary Tree.
 - **n** — the number of tokens predicted simultaneously (the MTP window size).
-- **r** — the number of mixture coefficients.
+- **r** — the number of mixture components.
 - **LoRA layers** — (RQ3 table only) how many of the draft model's final transformer layers have LoRA adapters applied; 0 means no LoRA (the continued-training baseline).
-- **Llama / EvaByte** — links to the corresponding model on HuggingFace, which have an Byte-Level LLM backbone that is [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte) and [EvaByte-SFT](https://huggingface.co/EvaByte/EvaByte-SFT) respectively.
+- **Llama / EvaByte** — links to the trained model on HuggingFace. The retrofitted Byte-Level LLM is [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte) and [EvaByte-SFT](https://huggingface.co/EvaByte/EvaByte-SFT) respectively.
 
 
 ### <a id="no-lora-models"></a>No-LoRA Models (RQ1 & RQ2)
@@ -195,22 +195,24 @@ We tabulate our pre-trained models in the tables below, where the headings are:
 
 ## Download models
 
-The following script will download all models.
+The following script will download all above models.
 
 ```
 ./bin/download_models
 ```
 
+Once these have been downloaded, they can be used below to generate text.
+
 
 # Text Generation
 
-**`python -m mtp.generate`** — Generates text using the model specified for checkpoint.
+**`python -m mtp.generate`** — Generates text using the specified model checkpoint.
 
-- **`--mode mtp`** — Sets the generation mode to multi-token prediction, as opposed to standard autoregressive generation.
 - **`--checkpoint path-to-model@X.pt`** — Path to the model checkpoint at training step X.
+- **`--mode mtp`** — Sets the generation mode to multi-token prediction, as opposed to standard autoregressive generation (stp).
 - **`--prompt "Who was Albert Einstein?"`** — The input text to condition generation on.
 - **`--print`** — Prints the generated output to stdout rather than only saving it or returning metrics.
-- **`--argmax`** — Uses greedy decoding (argmax over logits at each step) instead of sampling, giving deterministic output. Combined with `--speculative`, this makes speculative decoding lossless.
+- **`--argmax`** — Uses greedy decoding (argmax over logits at each step) instead of sampling. Combined with `--speculative`, this guarantees lossless generation (in expectation for sampling, and exactly for argmax).
 - **`--num-tokens 1000`** — Generate up to 1000 tokens.
 - **`--device cuda`** — Run inference on GPU.
 - **`--task chat`** — Wraps the prompt in the chat template expected by EvaByte (e.g., special tokens for user/assistant turns).
@@ -221,8 +223,8 @@ For example:
 
 ```python
 python -m mtp.generate \
-    --mode mtp \
     --checkpoint outputs/models/evabyte-mtpc-no-lora/evabyte-no-lora-lr-3e-4-no-lora-ff-n-8-r-1/model@900.pt \
+    --mode mtp \
     --prompt "Who was Albert Einstein?" \
     --print \
     --argmax \

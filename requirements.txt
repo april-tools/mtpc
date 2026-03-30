@@ -18,3 +18,4 @@ seaborn
 tueplots
 wandb
 more_itertools
+py-cpuinfo

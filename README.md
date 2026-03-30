@@ -16,10 +16,10 @@ git clone GITHUB_URL && cd mtpc
 ```
 
 ### Prepare package installation
-For flash-attn build to work, set the `CUDA_HOME` env variable to point to your CUDA path, e.g.:
+For flash-attn build to work, set the `CUDA_HOME` env variable to point to your CUDA path
 
 ```
-export CUDA_HOME=/opt/cuda-12.6.0
+export CUDA_HOME=$(dirname $(dirname $(readlink -f $(which nvcc))))
 ```
 
 ### Environment installation using uv

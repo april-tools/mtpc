@@ -27,7 +27,7 @@ export CUDA_HOME=$(dirname $(dirname $(readlink -f $(which nvcc))))
 uv venv --python 3.10
 source .venv/bin/activate
 uv pip install --upgrade pip setuptools wheel psutil
-uv pip install flash-attn==2.5.8 --no-build-isolation
+uv pip install flash-attn==2.8.3 --no-build-isolation
 uv pip install -r requirements.txt
 ```
 
@@ -37,7 +37,7 @@ python3.10 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip setuptools wheel psutil
 pip install -r requirements.txt
-pip install flash-attn==2.5.8 --no-build-isolation
+pip install flash-attn==2.8.3 --no-build-isolation
 ```
 
 ## Environment Variables

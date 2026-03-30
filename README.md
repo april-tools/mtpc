@@ -298,7 +298,7 @@ torchrun --standalone \
 	data=shakespeare_char \
 	training=shakespeare_char \
 	model=mtp \
-	model.beta=1 \ 
+	model.beta=1 \
 	model.gamma=.9 \
 	model.kl_algorithm=full \
 	circuit=cp \

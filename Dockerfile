@@ -21,7 +21,7 @@ COPY requirements.txt ./requirements.txt
 
 RUN python3.10 -m pip install --upgrade pip setuptools wheel psutil && \
     python3.10 -m pip install -r requirements.txt && \
-    python3.10 -m pip install flash-attn==2.5.8 --no-build-isolation
+    python3.10 -m pip install flash-attn==2.8.3 --no-build-isolation
 
 COPY . .
 

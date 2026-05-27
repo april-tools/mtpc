@@ -1,16 +1,15 @@
+import argparse
 import pandas as pd
 
+# Code translated from a matplotlib plot using Claude and adjusted
 
-# --- Okabe-Ito colourblind-safe palette (Okabe & Ito 2008) -------------
-# https://jfly.uni-koeln.de/color/  -- recommended by Nature Methods.
-# Yellow (#F0E442) is deliberately omitted: too light for a filled mark.
-OKABE_ITO = [
-    ("oiBlue",       "0,114,178"),    # #0072B2
-    ("oiVermillion", "213,94,0"),     # #D55E00
-    ("oiBluegreen",  "0,158,115"),    # #009E73
-    ("oiRedpurple",  "204,121,167"),  # #CC79A7
-    ("oiSkyblue",    "86,180,233"),   # #56B4E9
-    ("oiOrange",     "230,159,0"),    # #E69F00
+PALETTE = [
+    ("tabBlue",   "31,119,180"),    # #1f77b4
+    ("tabOrange", "255,127,14"),    # #ff7f0e
+    ("tabGreen",  "44,160,44"),     # #2ca02c
+    ("tabRed",    "214,39,40"),     # #d62728
+    ("tabPurple", "148,103,189"),   # #9467bd
+    ("tabBrown",  "140,86,75"),     # #8c564b
 ]
 
 
@@ -52,19 +51,46 @@ def generate_tikz(csv_path='mtpc2.csv', font='times'):
     # iso-line value labels have an empty left margin to sit in without
     # shadowing any data points. xticks are pinned to the round 5.0,
     # 5.5, ... positions so the extended range adds no stray 4.8 tick.
-    xmin, xmax = 4.8, 7.7
-    ymin, ymax = 0.027, 0.044
-    xticks = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5]
+    if csv_path == 'mtpc2.csv':
+        xmin, xmax = 4.8, 7.7
+        ymin, ymax = 0.027, 0.044
+        xticks = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5]
 
-    # ---- Iso-throughput constants -------------------------------------
-    # Spaced by 5 and including 175 so the FF cluster (throughput ~175)
-    # sits on a labelled line.
-    cs = list(range(155, 206, 5))
+        # ---- Iso-throughput constants -------------------------------------
+        # Spaced by 5 and including 175 so the FF cluster (throughput ~175)
+        # sits on a labelled line.
+        cs = list(range(155, 206, 5))
+    elif csv_path == "mtpc3-llama-argmax-nolora.csv":
+        xmin, xmax = 2.5, 4.5
+        ymin, ymax = 0.02, 0.044
+        xticks = [2.5, 3.0, 3.5, 4.0, 4.5]
+
+        cs = list(range(105, 150, 5))
+    elif csv_path == "mtpc3-llama-sampling-nolora.csv":
+        xmin, xmax = 1.5, 2.5
+        ymin, ymax = 0.02, 0.044
+        xticks = [1.5, 2.0, 2.5]
+
+        cs = list(range(55, 80, 5))
+    elif csv_path == "mtpc3-evabyte-sampling-nolora.csv":
+        xmin, xmax = 5., 7.5
+        ymin, ymax = 0.025, 0.044
+        xticks = [5., 5.5, 6., 6.5, 7., 7.5]
+
+        cs = list(range(160, 205, 5))
+    elif csv_path == "mtpc3-evabyte-argmax-nolora.csv":
+        xmin, xmax = 6.5, 9.0
+        ymin, ymax = 0.025, 0.045
+        xticks = [6.5, 7., 7.5, 8., 8.5, 9.]
+
+        cs = list(range(205, 270, 10))
+    else:
+        raise ValueError(f"Unknown input file {csv_path} - check if range needs adapting")
 
     # ---- Encodings ----------------------------------------------------
     models = sorted(df["Model"].unique())
     lora_vals = sorted(int(v) for v in df["lora_layers"].unique())
-    model_colour = {m: OKABE_ITO[i % len(OKABE_ITO)][0]
+    model_colour = {m: PALETTE[i % len(PALETTE)][0]
                     for i, m in enumerate(models)}
 
     # ---- Marker geometry ----------------------------------------------
@@ -101,9 +127,8 @@ def generate_tikz(csv_path='mtpc2.csv', font='times'):
         A(r"\usepackage{times}")
     A(r"\pgfplotsset{compat=1.18}")
 
-    # --- Named colours (Okabe-Ito) -------------------------------------
-    A(r"% --- Okabe-Ito colourblind-safe palette -----------------------")
-    for name, rgb in OKABE_ITO:
+    # --- Named colours  -------------------------------------
+    for name, rgb in PALETTE:
         A(f"\\definecolor{{{name}}}{{RGB}}{{{rgb}}}")
     # neutral grey core for the worked-example legend marker
     A(r"\definecolor{egcore}{RGB}{240,240,240}")
@@ -119,7 +144,7 @@ def generate_tikz(csv_path='mtpc2.csv', font='times'):
 
     # Legend swatches are drawn at a reduced scale so the legend box stays
     # compact; data markers use scale 1.0.
-    LEG_SCALE = 0.62
+    LEG_SCALE = 0.72
     leg_mark_size = R * LEG_SCALE   # mark size for legend swatches
 
     def emit_mark_body(k, core_colour, inset_text=None, scale=1.0,
@@ -380,4 +405,12 @@ def generate_tikz(csv_path='mtpc2.csv', font='times'):
 
 
 if __name__ == "__main__":
-    generate_tikz("mtpc2.csv")
+    parser = argparse.ArgumentParser(
+        description="Generate TikZ/pgfplots code for the MTPC scatter plot."
+    )
+    parser.add_argument(
+        "--csv", default="mtpc2.csv",
+        help="Path to the input CSV file (default: mtpc2.csv).",
+    )
+    args = parser.parse_args()
+    generate_tikz(args.csv)

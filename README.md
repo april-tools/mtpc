@@ -198,6 +198,8 @@ We tabulate the models we trained for the paper in the tables below, where the h
 The following script will download all above models.
 
 ```
+# Note: if HF_TOKEN is set you may get an access error, to be sure, run
+unset HF_TOKEN
 ./bin/download_models
 ```
 

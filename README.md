@@ -432,13 +432,11 @@ The code above has been extended from [KellerJordan/modded-nanogpt](https://gith
 
 Please cite our paper as:
 ```
-@misc{grivas2025fastexpressivemultitokenprediction,
-      title={Fast and Expressive Multi-Token Prediction with Probabilistic Circuits}, 
-      author={Andreas Grivas and Lorenzo Loconte and Emile van Krieken and Piotr Nawrot and Yu Zhao and Euan Wielewski and Pasquale Minervini and Edoardo Ponti and Antonio Vergari},
-      year={2025},
-      eprint={2511.11346},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2511.11346}, 
+@inproceedings{grivas2026fast,
+title={Fast and Expressive Multi-Byte Prediction with Probabilistic Circuits},
+author={Andreas Grivas and Lorenzo Loconte and Emile van Krieken and Piotr Nawrot and Yu Zhao and Euan Wielewski and Pasquale Minervini and Edoardo Ponti and Antonio Vergari},
+booktitle={Forty-third International Conference on Machine Learning},
+year={2026},
+url={https://openreview.net/forum?id=6kCEyw9god}
 }
 ```

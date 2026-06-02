@@ -317,7 +317,7 @@ def generate_tikz(csv_path='mtpc2.csv', font='times'):
     # steep (high-c) iso-lines, i.e. downward on this plot -- hence the
     # downward arrow. Shifted right so it sits over the value labels.
     A(r"  \node[anchor=south east, font=\large, xshift=20pt] "
-      r"at (rel axis cs:1,1) {\Large Throughput (tok/s) $\downarrow$};")
+      r"at (rel axis cs:1,1) {\large Throughput (tok/s) $\downarrow$};")
 
     # --- Scatter points: ring markers ----------------------------------
     for (model, lora), g in df.groupby(["Model", "lora_layers"]):

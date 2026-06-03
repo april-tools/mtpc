@@ -441,7 +441,7 @@ This is especially true for quantised (bfloat16) models, see [this script for de
 # Acknowledgements
 
 The code above has been extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt), which is still used when training the nanogpt models on Shakespeare.
-We thank @steven0129 for improvements to the instructions/README.
+We thank [Steven Gao](https://github.com/steven0129) for improvements to the instructions/README.
 
 # Citation
 

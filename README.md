@@ -3,17 +3,17 @@
 **MTPC (Multi-Token Prediction with Circuits)** is a framework for training [probabilistic circuit](https://github.com/april-tools/cirkit)-based MTP heads on top of frozen byte-level LLMs, such as [EvaByte](https://huggingface.co/EvaByte/EvaByte-SFT) and [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model.
 
 <p align="center">
-  <img src="assets/circuits.png" alt="Supported PC architectures in MTPC." width="80%">
+  <img src="assets/circuits.png" alt="Supported PC architectures in MTPC." width="95%">
 </p>
 
 - **Circuit architectures** include fully-factorised (ff), mixture models (cp), Hidden Markov Models (hmm), and binary tree (btree). These are parametrised by window size n and number of mixture components r. Pre-trained models for various configurations are available on HuggingFace (see [No-LoRA models](#no-lora-models) and [LoRA models](#lora-models)).
 - **Text Generation supports three modes**: i) Single-token prediction (stp), multi-token prediction (mtp), and speculative decoding (mtp + `--speculative`), where the MTP heads draft candidates verified by the base model. Speculative decoding is either greedy decoding, if the flag `--argmax` is passed, or sampling otherwise.
 - **Training follows a distillation workflow**: We retrofit an STP model into an MTP model by training on the same data. A small Shakespeare example is provided for quick sanity checks, and larger runs retrofit EvaByte/Llama on Tulu 3 data.
 
-** MTPC allows us to navigate the latency/expressiveness trade-off by choosing the circuit, the MTP window size, the number of mixture components and the number of LoRA adaptor layers.**
+**MTPC allows us to navigate the latency/expressiveness trade-off by choosing the circuit, the MTP window size, the number of mixture components and the number of LoRA adaptor layers.**
 
 <p align="center">
-  <img src="assets/mtpc.png" alt="MTPC models plotted on a graph with Latency on the y-axis and Accepted Tokens on the x-axis. MTPC allows us to navigate the Latency/Expressiveness trade-off." width="60%">
+  <img src="assets/mtpc.png" alt="MTPC models plotted on a graph with Latency on the y-axis and Accepted Tokens on the x-axis. MTPC allows us to navigate the Latency/Expressiveness trade-off." width="65%">
 </p>
 
 # Setup:

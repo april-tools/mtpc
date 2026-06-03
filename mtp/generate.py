@@ -254,7 +254,7 @@ def generate(
                     break
 
     # We may have overshot num tokens - clean up the last entry and stats
-    if torch.any(tokens == tokeniser.eos_token_id):
+    if tokeniser is not None and torch.any(tokens == tokeniser.eos_token_id):
         eos_idx = torch.where(tokens == tokeniser.eos_token_id)[1][0]
         tokens = tokens[..., : eos_idx + 1]
     else:

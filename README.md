@@ -1,8 +1,7 @@
 # [Fast and Expressive Multi-Byte Prediction with Probabilistic Circuits](https://arxiv.org/abs/2511.11346)
 
-MTPC (Multi-Token Prediction with Circuits) is a framework for training [probabilistic circuit](https://github.com/april-tools/cirkit)-based MTP heads on top of frozen byte-level LLMs, such as [EvaByte](https://huggingface.co/EvaByte/EvaByte-SFT) and [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model.
+**MTPC (Multi-Token Prediction with Circuits)** is a framework for training [probabilistic circuit](https://github.com/april-tools/cirkit)-based MTP heads on top of frozen byte-level LLMs, such as [EvaByte](https://huggingface.co/EvaByte/EvaByte-SFT) and [Llama3-2-3B-IT-Byte](https://huggingface.co/benjamin/Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model.
 
-- **MTPC (Multi-Token Prediction with Circuits)** is a framework for training and using probabilistic circuit-based MTP heads on top of frozen byte-level LLMs (EvaByte, Llama3-2-3B-IT-Byte), enabling speculative decoding without a separate draft model. The code is extended from modded-nanogpt.
 - **Circuit architectures** include fully-factorised (ff), mixture models (cp), Hidden Markov Models (hmm), and binary tree (btree). These are parametrised by window size n and number of mixture components r. Pre-trained models for various configurations are available on HuggingFace (see [No-LoRA models](#no-lora-models) and [LoRA models](#lora-models)).
 - **Text Generation supports three modes**: i) Single-token prediction (stp), multi-token prediction (mtp), and speculative decoding (mtp + `--speculative`), where the MTP heads draft candidates verified by the base model. Speculative decoding is either greedy decoding, if the flag `--argmax` is passed, or sampling otherwise.
 - **Training follows a distillation workflow**: We retrofit an NTP model into an MTP model by training on the same data. A small Shakespeare example is provided for quick sanity checks, and larger runs retrofit EvaByte/Llama on Tulu 3 data.
@@ -290,7 +289,7 @@ Running the above should give:
 ```
 
 ### Distil NTP to MTP
-Now, to distil the above NTP model into a MTP model, change `lm.model.from_checkpoint` below to point to your generated .pt checkpoint, and run:
+Now, to distil the above NTP model into a MTP model, **change** `lm.model.from_checkpoint` below to point to your generated .pt checkpoint, and run:
 
 ```bash
 # Train the mtp model on shakespeare_char (see mtp/config/model/mtp.yaml)
@@ -300,7 +299,7 @@ torchrun --standalone \
 	data=shakespeare_char \
 	training=shakespeare_char \
 	model=mtp \
-	model.beta=1 \ 
+	model.beta=1 \
 	model.gamma=.9 \
 	model.kl_algorithm=full \
 	circuit=cp \
@@ -362,9 +361,12 @@ You can also specify a prompt by using the `--prompt` parameter:
 ```bash
 python -m mtp.generate --device cuda --checkpoint /path/to/stp/model@xxx.pt --mode stp --prompt ANTO --print
 python -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pt --mode mtp --prompt ANTO --print
-python -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pt --mode mtp --speculative --prompt ANTO --print
 ```
 
+The `--mode mtp` run will generate nonsense, because mtp speeds up generation but reduces generation quality without speculative decoding.
+
+The `--speculative` flag is not supported for the nanoGPT model because we only implemented speculative decoding with a KV-cache - and the nanoGPT architecture does not expose keys, values and queries.
+For generation with speculative decoding, see the next section where we retrofit pre-trained LLM backbones.
 
 ## Large: Retrofitting EvaByte and Llama Byte
 

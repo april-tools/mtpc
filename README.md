@@ -93,6 +93,7 @@ The codebase is organized into three main model types:
 
 3. **Circuits** - `mtp/models/circuits.py`
    - Implements structured probabilistic models:
+     - `ff`: Fully Factorised model.
      - `cp`: CP (CANDECOMP/PARAFAC) decomposition - tensor factorization
      - `hmm`: Hidden Markov Model structure
      - `btree`: Binary tree factorization

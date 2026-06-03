@@ -440,8 +440,10 @@ This is especially true for quantised (bfloat16) models, see [this script for de
 
 # Acknowledgements
 
-The code above has been extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt), which is still used when training the nanogpt models on Shakespeare.
-We thank [Steven Gao](https://github.com/steven0129) for improvements to the instructions/README.
+* The code above has been extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt), which is still used when training the nanogpt models on Shakespeare.
+* Thank you to [Lin Zheng](https://github.com/LZhengisme), author of [EvaByte](https://github.com/OpenEvaByte/evabyte), for help with the EvaByte codebase and for answering all of our questions on EvaByte.
+* Thank you to [Benjamin Minixhofer](https://github.com/bminixhofer) for making their models available and for answering questions about the implementation.
+* Thank you to [Steven Gao](https://github.com/steven0129) for improvements to the instructions/README.
 
 # Citation
 

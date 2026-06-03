@@ -10,7 +10,7 @@
 - **Text Generation supports three modes**: i) Single-token prediction (stp), multi-token prediction (mtp), and speculative decoding (mtp + `--speculative`), where the MTP heads draft candidates verified by the base model. Speculative decoding is either greedy decoding, if the flag `--argmax` is passed, or sampling otherwise.
 - **Training follows a distillation workflow**: We retrofit an STP model into an MTP model by training on the same data. A small Shakespeare example is provided for quick sanity checks, and larger runs retrofit EvaByte/Llama on Tulu 3 data.
 
-**MTPC allows us to navigate the latency/expressiveness trade-off by choosing the circuit, the MTP window size, the number of mixture components and the number of LoRA adaptor layers.**
+**MTPC allows us to navigate the latency/expressiveness trade-off by choosing a) the circuit, b) the MTP window size, c) the number of mixture components and d) the number of LoRA adaptor layers on the draft model.**
 
 <p align="center">
   <img src="assets/mtpc.png" alt="MTPC models plotted on a graph with Latency on the y-axis and Accepted Tokens on the x-axis. MTPC allows us to navigate the Latency/Expressiveness trade-off." width="65%">
@@ -441,6 +441,7 @@ This is especially true for quantised (bfloat16) models, see [this script for de
 # Acknowledgements
 
 The code above has been extended from [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt), which is still used when training the nanogpt models on Shakespeare.
+We thank @steven0129 for improvements to the instructions/README.
 
 # Citation
 

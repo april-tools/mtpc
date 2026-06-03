@@ -377,7 +377,7 @@ python -m mtp.generate --device cuda --checkpoint /path/to/mtp/model@xxx.pt --mo
 The `--mode mtp` run will generate nonsense, because mtp speeds up generation but reduces generation quality without speculative decoding.
 
 The `--speculative` flag is not supported for the nanoGPT model because we only implemented speculative decoding with a KV-cache - and the nanoGPT architecture does not expose keys, values and queries.
-For generation with speculative decoding, see the next section where we retrofit pre-trained LLM backbones.
+For generation with speculative decoding, see the earlier section on the retrofitted pre-trained LLM backbones.
 
 ## Large: Retrofitting EvaByte and Llama Byte
 
